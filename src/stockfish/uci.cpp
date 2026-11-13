@@ -18,6 +18,8 @@
 
 #include "uci.h"
 
+#include "esp_fatal.h"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -698,7 +700,7 @@ void UCIEngine::terminate_on_critical_error(const std::string& message) {
     sync_cout << "info string CRITICAL ERROR: Command `" << currentCmd
               << "` failed. Reason: " << message << '\n'
               << sync_endl;
-    std::exit(1);
+    SF_FATAL_EXIT(1, message.c_str());
 }
 
 }  // namespace Stockfish

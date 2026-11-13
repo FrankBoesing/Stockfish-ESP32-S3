@@ -18,6 +18,8 @@
 
 #include "misc.h"
 
+#include "esp_fatal.h"
+
 #include <array>
 #include <atomic>
 #include <cassert>
@@ -115,7 +117,7 @@ class Logger {
             if (!l.file.is_open())
             {
                 std::cerr << "Unable to open debug log file " << fname << std::endl;
-                exit(EXIT_FAILURE);
+                SF_FATAL_EXIT(EXIT_FAILURE, "Unable to open requested debug log file");
             }
 
             std::cin.rdbuf(&l.in);

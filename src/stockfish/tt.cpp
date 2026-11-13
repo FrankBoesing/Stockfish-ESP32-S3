@@ -18,6 +18,8 @@
 
 #include "tt.h"
 
+#include "esp_fatal.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cstdlib>
@@ -193,7 +195,7 @@ void TranspositionTable::resize(usize mbSize, ThreadPool& threads) {
     if (!table)
     {
         std::cerr << "Failed to allocate " << mbSize << "MB for transposition table." << std::endl;
-        exit(EXIT_FAILURE);
+        SF_FATAL_EXIT(EXIT_FAILURE, "Transposition-table allocation failed");
     }
 
     clear(threads);

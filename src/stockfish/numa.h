@@ -37,6 +37,7 @@
 #include <vector>
 #include <cstring>
 
+#include "esp_fatal.h"
 #include "misc.h"
 #include "shm.h"
 
@@ -439,7 +440,7 @@ inline std::set<CpuIndex> get_process_affinity() {
 
     cpu_set_t* mask = CPU_ALLOC(MaxNumCpus);
     if (mask == nullptr)
-        std::exit(EXIT_FAILURE);
+        SF_FATAL_EXIT(EXIT_FAILURE, "CPU_ALLOC failed while reading process affinity");
 
     const usize masksize = CPU_ALLOC_SIZE(MaxNumCpus);
 
@@ -450,7 +451,7 @@ inline std::set<CpuIndex> get_process_affinity() {
     if (status != 0)
     {
         CPU_FREE(mask);
-        std::exit(EXIT_FAILURE);
+        SF_FATAL_EXIT(EXIT_FAILURE, "sched_getaffinity failed");
     }
 
     for (CpuIndex c = 0; c < MaxNumCpus; ++c)
@@ -835,13 +836,13 @@ class NumaConfig {
 
     NumaReplicatedAccessToken bind_current_thread_to_numa_node(NumaIndex n) const {
         if (n >= nodes.size() || nodes[n].empty())
-            std::exit(EXIT_FAILURE);
+            SF_FATAL_EXIT(EXIT_FAILURE, "Requested NUMA node is invalid or empty");
 
 #if defined(__linux__) && !defined(__ANDROID__)
 
         cpu_set_t* mask = CPU_ALLOC(highestCpuIndex + 1);
         if (mask == nullptr)
-            std::exit(EXIT_FAILURE);
+            SF_FATAL_EXIT(EXIT_FAILURE, "CPU_ALLOC failed while binding current thread");
 
         const usize masksize = CPU_ALLOC_SIZE(highestCpuIndex + 1);
 
@@ -855,7 +856,7 @@ class NumaConfig {
         CPU_FREE(mask);
 
         if (status != 0)
-            std::exit(EXIT_FAILURE);
+            SF_FATAL_EXIT(EXIT_FAILURE, "sched_setaffinity failed");
 
         // We yield this thread just to be sure it gets rescheduled.
         // This is defensive, allowed because this code is not performance critical.
@@ -895,7 +896,7 @@ class NumaConfig {
             const BOOL status =
               SetThreadSelectedCpuSetMasks_f(hThread, groupAffinities.get(), numProcGroups);
             if (status == 0)
-                std::exit(EXIT_FAILURE);
+                SF_FATAL_EXIT(EXIT_FAILURE, "SetThreadSelectedCpuSetMasks failed");
 
             // We yield this thread just to be sure it gets rescheduled.
             // This is defensive, allowed because this code is not performance critical.
@@ -943,7 +944,7 @@ class NumaConfig {
 
             const BOOL status = SetThreadGroupAffinity(hThread, &affinity, nullptr);
             if (status == 0)
-                std::exit(EXIT_FAILURE);
+                SF_FATAL_EXIT(EXIT_FAILURE, "SetThreadGroupAffinity failed");
 
             // We yield this thread just to be sure it gets rescheduled. This is
             // defensive, allowed because this code is not performance critical.
@@ -965,7 +966,7 @@ class NumaConfig {
         if (!th.joinable())
         {
             std::cerr << "Failed to execute function on NUMA node\n";
-            std::exit(EXIT_FAILURE);
+            SF_FATAL_EXIT(EXIT_FAILURE, "Failed to create NUMA helper thread");
         }
 
         th.join();
@@ -1164,7 +1165,7 @@ class NumaConfig {
 
 #else
 
-        abort();  // should not reach here
+        SF_FATAL_ABORT("Unreachable NUMA platform fallback");
 
 #endif
 
@@ -1656,7 +1657,7 @@ class NumaReplicationContext {
     ~NumaReplicationContext() {
         // The context must outlive replicated objects
         if (!trackedReplicatedObjects.empty())
-            std::exit(EXIT_FAILURE);
+            SF_FATAL_EXIT(EXIT_FAILURE, "NUMA replication context destroyed with tracked objects");
     }
 
     void attach(NumaReplicatedBase* obj) {

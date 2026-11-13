@@ -19,6 +19,7 @@
 #include "thread.h"
 
 #include "esp_trace.h"
+#include "esp_fatal.h"
 
 #include <algorithm>
 #include <cassert>
@@ -65,7 +66,7 @@ Thread::Thread(Search::SharedState&                    sharedState,
     if (!stdThread.joinable())
     {
         std::cerr << "Failed to create search thread\n";
-        std::exit(EXIT_FAILURE);
+        SF_FATAL_EXIT(EXIT_FAILURE, "Failed to create Stockfish search thread");
     }
 
     SF_ESP_TRACE("Thread: waiting for idle_loop startup");

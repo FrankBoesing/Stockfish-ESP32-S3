@@ -17,6 +17,7 @@
 */
 
 #include "benchmark.h"
+#include "esp_fatal.h"
 #include "engine.h"
 #include "numa.h"
 #include "misc.h"
@@ -420,7 +421,7 @@ std::vector<std::string> setup_bench(const std::string& currentFen, std::istream
         if (!file.is_open())
         {
             std::cerr << "Unable to open file " << fenFile << std::endl;
-            exit(EXIT_FAILURE);
+            SF_FATAL_EXIT(EXIT_FAILURE, "Unable to open benchmark FEN input file");
         }
 
         while (getline(file, fen))
