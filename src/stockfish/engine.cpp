@@ -260,17 +260,27 @@ void Engine::resize_threads() {
     SF_ESP_TRACE("Engine::resize_threads begin");
     threads.wait_for_search_finished();
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
     // Reserve the large, contiguous hash table before Search::Worker and
     // history allocations fragment PSRAM. TranspositionTable::resize()
     // initializes it directly when the thread pool is still empty.
     SF_ESP_TRACE("Engine::resize_threads before TT resize");
     set_tt_size(options["Hash"]);
     SF_ESP_TRACE("Engine::resize_threads after TT resize");
+#endif
 
     SF_ESP_TRACE("Engine::resize_threads before ThreadPool::set");
     threads.set(numaContext.get_numa_config(), {options, threads, tt, sharedHists, network},
                 updateContext);
     SF_ESP_TRACE("Engine::resize_threads after ThreadPool::set");
+
+#if !defined(ESP_PLATFORM) && !defined(ARDUINO_ARCH_ESP32)
+    // On desktop platforms keep the usual ordering: the thread pool is ready
+    // before the hash table is initialized.
+    SF_ESP_TRACE("Engine::resize_threads before TT resize");
+    set_tt_size(options["Hash"]);
+    SF_ESP_TRACE("Engine::resize_threads after TT resize");
+#endif
 
     threads.ensure_network_replicated();
     SF_ESP_TRACE("Engine::resize_threads complete");
