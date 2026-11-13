@@ -138,14 +138,14 @@ static void drawProbeDashboard() {
 
 static void initDisplayAndTouch() {
   pinMode(LCD_BL, OUTPUT);
-  digitalWrite(LCD_BL, HIGH);
+  digitalWrite(LCD_BL, 1); // Arduino HIGH; macro is undefined for Stockfish headers.
 
   tft.init();
   tft.setRotation(1);
   Serial.printf("[GUI] Display initialized: %d x %d\n", tft.width(), tft.height());
 
   pinMode(TOUCH_RST, OUTPUT);
-  digitalWrite(TOUCH_RST, HIGH);
+  digitalWrite(TOUCH_RST, 1); // Arduino HIGH; macro is undefined for Stockfish headers.
   Wire.begin(TOUCH_SDA, TOUCH_SCL, 400000);
   delay(50);
   Wire.beginTransmission(TOUCH_I2C_ADDR);
