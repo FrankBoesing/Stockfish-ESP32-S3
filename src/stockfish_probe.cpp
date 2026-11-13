@@ -17,6 +17,7 @@
 #include "stockfish/misc.h"
 #include "stockfish/nnue/network.h"
 #include "stockfish/nnue/nnue_accumulator.h"
+#include "stockfish/history.h"
 #include "stockfish/search.h"
 
 static void print_heap(const char* stage) {
@@ -62,6 +63,12 @@ void setup() {
                 (unsigned)sizeof(AccumulatorCaches));
   Serial.printf("sizeof(Search::Worker)    = %u bytes (align %u)\n",
                 (unsigned)sizeof(Worker), (unsigned)alignof(Worker));
+  Serial.printf("sizeof(ContinuationHistoryBlock) = %u bytes\n",
+                (unsigned)sizeof(Stockfish::ContinuationHistoryBlock));
+  Serial.printf("Pawn history entries      = %u\n",
+                (unsigned)Stockfish::PAWN_HISTORY_BASE_SIZE);
+  Serial.printf("Correction history entries= %u\n",
+                (unsigned)Stockfish::CORRHIST_BASE_SIZE);
   print_heap("After core initialization");
 
   Serial.println();
