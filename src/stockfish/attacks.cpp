@@ -20,6 +20,11 @@
 
 #include <array>
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    #include <cstdlib>
+    #include <esp_heap_caps.h>
+#endif
+
 #include "misc.h"
 
 namespace Stockfish::Attacks {
@@ -153,10 +158,39 @@ void init_magics(PieceType pt, Bitboard table[], Magic magics[][2]) {
     }
 }
 
-    #if !defined(USE_DUAL_HYPERBOLA_QUINT) && !defined(USE_HYPERBOLA_QUINT)
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+// The sliding-attack lookup tables are read frequently during move generation.
+// Keep their storage in external RAM so the ESP32-S3 internal DRAM remains
+// available for stacks, task data, and latency-sensitive state.
+static Bitboard* RookTable   = nullptr;
+static Bitboard* BishopTable = nullptr;
+
+static void allocate_attack_tables() {
+    if (RookTable && BishopTable)
+        return;
+
+    constexpr uint32_t psramCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    Bitboard* rook = static_cast<Bitboard*>(heap_caps_calloc(0x19000, sizeof(Bitboard), psramCaps));
+    Bitboard* bishop = static_cast<Bitboard*>(heap_caps_calloc(0x1480, sizeof(Bitboard), psramCaps));
+
+    if (!rook || !bishop)
+    {
+        if (rook)
+            heap_caps_free(rook);
+        if (bishop)
+            heap_caps_free(bishop);
+        std::abort();
+    }
+
+    RookTable   = rook;
+    BishopTable = bishop;
+}
+#else
+// Preserve the upstream allocation model on non-ESP32 targets.
 static std::array<Bitboard, 0x19000> RookTable;
 static std::array<Bitboard, 0x1480>  BishopTable;
-    #endif
+#endif
+
 }
 
 #endif
@@ -166,8 +200,14 @@ void init() {
 #ifdef USE_HYPERBOLA_QUINT
     init_magics(Magics);
 #elif !defined(USE_DUAL_HYPERBOLA_QUINT)
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    allocate_attack_tables();
+    init_magics(ROOK, RookTable, Magics);
+    init_magics(BISHOP, BishopTable, Magics);
+#else
     init_magics(ROOK, RookTable.data(), Magics);
     init_magics(BISHOP, BishopTable.data(), Magics);
+#endif
 #endif
 
     for (Square s1 = SQ_A1; s1 <= SQ_H8; ++s1)
