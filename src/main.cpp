@@ -83,6 +83,126 @@ static void memoryReport() {
   heap_caps_free(mem);
 }
 
+
+struct alignas(16) TTBenchEntry {
+  volatile uint32_t key;
+  volatile uint32_t value;
+  volatile uint32_t meta;
+  volatile uint32_t pad;
+};
+static_assert(sizeof(TTBenchEntry) == 16, "TT benchmark entries must be 16 bytes");
+static volatile uint32_t memoryBenchSink = 0;
+
+static inline uint32_t benchRandom(uint32_t &state) {
+  state ^= state << 13;
+  state ^= state >> 17;
+  state ^= state << 5;
+  return state;
+}
+
+static void runMemoryCase(const char *label, uint32_t caps, size_t bytes,
+                          uint32_t randomOps, uint32_t sequentialPasses) {
+  uint8_t *raw = (uint8_t *)heap_caps_malloc(bytes, caps);
+  if (!raw) {
+    Serial.printf("MEMBENCH %s: allocation FAILED (%u bytes)\\n",
+                  label, (unsigned)bytes);
+    return;
+  }
+
+  // Sequential 32-bit write/read bandwidth. Volatile accesses prevent the
+  // compiler from eliminating the memory traffic.
+  volatile uint32_t *words = (volatile uint32_t *)raw;
+  const size_t wordCount = bytes / sizeof(uint32_t);
+  uint64_t t0 = esp_timer_get_time();
+  for (uint32_t pass = 0; pass < sequentialPasses; ++pass) {
+    uint32_t seed = 0x9E3779B9u * (pass + 1);
+    for (size_t i = 0; i < wordCount; ++i)
+      words[i] = seed ^ (uint32_t)i;
+  }
+  uint64_t writeUs = esp_timer_get_time() - t0;
+
+  uint32_t sum = 0;
+  t0 = esp_timer_get_time();
+  for (uint32_t pass = 0; pass < sequentialPasses; ++pass) {
+    for (size_t i = 0; i < wordCount; ++i)
+      sum += words[i];
+  }
+  uint64_t readUs = esp_timer_get_time() - t0;
+  memoryBenchSink ^= sum;
+
+  const double totalMiB = ((double)bytes * sequentialPasses) / 1048576.0;
+  const double writeMiBs = writeUs ? totalMiB * 1000000.0 / writeUs : 0.0;
+  const double readMiBs = readUs ? totalMiB * 1000000.0 / readUs : 0.0;
+
+  // Randomized 16-byte entry accesses, modeling the size of a compact
+  // transposition-table slot. This is a synthetic access test, not Stockfish.
+  volatile TTBenchEntry *entries = (volatile TTBenchEntry *)raw;
+  const uint32_t entryCount = (uint32_t)(bytes / sizeof(TTBenchEntry));
+  const uint32_t indexMask = entryCount - 1;
+  for (uint32_t i = 0; i < entryCount; ++i) {
+    entries[i].key = 0xA5A50000u ^ i;
+    entries[i].value = i * 17u;
+    entries[i].meta = i ^ 0x5A5A5A5Au;
+    entries[i].pad = 0;
+  }
+
+  uint32_t rng = 0xC001D00Du;
+  uint32_t sink = 0;
+  t0 = esp_timer_get_time();
+  for (uint32_t i = 0; i < randomOps; ++i) {
+    const uint32_t index = benchRandom(rng) & indexMask;
+    const volatile TTBenchEntry &e = entries[index];
+    const uint32_t key = e.key;
+    const uint32_t value = e.value;
+    const uint32_t meta = e.meta;
+    sink ^= key + value + meta;
+  }
+  uint64_t probeUs = esp_timer_get_time() - t0;
+
+  rng = 0x51A7E123u;
+  t0 = esp_timer_get_time();
+  for (uint32_t i = 0; i < randomOps; ++i) {
+    const uint32_t index = benchRandom(rng) & indexMask;
+    volatile TTBenchEntry &e = entries[index];
+    e.key = rng;
+    e.value = i ^ rng;
+    e.meta = (rng >> 7) ^ i;
+  }
+  uint64_t storeUs = esp_timer_get_time() - t0;
+  memoryBenchSink ^= sink ^ entries[benchRandom(rng) & indexMask].key;
+
+  const double probeNs = randomOps ? (double)probeUs * 1000.0 / randomOps : 0.0;
+  const double storeNs = randomOps ? (double)storeUs * 1000.0 / randomOps : 0.0;
+  const double probeMops = probeUs ? (double)randomOps / probeUs : 0.0;
+  const double storeMops = storeUs ? (double)randomOps / storeUs : 0.0;
+
+  Serial.printf("MEMBENCH %-14s size=%u bytes entries=%u\\n",
+                label, (unsigned)bytes, (unsigned)entryCount);
+  Serial.printf("  sequential: write=%7.2f MiB/s read=%7.2f MiB/s passes=%u\\n",
+                writeMiBs, readMiBs, (unsigned)sequentialPasses);
+  Serial.printf("  random probe: %7.1f ns/op (%6.3f Mops/s)\\n",
+                probeNs, probeMops);
+  Serial.printf("  random store: %7.1f ns/op (%6.3f Mops/s)\\n",
+                storeNs, storeMops);
+  heap_caps_free(raw);
+}
+
+static void memoryAccessBenchmark() {
+  Serial.println("\\n=== MEMORY ACCESS BENCHMARK (single core, synthetic 16-byte entries) ===");
+  Serial.println("Not Stockfish NPS; no other benchmark task runs concurrently.");
+  const uint32_t ops = 300000;
+  // Equal 128 KiB working sets give a direct SRAM-vs-PSRAM comparison.
+  runMemoryCase("internal_128K", MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT,
+                128 * 1024, ops, 16);
+  runMemoryCase("psram_128K", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                128 * 1024, ops, 16);
+  // Larger PSRAM working set shows the effect of a table that exceeds
+  // the internal SRAM budget and is less cache-friendly.
+  runMemoryCase("psram_1M", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
+                1024 * 1024, ops, 4);
+  Serial.printf("MEMBENCH sink=%08" PRIx32 "\\n", (uint32_t)memoryBenchSink);
+}
+
 static volatile bool cpuGo = false;
 static volatile uint32_t cpuIterations[2] = {0,0};
 static volatile bool cpuDone[2] = {false,false};
@@ -162,7 +282,7 @@ void setup() {
   Wire.beginTransmission(TOUCH_I2C_ADDR);
   bool touchPresent=(Wire.endTransmission()==0);
   Serial.printf("FT6336U I2C @0x38: %s\n",touchPresent?"ACK":"NOT FOUND");
-  hardwareReport(); memoryReport(); displayBenchmark(); cpuReport();
+  hardwareReport(); memoryReport(); memoryAccessBenchmark(); displayBenchmark(); cpuReport();
   Serial.println("\n=== READY: touch panel; copy complete serial log ===");
   drawDashboard();
 }
