@@ -34,6 +34,7 @@
     #include "esp_trace.h"
     #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
         #include <esp_heap_caps.h>
+        #include <esp_pthread.h>
     #endif
 #endif
 
@@ -90,9 +91,10 @@ class NativeThread {
     bool      running_ = false;
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-    // Startup/worker construction baseline only. Deep search stack usage must
-    // be measured separately before enabling production searches.
-    static constexpr usize TH_STACK_SIZE = 32 * 1024;
+    // Stockfish search is recursive and 32 KiB is insufficient beyond shallow
+    // test positions. Keep the search stack in PSRAM so it does not consume the
+    // scarce contiguous internal DRAM needed by the display/DMA and RTOS.
+    static constexpr usize TH_STACK_SIZE = 128 * 1024;
 #else
     static constexpr usize TH_STACK_SIZE = 8 * 1024 * 1024;
 #endif
@@ -122,14 +124,51 @@ class NativeThread {
         };
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        SF_ESP_TRACE("pthread_create begin; internal free=%u largest=%u",
+        // ESP-IDF 5.5 pthreads expose stack_alloc_caps through esp_pthread.
+        // pthread_attr_setstacksize() above sets the size; this config selects
+        // PSRAM for the actual task stack. Restore the caller's config directly
+        // after pthread_create(), since the setting is task-local.
+        esp_pthread_cfg_t previousCfg = esp_pthread_get_default_config();
+        const esp_err_t getCfgRc = esp_pthread_get_cfg(&previousCfg);
+        const bool hadPreviousCfg = (getCfgRc == ESP_OK);
+        if (!hadPreviousCfg)
+            previousCfg = esp_pthread_get_default_config();
+
+        esp_pthread_cfg_t workerCfg = previousCfg;
+        workerCfg.stack_alloc_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+        workerCfg.inherit_cfg = false;
+        const esp_err_t setCfgRc = esp_pthread_set_cfg(&workerCfg);
+
+        SF_ESP_TRACE("pthread stack config: size=%u caps=PSRAM|8BIT get_rc=%d set_rc=%d",
+                     (unsigned)TH_STACK_SIZE, (int)getCfgRc, (int)setCfgRc);
+        SF_ESP_TRACE("pthread_create begin; internal free=%u largest=%u; PSRAM free=%u largest=%u",
                      (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-#endif
+                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+
+        const int rc = (attrInitRc == 0 && stackSizeRc == 0 && setCfgRc == ESP_OK)
+                         ? pthread_create(&thread, attr, start_routine, func)
+                         : EINVAL;
+
+        // Do not leave the caller task configured to create future pthreads
+        // with a PSRAM stack.
+        esp_pthread_cfg_t restoreCfg = hadPreviousCfg
+                                         ? previousCfg
+                                         : esp_pthread_get_default_config();
+        const esp_err_t restoreRc = esp_pthread_set_cfg(&restoreCfg);
+        SF_ESP_TRACE("pthread_create rc=%d restore_cfg_rc=%d", rc, (int)restoreRc);
+#else
         const int rc = pthread_create(&thread, attr, start_routine, func);
-        pthread_attr_destroy(attr);
+#endif
+        if (attrInitRc == 0)
+            pthread_attr_destroy(attr);
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        SF_ESP_TRACE("pthread_create rc=%d", rc);
+        SF_ESP_TRACE("pthread after create: internal free=%u largest=%u; PSRAM free=%u largest=%u",
+                     (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
+                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
 #endif
 
         if (rc != 0)
