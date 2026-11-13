@@ -696,11 +696,17 @@ void Search::Worker::clear() {
     sharedHistory.pawnHistory.clear_range(-1338, numaThreadIdx, numaTotal);
 
     if (numaThreadIdx == 0)
+    {
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+        continuationHistory.clear(-586);
+#else
         for (bool inCheck : {false, true})
             for (StatsType c : {NoCaptures, Captures})
                 for (auto& to : continuationHistory[inCheck][c])
                     for (auto& h : to)
                         h.fill(-586);
+#endif
+    }
 
     ttMoveHistory = 0;
 
