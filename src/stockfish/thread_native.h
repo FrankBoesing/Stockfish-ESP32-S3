@@ -31,8 +31,8 @@
     #include <utility>
 
     #include "misc.h"
+    #include "esp_trace.h"
     #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        #include <Arduino.h>
         #include <esp_heap_caps.h>
     #endif
 #endif
@@ -101,17 +101,15 @@ class NativeThread {
         pthread_attr_t attr_storage, *attr = &attr_storage;
         const int attrInitRc = pthread_attr_init(attr);
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        Serial.printf("[SFTRACE] pthread_attr_init rc=%d\n", attrInitRc);
-        Serial.flush();
+        SF_ESP_TRACE("pthread_attr_init rc=%d", attrInitRc);
 #endif
         int stackSizeRc = 0;
         if (options.largeStack)
         {
             stackSizeRc = pthread_attr_setstacksize(attr, TH_STACK_SIZE);
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-            Serial.printf("[SFTRACE] pthread_attr_setstacksize(%u) rc=%d\n",
-                          (unsigned) TH_STACK_SIZE, stackSizeRc);
-            Serial.flush();
+            SF_ESP_TRACE("pthread_attr_setstacksize(%u) rc=%d",
+                         (unsigned) TH_STACK_SIZE, stackSizeRc);
 #endif
         }
 
@@ -124,16 +122,14 @@ class NativeThread {
         };
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        Serial.printf("[SFTRACE] pthread_create begin; internal free=%u largest=%u\n",
-                      (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                      (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
-        Serial.flush();
+        SF_ESP_TRACE("pthread_create begin; internal free=%u largest=%u",
+                     (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 #endif
         const int rc = pthread_create(&thread, attr, start_routine, func);
         pthread_attr_destroy(attr);
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        Serial.printf("[SFTRACE] pthread_create rc=%d\n", rc);
-        Serial.flush();
+        SF_ESP_TRACE("pthread_create rc=%d", rc);
 #endif
 
         if (rc != 0)
