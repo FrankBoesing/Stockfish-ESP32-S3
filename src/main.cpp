@@ -31,6 +31,10 @@ public:
     p.dlen_16bit = false; p.bus_shared = true;
     _panel.config(p); setPanel(&_panel);
   }
+
+  // LovyanGFX Bus_SPI supports changing the write clock without rebuilding
+  // the panel object. The new setting takes effect on the next SPI transfer.
+  void setWriteClock(uint32_t hz) { _bus.setClock(hz); }
 };
 BoardDisplay tft;
 
@@ -85,10 +89,10 @@ static void memoryReport() {
 
 
 struct TTBenchEntry {
-  volatile uint32_t key;
-  volatile uint32_t value;
-  volatile uint32_t meta;
-  volatile uint32_t pad;
+  uint32_t key;
+  uint32_t value;
+  uint32_t meta;
+  uint32_t pad;
 };
 static_assert(sizeof(TTBenchEntry) == 16, "TT benchmark entries must be 16 bytes");
 static volatile uint32_t memoryBenchSink = 0;
@@ -187,6 +191,153 @@ static void runMemoryCase(const char *label, uint32_t caps, size_t bytes,
   heap_caps_free(raw);
 }
 
+
+struct alignas(64) SharedMemoryWorker {
+  TTBenchEntry *entries;
+  uint32_t entryCount;
+  uint32_t operations;
+  uint32_t seed;
+  uint32_t doStore;
+  uint32_t done;
+  uint32_t checksum;
+  uint64_t elapsedUs;
+  uint32_t core;
+};
+static uint32_t sharedMemoryBenchStart = 0;
+
+static void sharedMemoryWorker(void *arg) {
+  SharedMemoryWorker *w = (SharedMemoryWorker *)arg;
+  while (!__atomic_load_n(&sharedMemoryBenchStart, __ATOMIC_ACQUIRE))
+    taskYIELD();
+
+  uint32_t rng = w->seed;
+  uint32_t checksum = 0;
+  const uint64_t startUs = esp_timer_get_time();
+
+  for (uint32_t i = 0; i < w->operations; ++i) {
+    const uint32_t r = benchRandom(rng);
+    // Multiply-high maps the 32-bit PRNG output across arbitrary entry counts
+    // (7 MiB is not a power-of-two number of 16-byte entries).
+    const uint32_t index = (uint32_t)(((uint64_t)r * w->entryCount) >> 32);
+    TTBenchEntry *e = &w->entries[index];
+
+    if (w->doStore) {
+      // Relaxed 32-bit atomics avoid C++ data races when both cores happen
+      // to select the same slot. They do not provide a Stockfish TT protocol.
+      __atomic_store_n(&e->key, r, __ATOMIC_RELAXED);
+      __atomic_store_n(&e->value, i ^ r, __ATOMIC_RELAXED);
+      __atomic_store_n(&e->meta, (r >> 7) ^ i, __ATOMIC_RELAXED);
+    } else {
+      checksum ^= __atomic_load_n(&e->key, __ATOMIC_RELAXED);
+      checksum += __atomic_load_n(&e->value, __ATOMIC_RELAXED);
+      checksum ^= __atomic_load_n(&e->meta, __ATOMIC_RELAXED);
+    }
+  }
+
+  w->elapsedUs = esp_timer_get_time() - startUs;
+  w->checksum = checksum ^ rng;
+  __atomic_store_n(&w->done, 1, __ATOMIC_RELEASE);
+  vTaskDelete(nullptr);
+}
+
+static void runSharedMemoryMode(TTBenchEntry *entries, uint32_t entryCount,
+                                const char *sizeLabel, bool doStore,
+                                uint32_t workerCount) {
+  const uint32_t operations = 300000;
+  SharedMemoryWorker workers[2] = {};
+  TaskHandle_t handles[2] = {nullptr, nullptr};
+  uint32_t created = 0;
+  __atomic_store_n(&sharedMemoryBenchStart, 0, __ATOMIC_RELEASE);
+
+  for (uint32_t i = 0; i < workerCount; ++i) {
+    workers[i].entries = entries;
+    workers[i].entryCount = entryCount;
+    workers[i].operations = operations;
+    workers[i].seed = 0xC001D00Du ^ (0x9E3779B9u * (i + 1));
+    workers[i].doStore = doStore ? 1u : 0u;
+    workers[i].done = 0;
+    workers[i].checksum = 0;
+    workers[i].elapsedUs = 0;
+    // Single-core and dual-core runs both use core 1 as the first worker.
+    // The second worker is added on core 0 for the dual-core run.
+    workers[i].core = (workerCount == 1) ? 1u : (i == 0 ? 1u : 0u);
+    char taskName[16];
+    snprintf(taskName, sizeof(taskName), "mem_%u", (unsigned)i);
+    BaseType_t ok = xTaskCreatePinnedToCore(
+      sharedMemoryWorker, taskName, 4096, &workers[i], 3,
+      &handles[i], (BaseType_t)workers[i].core);
+    if (ok != pdPASS) break;
+    ++created;
+  }
+
+  if (created != workerCount) {
+    __atomic_store_n(&sharedMemoryBenchStart, 1, __ATOMIC_RELEASE);
+    for (uint32_t i = 0; i < created; ++i)
+      while (!__atomic_load_n(&workers[i].done, __ATOMIC_ACQUIRE)) taskYIELD();
+    Serial.printf("MEMSHARED %s %s cores=%u: task creation FAILED\\n",
+                  sizeLabel, doStore ? "store" : "probe",
+                  (unsigned)workerCount);
+    return;
+  }
+
+  const uint64_t wallStartUs = esp_timer_get_time();
+  __atomic_store_n(&sharedMemoryBenchStart, 1, __ATOMIC_RELEASE);
+  for (uint32_t i = 0; i < workerCount; ++i)
+    while (!__atomic_load_n(&workers[i].done, __ATOMIC_ACQUIRE)) taskYIELD();
+  const uint64_t wallUs = esp_timer_get_time() - wallStartUs;
+
+  const uint64_t totalOperations = (uint64_t)operations * workerCount;
+  const double aggregateMops = wallUs
+    ? (double)totalOperations / (double)wallUs : 0.0;
+
+  Serial.printf("MEMSHARED %-7s mode=%-5s cores=%u ops/core=%u wall=%" PRIu64
+                " us aggregate=%6.3f Mops/s",
+                sizeLabel, doStore ? "store" : "probe",
+                (unsigned)workerCount, (unsigned)operations,
+                wallUs, aggregateMops);
+  for (uint32_t i = 0; i < workerCount; ++i) {
+    const double nsPerOp = operations
+      ? (double)workers[i].elapsedUs * 1000.0 / operations : 0.0;
+    Serial.printf(" core%u=%6.1f ns/op",
+                  (unsigned)workers[i].core, nsPerOp);
+    memoryBenchSink ^= workers[i].checksum;
+  }
+  Serial.println();
+}
+
+static void runSharedPsramCase(const char *label, size_t bytes) {
+  TTBenchEntry *entries = (TTBenchEntry *)heap_caps_malloc(
+    bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!entries) {
+    Serial.printf("MEMSHARED %s: allocation FAILED (%u bytes), free PSRAM=%u\\n",
+                  label, (unsigned)bytes, (unsigned)ESP.getFreePsram());
+    return;
+  }
+
+  const uint32_t entryCount = (uint32_t)(bytes / sizeof(TTBenchEntry));
+  Serial.printf("\\nMEMSHARED TABLE %s bytes=%u entries=%u free_after_alloc=%u\\n",
+                label, (unsigned)bytes, (unsigned)entryCount,
+                (unsigned)ESP.getFreePsram());
+
+  // Initialize once before any worker starts. The two workers then operate
+  // on the same allocated table, with independent PRNG streams.
+  for (uint32_t i = 0; i < entryCount; ++i) {
+    entries[i].key = 0xA5A50000u ^ i;
+    entries[i].value = i * 17u;
+    entries[i].meta = i ^ 0x5A5A5A5Au;
+    entries[i].pad = 0;
+  }
+
+  runSharedMemoryMode(entries, entryCount, label, false, 1);
+  runSharedMemoryMode(entries, entryCount, label, false, 2);
+  runSharedMemoryMode(entries, entryCount, label, true, 1);
+  runSharedMemoryMode(entries, entryCount, label, true, 2);
+
+  heap_caps_free(entries);
+  Serial.printf("MEMSHARED TABLE %s released; free PSRAM=%u\\n",
+                label, (unsigned)ESP.getFreePsram());
+}
+
 static void memoryAccessBenchmark() {
   Serial.println("\n=== MEMORY ACCESS BENCHMARK (single core, synthetic 16-byte entries) ===");
   Serial.println("Not Stockfish NPS; no other benchmark task runs concurrently.");
@@ -201,6 +352,12 @@ static void memoryAccessBenchmark() {
   runMemoryCase("psram_1M", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
                 1024 * 1024, ops, 4);
   Serial.printf("MEMBENCH sink=%08" PRIx32 "\n", (uint32_t)memoryBenchSink);
+
+  Serial.println("\n=== LARGE SHARED PSRAM TABLE TEST (single/dual core) ===");
+  Serial.println("Shared table; independent PRNG streams; atomic 32-bit fields.");
+  runSharedPsramCase("4MiB", 4 * 1024 * 1024);
+  runSharedPsramCase("7MiB", 7 * 1024 * 1024);
+  Serial.printf("MEMSHARED sink=%08" PRIx32 "\n", (uint32_t)memoryBenchSink);
 }
 
 static volatile bool cpuGo = false;
@@ -241,14 +398,75 @@ static void hardwareReport() {
   Serial.printf("PSRAM detected: %s\nFreeRTOS tick rate: %u Hz\n",
     psramFound()?"yes":"NO",(unsigned)configTICK_RATE_HZ);
 }
+static void drawDisplayClockPattern(uint32_t hz) {
+  const int w = tft.width();
+  const int h = tft.height();
+  tft.fillScreen(TFT_BLACK);
+  tft.fillRect(0, 0, w / 2, h / 2, TFT_RED);
+  tft.fillRect(w / 2, 0, w - w / 2, h / 2, TFT_GREEN);
+  tft.fillRect(0, h / 2, w / 2, h - h / 2, TFT_BLUE);
+  tft.fillRect(w / 2, h / 2, w - w / 2, h - h / 2, TFT_WHITE);
+  tft.drawRect(2, 2, w - 4, h - 4, TFT_YELLOW);
+  tft.setTextSize(2);
+  tft.setTextColor(TFT_BLACK, TFT_WHITE);
+  tft.setCursor(w / 2 + 8, h / 2 + 8);
+  tft.printf("SPI %u MHz", (unsigned)(hz / 1000000));
+}
+
 static void displayBenchmark() {
-  Serial.println("\n=== DISPLAY BENCHMARK ===");
-  const uint32_t colors[]={TFT_RED,TFT_GREEN,TFT_BLUE,TFT_WHITE,TFT_BLACK};
-  const char *names[]={"red","green","blue","white","black"};
-  for(unsigned i=0;i<5;++i) {
-    uint32_t t=micros(); tft.fillScreen(colors[i]);
-    Serial.printf("fillScreen %-5s: %u us\n",names[i],(unsigned)(micros()-t)); delay(250);
+  Serial.println("\n=== DISPLAY SPI CLOCK BENCHMARK ===");
+  Serial.println("Requested clocks: 40 MHz baseline, 80 MHz test, 40 MHz restore.");
+  Serial.println("Watch the test pattern at each clock for pixel corruption/flicker.");
+
+  const uint32_t frequencies[] = {40000000, 80000000, 40000000};
+  const char *labels[] = {"baseline", "high", "restore"};
+  const uint32_t fullRepeats = 8;
+  const uint32_t partialRepeats = 24;
+  const uint32_t colors[] = {TFT_RED, TFT_GREEN, TFT_BLUE, TFT_WHITE,
+                             TFT_BLACK, TFT_CYAN, TFT_MAGENTA, TFT_YELLOW};
+
+  for (unsigned f = 0; f < 3; ++f) {
+    const uint32_t hz = frequencies[f];
+    tft.setWriteClock(hz);
+    delay(30);
+
+    // Full-screen RGB565 transfers.
+    uint64_t t0 = esp_timer_get_time();
+    for (uint32_t i = 0; i < fullRepeats; ++i)
+      tft.fillScreen(colors[i]);
+    const uint64_t fullUs = esp_timer_get_time() - t0;
+
+    // A 160x120 rectangle represents a typical partial UI update.
+    const int rw = tft.width() / 2;
+    const int rh = tft.height() / 2;
+    t0 = esp_timer_get_time();
+    for (uint32_t i = 0; i < partialRepeats; ++i)
+      tft.fillRect(0, 0, rw, rh, colors[i & 7]);
+    const uint64_t partialUs = esp_timer_get_time() - t0;
+
+    const uint64_t fullBytes =
+      (uint64_t)tft.width() * tft.height() * 2u * fullRepeats;
+    const uint64_t partialBytes =
+      (uint64_t)rw * rh * 2u * partialRepeats;
+    const double fullMiBs = fullUs
+      ? ((double)fullBytes / 1048576.0) * 1000000.0 / fullUs : 0.0;
+    const double partialMiBs = partialUs
+      ? ((double)partialBytes / 1048576.0) * 1000000.0 / partialUs : 0.0;
+
+    Serial.printf("DISPLAYCLOCK %-8s requested=%u MHz full=%" PRIu64
+                  " us/frame=%.1f us (%6.2f MiB/s) partial=%" PRIu64
+                  " us/op=%.1f us (%6.2f MiB/s)\n",
+                  labels[f], (unsigned)(hz / 1000000),
+                  fullUs, (double)fullUs / fullRepeats, fullMiBs,
+                  partialUs, (double)partialUs / partialRepeats,
+                  partialMiBs);
+
+    drawDisplayClockPattern(hz);
+    delay(1500); // Allows a visual stability check at this clock.
   }
+
+  tft.setWriteClock(40000000);
+  Serial.println("DISPLAYCLOCK restored to 40 MHz (known-good baseline).");
 }
 static void drawDashboard() {
   tft.fillScreen(TFT_BLACK); tft.setTextColor(TFT_WHITE,TFT_BLACK);
