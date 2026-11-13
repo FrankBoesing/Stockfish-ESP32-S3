@@ -145,7 +145,7 @@ void setup() {
   // First verify that the expected NNUE network is loaded and compatible.
   // Stockfish::Engine::go() performs this check again before starting search.
   engine.set_on_verify_network([](std::string_view msg) {
-    Serial.printf("[NNUE] %.*s\\n", (int)msg.size(), msg.data());
+    Serial.printf("[NNUE] %.*s\n", (int)msg.size(), msg.data());
   });
 
   Serial.println();
