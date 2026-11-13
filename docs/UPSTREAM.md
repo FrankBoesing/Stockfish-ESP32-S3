@@ -13,7 +13,7 @@ Upstream repository: https://github.com/official-stockfish/Stockfish
 
 ## Current state
 
-The upstream source has not yet been vendored or added as a submodule.
+The upstream source is vendored as a pinned source snapshot.
 The next step is to inspect a pinned upstream revision and its build assumptions.
 
 
