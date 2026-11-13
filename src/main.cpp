@@ -263,8 +263,10 @@ static void runSharedMemoryMode(TTBenchEntry *entries, uint32_t entryCount,
     workers[i].core = (workerCount == 1) ? 1u : (i == 0 ? 1u : 0u);
     char taskName[16];
     snprintf(taskName, sizeof(taskName), "mem_%u", (unsigned)i);
+    // Match the Arduino loop/setup task priority so the start-barrier
+    // spin/yield cannot starve setup before all workers are created.
     BaseType_t ok = xTaskCreatePinnedToCore(
-      sharedMemoryWorker, taskName, 4096, &workers[i], 3,
+      sharedMemoryWorker, taskName, 4096, &workers[i], 1,
       &handles[i], (BaseType_t)workers[i].core);
     if (ok != pdPASS) break;
     ++created;
