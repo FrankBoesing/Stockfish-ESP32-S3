@@ -190,7 +190,7 @@ Weitere Punkte:
 - Daher besitzt der ESP32-Build ein kompaktes, ausdrücklich experimentelles Speicherprofil: MAX_PLY=96, PAWN_HISTORY_BASE_SIZE=64, CORRHIST_BASE_SIZE=8192 und 256 Continuation-History-Buckets. Der Continuation-Kontext (inCheck, capture, piece, square) wird auf 256 Buckets gehasht. Dadurch sinkt ContinuationHistoryBlock auf 512 KiB; PawnHistory und UnifiedCorrectionHistory benötigen bei einem Thread jeweils rund 128 KiB. Das führt zu mehr Kollisionen in Suchheuristiken und kann die Spielstärke reduzieren. Schachregeln, Zuglegalität und NNUE-Bewertung werden dadurch nicht verändert.
 - Der Engine-Probe erzeugt nun tatsächlich Stockfish::Engine, gibt vor/nach der Konstruktion freien, größten zusammenhängenden und minimal jemals verfügbaren PSRAM-/internen Heap aus und protokolliert relevante Suchhistoriengrößen. Er startet keine Suche und verifiziert/lädt noch keine NNUE-Datei.
 
-CI-Lauf 43436602815 für Commit 3eb89e2d535e85015b19f40924ec704991766cc5 ist erfolgreich (Compile und Link). Der aktuelle Probe-Sketch enthält die Engine-Konstruktion und gibt die Heap-Messwerte aus, aber CI führt die Firmware nicht aus. Ein tatsächlicher Engine-Start auf dem Board ist daher noch nicht bestätigt.
+CI-Lauf 43436602815 für Commit 3eb89e2d535e85015b19f40924ec704991766cc5 ist erfolgreich (Compile, Link und Firmware-Image). Der Linker meldet 286.472/341.760 Byte für dram0_0_seg. CI führt die Firmware nicht aus; ein tatsächlicher Engine-Start und die Heap-Werte nach der Konstruktion müssen noch vom Board geliefert werden.
 
 Noch nicht verifiziert sind insbesondere: Engine-Konstruktion auf echter Hardware, freie Heap-Reserven nach Engine-Start, ausreichender pthread-Stack für die Suche, tatsächliche NNUE-Datei/Hash, UCI-Ein-/Ausgabe, Suchkorrektheit und Spielstärke-Auswirkung der kompakten Historien.
 ## 9. Smallnet-Patch-Abgleich mit dem offiziellen SF19-Release
@@ -215,8 +215,19 @@ Die Quelle liegt unter src/stockfish/; Upstream-Lizenz und AUTHORS-Datei sind en
 - freenove_fnk0104b: bestehende Board-Diagnose, Stockfish-Quellen explizit ausgeschlossen.
 - freenove_stockfish_compile: SF19-Smallnet-Quellen, Xtensa-Skalarpfad, C++17, kein Prefetch, keine Syzygy-Tablebases und keine eingebettete NNUE-Datei.
 
-Der Probe-Sketch initialisiert Attack-/Positionsdaten und gibt Objektgrößen aus. Er startet keine Suche, erzeugt keine Worker-Threads und lädt keine NNUE-Gewichte.
+Der Probe initialisiert Attacks und Position, gibt relevante Objektgrößen aus und konstruiert anschließend tatsächlich Stockfish::Engine. Der Engine-Konstruktor erzeugt den konfigurierten Einzel-Worker über ThreadPool::set/resize_threads() und reserviert die 1-MiB-Transposition-Table. Die Firmware startet keine Suche und fordert keine NNUE-Verifikation an; ein valides NNUE-Netz und Suchkorrektheit sind damit nicht getestet. Vor und nach der Engine-Konstruktion werden freier, größter zusammenhängender und minimal jemals verfügbarer PSRAM-/interner Heap protokolliert.
 
-Für die Linkerdiagnose wird firmware.map erzeugt und auch bei fehlgeschlagenem Link als GitHub-Actions-Artefakt hochgeladen. Der erste Map-Lauf zeigte, dass die beiden Magic-Angriffstabellen zusammen 861.184 Byte statisches DRAM beanspruchten. Diese beiden Tabellen werden seit Commit 54bed36b4410205652667d5f987505dddee5e027 auf ESP32 dynamisch aus PSRAM reserviert; native Builds behalten die statische Ablage.
+ESP32-spezifische Speicherpfade:
+- aligned_large_pages_alloc_with_hint() / aligned_large_pages_free() reservieren und geben Worker, TT und SharedHistory-Objekte ausdrücklich mit MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT frei.
+- Network verwendet ESP-spezifische new/delete-Operatoren für die große initiale Network-Instanz; der NUMA-Fallback verwendet den oben genannten Large-Page-Allocator.
+- Die beiden Magic-Angriffstabellen und die temporären Scratch-Arrays aus init_magics() werden separat im PSRAM reserviert.
+- Engine-Optionen sind für diesen ersten Versuch auf einen Worker und 1 MiB Hash begrenzt. Der ESP32 pthread-Stack ist für den Konstruktionstest auf 32 KiB gesetzt; dies ist kein bestätigter sicherer Stackwert für tiefere Suchläufe.
 
-Der erneute Compile-/Link-Lauf 43429621038 muss noch erfolgreich abgeschlossen werden. Der Compile-/Link-Smoke-Test ist somit noch nicht als erfolgreich bestätigt; eine lauffähige UCI-Portierung ist ausdrücklich noch nicht nachgewiesen.
+CI-Lauf 43436602815 für Commit 3eb89e2d535e85015b19f40924ec704991766cc5 ist erfolgreich (Compile, Link, Firmware-Image und Map-Artefakt). Die Linker-Statistik meldet:
+- dram0_0_seg: 286.472 von 341.760 Byte (83,82 %)
+- extern_ram_seg: 1.048.544 Byte statischer Bedarf im Linker-Image
+- PlatformIO: 228.860 Byte RAM und 1.057.383 Byte Flash in der CI-Boarddefinition
+
+Die wiederholten CORE_DEBUG_LEVEL-Re-definition-Warnungen sind nicht fatal; Compile, Link und Image-Erzeugung endeten mit SUCCESS. Der CI-Lauf führt die Firmware nicht aus. Die eigentliche Heap-Belegung nach Engine-Konstruktion muss daher auf dem Freenove-Board gemessen werden.
+
+Noch nicht verifiziert sind: Engine-Konstruktion auf echter Hardware, tatsächliche Heap-Reserven nach Engine-Start, sichere Thread-Stackgröße bei Suchläufen, valides Smallnet-NNUE-File/Hash, UCI-Ein-/Ausgabe, Suchkorrektheit und Spielstärke-Auswirkung der kompakten Historien.
