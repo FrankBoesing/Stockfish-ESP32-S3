@@ -265,9 +265,24 @@ void ThreadPool::set(const NumaConfig&                           numaConfig,
                 create_thread();
         }
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+        // Each newly constructed Thread creates its Worker, whose constructor
+        // already calls Worker::clear(). Avoid clearing the large histories a
+        // second time here; only initialize the main SearchManager state.
+        SF_ESP_TRACE("ThreadPool::set: skip redundant Worker::clear; reset SearchManager");
+        auto* manager = main_manager();
+        manager->bestPreviousAverageScore = VALUE_INFINITE;
+        manager->previousTimeReduction    = 0.85;
+        manager->callsCnt                 = 0;
+        manager->bestPreviousScore        = VALUE_INFINITE;
+        manager->originalTimeAdjust       = -1;
+        manager->tm.clear();
+        SF_ESP_TRACE("ThreadPool::set: SearchManager state initialized");
+#else
         SF_ESP_TRACE("ThreadPool::set before initial clear");
         clear();
         SF_ESP_TRACE("ThreadPool::set after initial clear");
+#endif
 
         main_thread()->wait_for_search_finished();
     }
