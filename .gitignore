@@ -69,3 +69,7 @@ Testing/
 
 .pio
 .vscode
+
+# Stockfish NNUE model downloaded by PlatformIO pre-build hook
+nn-*.nnue
+nn-*.nnue.download
