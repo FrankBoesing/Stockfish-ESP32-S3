@@ -8,20 +8,45 @@
 - Every ESP32-specific change must be minimal, isolated, justified, and measured.
 - Pin the upstream Stockfish commit used for each successful milestone.
 
+## Confirmed board identity
+
+The target is the Freenove ESP32-S3 Display 2.8-inch capacitive-touch variant, model **FNK0104B**.
+
+Freenove's documentation identifies:
+- Display controller: ILI9341
+- Native panel resolution: 240 x 320 (landscape operation can rotate the panel)
+- Capacitive touch: touch variant FNK0104B
+
+## Hardware configuration caveat
+
+Do not confuse the FNK0104B display board with the generic PlatformIO board
+`freenove_esp32_s3_wroom`, which is documented as an N8R8 board (8 MB flash /
+8 MB PSRAM). Other FNK0104B hardware references identify an N16R8 configuration
+(16 MB flash / 8 MB PSRAM). The exact module marking and actual flash/PSRAM
+configuration must be read from the user's physical unit before finalizing the
+PlatformIO board manifest and flash settings.
+
+The current PlatformIO environment therefore uses a generic ESP32-S3 DevKit
+profile strictly as a temporary compile baseline. It is not a validated
+FNK0104B configuration.
+
 ## Initial investigation checklist
 
+- [ ] Read the module marking and determine exact flash/PSRAM configuration.
+- [ ] Confirm flash size/mode and PSRAM size/mode using esptool and runtime probes.
 - [ ] Record the exact Stockfish upstream commit and network filenames.
 - [ ] Inspect Stockfish's current C++ language requirements and compiler assumptions.
 - [ ] Inspect SIMD use in NNUE and determine whether a scalar fallback is available.
 - [ ] Inspect thread implementation and available ESP-IDF/FreeRTOS primitives.
 - [ ] Inspect memory allocation and alignment requirements.
 - [ ] Determine whether the embedded NNUE network fits in flash and how it is accessed.
-- [ ] Confirm the actual Freenove board ID, flash size, PSRAM size/type, and PlatformIO platform package.
 - [ ] Build a minimal serial UCI target before display integration.
 
 ## PlatformIO caution
 
-The initial board identifier is provisional. Do not assume that the named Freenove board profile exactly matches every Freenove 2.8-inch capacitive-touch board revision. In particular, flash and PSRAM mode settings must come from the actual module configuration, not guesswork.
+The target board definition must match the actual module, not just the display
+product name. Avoid forcing QIO/OPI, octal PSRAM, partition layout, or flash size
+until these have been verified.
 
 ## Baseline validation
 
@@ -35,4 +60,5 @@ The initial firmware should support at least:
 - `stop`
 - `quit`
 
-Compare legal best moves and protocol behavior with a desktop build from the same upstream revision.
+Compare legal best moves and protocol behavior with a desktop build from the same
+upstream revision.
