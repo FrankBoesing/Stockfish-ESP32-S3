@@ -85,7 +85,13 @@ class NativeThread {
     pthread_t thread;
     bool      running_ = false;
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // Startup/worker construction baseline only. Deep search stack usage must
+    // be measured separately before enabling production searches.
+    static constexpr usize TH_STACK_SIZE = 32 * 1024;
+#else
     static constexpr usize TH_STACK_SIZE = 8 * 1024 * 1024;
+#endif
 
     void start(NativeThreadOptions options, ThreadCallableBase* func) {
         pthread_attr_t attr_storage, *attr = &attr_storage;
