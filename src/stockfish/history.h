@@ -221,7 +221,7 @@ struct ContinuationHistoryBlock {
         StatsEntry<i16, 30000, true>& operator[](usize square) const {
             const u32 key = (((inCheck * 2 + capture) * PIECE_NB + piece) * SQUARE_NB + square);
             const usize bucket = (key ^ (key >> 8) ^ (key >> 4)) & (BucketCount - 1);
-            return owner->table[bucket][0][0]; // replaced below with correct PieceToHistory indexing
+            return owner->table[bucket][piece][square];
         }
     };
 
@@ -273,7 +273,11 @@ struct SharedHistories {
         pawnHistSizeMinus1 = pawnHistory.get_size() - 1;
     }
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    auto& continuationHistory() { return *continuationHistoryBlock; }
+#else
     auto& continuationHistory() { return continuationHistoryBlock->table; }
+#endif
 
     usize get_size() const { return sizeMinus1 + 1; }
 
