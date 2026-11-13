@@ -187,7 +187,13 @@ void TranspositionTable::resize(usize mbSize, ThreadPool& threads) {
     // The caller may resize the thread pool without needing a new hash table.
     if (table && clusterCount == newClusterCount)
     {
-        clear(threads);
+        if (threads.num_threads() == 0)
+        {
+            generation8 = 0;
+            std::memset(table, 0, clusterCount * sizeof(Cluster));
+        }
+        else
+            clear(threads);
         return;
     }
 
@@ -212,7 +218,10 @@ void TranspositionTable::resize(usize mbSize, ThreadPool& threads) {
     // allocations to avoid PSRAM fragmentation. At this point the thread pool
     // is still empty, so initialize it directly on the calling task.
     if (threads.num_threads() == 0)
+    {
+        generation8 = 0;
         std::memset(table, 0, ttBytes);
+    }
     else
         clear(threads);
 }
