@@ -84,6 +84,20 @@ Das ist rund 71,8-mal kleiner als der Feature-Transformer des Standardnetzes. Di
 
 **Empfehlung:** Diese Smallnet-Variante ist der erste ernsthafte Kandidat für den ESP32-S3-Port. Vor Integration werden Patch-Basis, Netz-Hash, Lizenzhinweise und Build-Reproduzierbarkeit geprüft. Das Standardnetz bleibt als Referenz für Desktop-Vergleiche erhalten.
 
+## 3a. Prüfung des Smallnet-Patches gegen SF19
+
+Der Patch `0001-simple-mirrored-piece-square-features.patch` wurde anhand seiner Git-Index-Blob-IDs gegen den vollständigen Git-Tree des SF19-Release-Commits geprüft.
+
+Ergebnis:
+
+- Alle 18 vorhandenen Quell-/Builddateien stimmen in ihren alten Blob-IDs exakt mit SF19 überein.
+- Die einzige zusätzliche Datei ist `src/nnue/features/p_hm.h`.
+- Die erwarteten Ziel-Blob-IDs der geänderten Dateien stimmen mit dem vendorten Smallnet-Quellstand überein.
+- Damit ist die Smallnet-Feature-Änderung auf dem festgepinnten SF19-Release exakt anwendbar; es handelt sich nicht nur um eine ähnlich passende spätere Entwicklungsrevision.
+- Patch 2 der Patch-Sammlung ist eine WebAssembly-/Lichess-Integration und wurde nicht übernommen.
+
+Der Patch-Basis-Commit `3f6f417b87c0e80ee30914b6b539b4ab7d3b2a5b` in der Patchbeschreibung ist damit für die Portierung kein Grund, auf eine spätere Entwicklungsrevision auszuweichen.
+
 ## 4. Xtensa / Build-System
 
 Der ESP32-S3 verwendet Xtensa LX7. Stockfish 19 kennt dafür keinen eigenen Architektur- bzw. SIMD-Buildpfad.
@@ -163,7 +177,7 @@ Weitere Punkte:
 7. **Messreihe:** TT 1/2/4 MiB sowie ein und zwei Threads vergleichen. Erst danach Display und Touch im gleichzeitigen Betrieb zuschalten.
 8. **Optimierung:** Erst mit reproduzierbaren NPS-Messungen entscheiden, ob Worker-Daten teilweise in internen RAM verschoben oder ein Xtensa-spezifischer NNUE-Rechenpfad entwickelt werden soll.
 
-## 8. Was noch nicht erledigt oder verifiziert ist
+## 8. Aktueller Implementierungs- und Prüfstand
 
 - Stockfish-19-Smallnet-Quellen sind inzwischen unter `src/stockfish/` integriert; der Compile-/Link-Test steht noch aus.
 - Es wurde kein PlatformIO-Build für den Stockfish-Port ausgeführt.
@@ -171,7 +185,7 @@ Weitere Punkte:
 - Die exakten `sizeof`-Werte von Network, Worker und Accumulator-Strukturen müssen im Zielbuild gemessen werden.
 - Thread-Stack, UCI-Ein-/Ausgabe, `std::filesystem` und die PSRAM-Platzierung sind noch nicht auf dem Board verifiziert.
 
-Diese Analyse ist eine Architekturgrundlage, kein Nachweis einer bereits lauffähigen Portierung.
+Diese Analyse ist eine Architektur- und Integrationsgrundlage. Der Compile-/Link-Smoke-Test ist angelegt, aber noch nicht erfolgreich bestätigt; eine lauffähige UCI-Portierung ist damit ausdrücklich noch nicht nachgewiesen.
 
 ## Quellen
 
