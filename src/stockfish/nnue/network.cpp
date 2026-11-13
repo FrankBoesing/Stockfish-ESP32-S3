@@ -18,6 +18,8 @@
 
 #include "network.h"
 
+#include "../esp_fatal.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
@@ -185,7 +187,7 @@ void Network::verify(const std::function<void(std::string_view)>& f,
             f(msg);
         }
 
-        exit(EXIT_FAILURE);
+        SF_FATAL_EXIT(EXIT_FAILURE, msg.c_str());
     }
 
     if (f)

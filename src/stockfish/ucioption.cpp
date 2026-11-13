@@ -18,6 +18,8 @@
 
 #include "ucioption.h"
 
+#include "esp_fatal.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cctype>
@@ -79,7 +81,7 @@ void OptionsMap::add(const std::string& name, const Option& option) {
     else
     {
         std::cerr << "Option \"" << name << "\" was already added!" << std::endl;
-        std::exit(EXIT_FAILURE);
+        SF_FATAL_EXIT(EXIT_FAILURE, "Duplicate UCI option registration");
     }
 }
 

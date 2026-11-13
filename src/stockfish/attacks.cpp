@@ -17,6 +17,7 @@
 */
 
 #include "attacks.h"
+#include "esp_fatal.h"
 
 #include <array>
 #include <cstdint>
@@ -122,7 +123,7 @@ void init_magics(PieceType pt, Bitboard table[], Magic magics[][2]) {
 
     void* scratchAllocation = heap_caps_malloc(ScratchSize + alignof(Bitboard) - 1, psramCaps);
     if (!scratchAllocation)
-        std::abort();
+        SF_FATAL_ABORT("Failed to allocate PSRAM scratch memory for magic attack initialization");
 
     const uintptr_t alignedAddress =
       (reinterpret_cast<uintptr_t>(scratchAllocation) + alignof(Bitboard) - 1)
@@ -212,7 +213,7 @@ static void allocate_attack_tables() {
             heap_caps_free(rook);
         if (bishop)
             heap_caps_free(bishop);
-        std::abort();
+        SF_FATAL_ABORT("Failed to allocate PSRAM for rook/bishop attack tables");
     }
 
     RookTable   = rook;
