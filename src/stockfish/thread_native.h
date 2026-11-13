@@ -101,7 +101,7 @@ class NativeThread {
         pthread_attr_t attr_storage, *attr = &attr_storage;
         const int attrInitRc = pthread_attr_init(attr);
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        Serial.printf("[SFTRACE] pthread_attr_init rc=%d\\n", attrInitRc);
+        Serial.printf("[SFTRACE] pthread_attr_init rc=%d\n", attrInitRc);
         Serial.flush();
 #endif
         int stackSizeRc = 0;
@@ -109,7 +109,7 @@ class NativeThread {
         {
             stackSizeRc = pthread_attr_setstacksize(attr, TH_STACK_SIZE);
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-            Serial.printf("[SFTRACE] pthread_attr_setstacksize(%u) rc=%d\\n",
+            Serial.printf("[SFTRACE] pthread_attr_setstacksize(%u) rc=%d\n",
                           (unsigned) TH_STACK_SIZE, stackSizeRc);
             Serial.flush();
 #endif
@@ -124,7 +124,7 @@ class NativeThread {
         };
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        Serial.printf("[SFTRACE] pthread_create begin; internal free=%u largest=%u\\n",
+        Serial.printf("[SFTRACE] pthread_create begin; internal free=%u largest=%u\n",
                       (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                       (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         Serial.flush();
@@ -132,7 +132,7 @@ class NativeThread {
         const int rc = pthread_create(&thread, attr, start_routine, func);
         pthread_attr_destroy(attr);
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        Serial.printf("[SFTRACE] pthread_create rc=%d\\n", rc);
+        Serial.printf("[SFTRACE] pthread_create rc=%d\n", rc);
         Serial.flush();
 #endif
 
