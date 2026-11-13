@@ -1,4 +1,14 @@
 #include <Arduino.h>
+
+// Arduino defines HIGH/LOW as GPIO level macros. Stockfish uses the same
+// identifiers in PrefetchLoc, so remove the macros before including it.
+#ifdef HIGH
+  #undef HIGH
+#endif
+#ifdef LOW
+  #undef LOW
+#endif
+
 #include <esp_heap_caps.h>
 
 #include "stockfish/attacks.h"
