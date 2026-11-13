@@ -36,6 +36,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 
 // Declared here because the search helpers are above the heap-report definition.
 static void print_heap(const char* stage);
@@ -98,6 +99,57 @@ static bool touchRead(uint16_t &x, uint16_t &y, uint8_t &points) {
   return count != 0;
 }
 
+struct SearchProbeStats {
+  bool started;
+  int depth;
+  uint64_t nodes;
+  uint32_t nps;
+  int hashfull;
+  uint32_t stackFreeBytes;
+  char bestmove[16];
+  char ponder[16];
+};
+
+static SearchProbeStats searchProbeStats{};
+
+static void copySearchText(char *destination, size_t capacity, std::string_view source) {
+  if (capacity == 0) return;
+  const size_t count = source.size() < capacity - 1 ? source.size() : capacity - 1;
+  if (count)
+    memcpy(destination, source.data(), count);
+  destination[count] = '\0';
+}
+
+static void sampleSearchStack() {
+  const uint32_t freeBytes = (uint32_t)uxTaskGetStackHighWaterMark(nullptr);
+  if (searchProbeStats.stackFreeBytes == 0 ||
+      freeBytes < searchProbeStats.stackFreeBytes)
+    searchProbeStats.stackFreeBytes = freeBytes;
+}
+
+static void resetSearchProbeStats() {
+  memset(&searchProbeStats, 0, sizeof(searchProbeStats));
+}
+
+static void printSearchProbeStats(const char *label) {
+  Serial.printf("[SEARCH] %s started=%s depth=%d nodes=%llu nps=%u hashfull=%d "
+                "worker-stack-min-free=%u bytes bestmove=%s",
+                label,
+                searchProbeStats.started ? "yes" : "no",
+                searchProbeStats.depth,
+                (unsigned long long)searchProbeStats.nodes,
+                (unsigned)searchProbeStats.nps,
+                searchProbeStats.hashfull,
+                (unsigned)searchProbeStats.stackFreeBytes,
+                searchProbeStats.bestmove[0] ? searchProbeStats.bestmove : "(none)");
+  if (searchProbeStats.ponder[0])
+    Serial.printf(" ponder=%s", searchProbeStats.ponder);
+  Serial.println();
+  if (searchProbeStats.stackFreeBytes != 0 &&
+      searchProbeStats.stackFreeBytes < 16 * 1024)
+    Serial.println("[SEARCH] WARNING: less than 16 KiB minimum worker stack reserve.");
+}
+
 static void drawProbeDashboard() {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -157,6 +209,7 @@ static void initDisplayAndTouch() {
 }
 
 static void runDepthSearch(Stockfish::Engine& engine, int depth) {
+  resetSearchProbeStats();
   Stockfish::Search::LimitsType limits;
   limits.depth = depth;
   limits.startTime = Stockfish::now();
@@ -167,12 +220,14 @@ static void runDepthSearch(Stockfish::Engine& engine, int depth) {
   engine.wait_for_search_finished();
 
   Serial.printf("Depth-%d search complete.\n", depth);
+  printSearchProbeStats("depth search");
   char label[40];
   snprintf(label, sizeof(label), "After depth-%d search", depth);
   print_heap(label);
 }
 
 static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
+  resetSearchProbeStats();
   Stockfish::Search::LimitsType limits;
   limits.movetime = milliseconds;
   limits.startTime = Stockfish::now();
@@ -184,6 +239,7 @@ static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
   engine.wait_for_search_finished();
 
   Serial.println("Timed search complete.");
+  printSearchProbeStats("timed search");
   print_heap("After 5-second search");
 }
 
@@ -319,26 +375,29 @@ void setup() {
 
   // The standalone Engine API expects the application to provide all search
   // callbacks. The UCI frontend normally installs these; this probe does not.
+  // Search callbacks execute on the worker pthread, whose stack resides in
+  // PSRAM. Keep them allocation-free and do not call Serial/ROM-heavy drivers.
   engine.set_on_start([]() {
-    Serial.println("[SEARCH] started");
+    searchProbeStats.started = true;
+    sampleSearchStack();
   });
   engine.set_on_update_no_moves([](const Stockfish::Engine::InfoShort&) {
     // No-move diagnostic is not needed for the start-position probe.
   });
   engine.set_on_update_full([](const Stockfish::Engine::InfoFull& info) {
-    Serial.printf("[SEARCH] depth=%d nodes=%u nps=%u hashfull=%d\n",
-                  info.depth, (unsigned)info.nodes, (unsigned)info.nps,
-                  info.hashfull);
+    searchProbeStats.depth = info.depth;
+    searchProbeStats.nodes = info.nodes;
+    searchProbeStats.nps = (uint32_t)info.nps;
+    searchProbeStats.hashfull = info.hashfull;
+    sampleSearchStack();
   });
   engine.set_on_iter([](const Stockfish::Engine::InfoIter&) {
     // Current-move UCI output is intentionally omitted in this probe.
   });
   engine.set_on_bestmove([](std::string_view bestmove, std::string_view ponder) {
-    Serial.printf("[SEARCH] bestmove %.*s",
-                  (int)bestmove.size(), bestmove.data());
-    if (!ponder.empty())
-      Serial.printf(" ponder %.*s", (int)ponder.size(), ponder.data());
-    Serial.println();
+    copySearchText(searchProbeStats.bestmove, sizeof(searchProbeStats.bestmove), bestmove);
+    copySearchText(searchProbeStats.ponder, sizeof(searchProbeStats.ponder), ponder);
+    sampleSearchStack();
   });
 
   // Grow the search load in small steps while the real display driver stays
