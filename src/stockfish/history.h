@@ -218,10 +218,10 @@ struct ContinuationHistoryBlock {
         usize                     capture;
         usize                     piece;
 
-        StatsEntry<i16, 30000, true>& operator[](usize square) const {
+        PieceToHistory& operator[](usize square) const {
             const u32 key = (((inCheck * 2 + capture) * PIECE_NB + piece) * SQUARE_NB + square);
             const usize bucket = (key ^ (key >> 8) ^ (key >> 4)) & (BucketCount - 1);
-            return owner->table[bucket][piece][square];
+            return owner->table[bucket];
         }
     };
 
