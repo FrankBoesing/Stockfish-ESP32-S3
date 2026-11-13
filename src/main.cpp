@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <stdio.h>
 #include <Wire.h>
 #include <LovyanGFX.hpp>
 #include <esp_chip_info.h>
