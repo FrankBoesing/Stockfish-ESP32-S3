@@ -274,7 +274,7 @@ static void runSharedMemoryMode(TTBenchEntry *entries, uint32_t entryCount,
     __atomic_store_n(&sharedMemoryBenchStart, 1, __ATOMIC_RELEASE);
     for (uint32_t i = 0; i < created; ++i)
       while (!__atomic_load_n(&workers[i].done, __ATOMIC_ACQUIRE)) taskYIELD();
-    Serial.printf("MEMSHARED %s %s cores=%u: task creation FAILED\\n",
+    Serial.printf("MEMSHARED %s %s cores=%u: task creation FAILED\n",
                   sizeLabel, doStore ? "store" : "probe",
                   (unsigned)workerCount);
     return;
@@ -309,13 +309,13 @@ static void runSharedPsramCase(const char *label, size_t bytes) {
   TTBenchEntry *entries = (TTBenchEntry *)heap_caps_malloc(
     bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!entries) {
-    Serial.printf("MEMSHARED %s: allocation FAILED (%u bytes), free PSRAM=%u\\n",
+    Serial.printf("MEMSHARED %s: allocation FAILED (%u bytes), free PSRAM=%u\n",
                   label, (unsigned)bytes, (unsigned)ESP.getFreePsram());
     return;
   }
 
   const uint32_t entryCount = (uint32_t)(bytes / sizeof(TTBenchEntry));
-  Serial.printf("\\nMEMSHARED TABLE %s bytes=%u entries=%u free_after_alloc=%u\\n",
+  Serial.printf("\nMEMSHARED TABLE %s bytes=%u entries=%u free_after_alloc=%u\n",
                 label, (unsigned)bytes, (unsigned)entryCount,
                 (unsigned)ESP.getFreePsram());
 
@@ -334,7 +334,7 @@ static void runSharedPsramCase(const char *label, size_t bytes) {
   runSharedMemoryMode(entries, entryCount, label, true, 2);
 
   heap_caps_free(entries);
-  Serial.printf("MEMSHARED TABLE %s released; free PSRAM=%u\\n",
+  Serial.printf("MEMSHARED TABLE %s released; free PSRAM=%u\n",
                 label, (unsigned)ESP.getFreePsram());
 }
 
