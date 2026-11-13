@@ -35,6 +35,7 @@
     #include <esp_heap_caps.h>
 #endif
 
+#include "../esp_fatal.h"
 #include "../types.h"
 #include "../misc.h"
 #include "nnue_architecture.h"
@@ -99,7 +100,7 @@ class Network {
         void* ptr = heap_caps_aligned_alloc(
           alignment, alignedSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!ptr)
-            std::abort();
+            SF_FATAL_ABORT("Failed to allocate NNUE Network object in PSRAM");
         return ptr;
     }
 

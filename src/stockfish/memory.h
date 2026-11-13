@@ -30,6 +30,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "esp_fatal.h"
 #include "types.h"
 #include "misc.h"
 
@@ -74,7 +75,9 @@ constexpr usize HugePageSize = usize(1) << 30;
 
 [[noreturn]] inline void report_failed_allocation(usize bytes) {
     std::cerr << "Failed to allocate " << bytes << " bytes." << std::endl;
-    std::exit(EXIT_FAILURE);
+    const std::string reason = "Stockfish memory allocation failed (" + std::to_string(bytes)
+                             + " bytes requested)";
+    SF_FATAL_EXIT(EXIT_FAILURE, reason.c_str());
 }
 
 void* std_aligned_alloc(usize alignment, usize size);
