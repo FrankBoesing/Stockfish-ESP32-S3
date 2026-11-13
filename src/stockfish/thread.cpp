@@ -189,12 +189,15 @@ void ThreadPool::set(const NumaConfig&                           numaConfig,
                      const Search::SearchManager::UpdateContext& updateContext) {
 
     SF_ESP_TRACE("ThreadPool::set begin");
-    if (threads.size() > 0)  // destroy any existing thread(s)
+    if (!threads.empty())  // destroy any existing thread(s)
     {
-        main_thread()->wait_for_search_finished();
+        // A partially initialized pool may contain null slots. Wait only on
+        // valid thread objects before clearing the old pool.
+        for (auto&& th : threads)
+            if (th)
+                th->wait_for_search_finished();
 
         threads.clear();
-
         boundThreadToNumaNode.clear();
     }
 
@@ -314,10 +317,16 @@ void ThreadPool::clear() {
         return;
 
     for (auto&& th : threads)
-        th->clear_worker();
+        if (th)
+            th->clear_worker();
 
     for (auto&& th : threads)
-        th->wait_for_search_finished();
+        if (th)
+            th->wait_for_search_finished();
+
+    // No main worker exists in an empty or partially initialized pool.
+    if (!has_main_thread())
+        return;
 
     // These two affect the time taken on the first move of a game:
     main_manager()->bestPreviousAverageScore = VALUE_INFINITE;
@@ -471,9 +480,10 @@ void ThreadPool::start_searching() {
 // Wait for non-main threads
 void ThreadPool::wait_for_search_finished() const {
 
-    for (auto&& th : threads)
-        if (th != threads.front())
-            th->wait_for_search_finished();
+    const usize firstWorker = has_main_thread() ? 1 : 0;
+    for (usize i = firstWorker; i < threads.size(); ++i)
+        if (threads[i])
+            threads[i]->wait_for_search_finished();
 }
 
 std::vector<usize> ThreadPool::get_bound_thread_to_numa_node() const {
@@ -508,7 +518,8 @@ usize ThreadPool::numa_nodes() const {
 
 void ThreadPool::ensure_network_replicated() {
     for (auto&& th : threads)
-        th->ensure_network_replicated();
+        if (th)
+            th->ensure_network_replicated();
 }
 
 }  // namespace Stockfish
