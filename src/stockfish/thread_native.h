@@ -91,9 +91,10 @@ class NativeThread {
     bool      running_ = false;
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-    // Stockfish search is recursive and 32 KiB is insufficient beyond shallow
-    // test positions. Keep the search stack in PSRAM so it does not consume the
-    // scarce contiguous internal DRAM needed by the display/DMA and RTOS.
+    // 128 KiB is the current measured-test starting point, not a claim that
+    // arbitrary/deep Stockfish searches fit. The probe records the task's
+    // minimum free stack after each search and can raise this value if needed.
+    // Use PSRAM to preserve scarce contiguous internal DRAM for the GUI/DMA.
     static constexpr usize TH_STACK_SIZE = 128 * 1024;
 #else
     static constexpr usize TH_STACK_SIZE = 8 * 1024 * 1024;
