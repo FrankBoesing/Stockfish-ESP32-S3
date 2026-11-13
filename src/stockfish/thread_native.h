@@ -144,8 +144,9 @@ class NativeThread {
         workerCfg.inherit_cfg = false;
         const esp_err_t setCfgRc = esp_pthread_set_cfg(&workerCfg);
 
-        SF_ESP_TRACE("pthread stack config: size=%u caps=PSRAM|8BIT get_rc=%d set_rc=%d",
-                     (unsigned)TH_STACK_SIZE, (int)getCfgRc, (int)setCfgRc);
+        SF_ESP_TRACE("pthread stack config: size=%u caps=PSRAM|8BIT pin_to_core=%d get_rc=%d set_rc=%d",
+                     (unsigned)TH_STACK_SIZE, (int)workerCfg.pin_to_core,
+                     (int)getCfgRc, (int)setCfgRc);
         SF_ESP_TRACE("pthread_create begin; internal free=%u largest=%u; PSRAM free=%u largest=%u",
                      (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
                      (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
