@@ -418,7 +418,7 @@ void setup() {
 
   // Kiwipete is a legal, high-branching middlegame test position.
   const std::string kiwipeteFen =
-    "r3k2r/p1ppqpb1/bn2pnp1/2pP4/1p2P3/2N2N2/PPQBBPPP/R3K2R w KQkq - 0 1";
+    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
   const auto positionError = engine.set_position(kiwipeteFen, {});
   if (positionError.has_value()) {
     Serial.printf("[POSITION] Kiwipete FEN rejected: %s\n", positionError->what());
