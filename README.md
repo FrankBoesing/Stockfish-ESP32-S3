@@ -34,19 +34,26 @@ Repository and project scaffolding initialized. No Stockfish source has been cop
 The FNK0104B diagnostic firmware includes a synthetic memory benchmark after the heap report:
 
 - 128 KiB internal SRAM versus 128 KiB PSRAM, using the same working-set size.
-- 1 MiB PSRAM working set to show behavior with a larger table.
-- Sequential 32-bit read and write throughput.
-- Randomized reads and writes to 16-byte entries, reporting ns/op and Mops/s.
+- 128 KiB internal SRAM versus 128 KiB PSRAM, using the same working-set size.
+- 1 MiB PSRAM working set for a larger single-core reference.
+- 4 MiB and 7 MiB PSRAM tables, tested with one worker and with two workers pinned to different CPU cores.
+- Random probe and random store operations on the same shared 16-byte-entry table. The two workers use independent PRNG streams; 32-bit atomic field accesses avoid C++ data races if both select the same entry.
+- Per-worker latency and aggregate Mops/s, in addition to the smaller sequential bandwidth tests.
 
-The 16-byte entry is a deliberately simple stand-in for a compact transposition-table slot. This is **not** a Stockfish benchmark and its result is not equivalent to NPS. It isolates memory behavior under a reproducible single-core workload. The benchmark runs after the allocation/integrity test and before the display benchmark. It allocates and frees its test buffers, so it does not reserve memory for the eventual engine.
+The 16-byte entry is a synthetic stand-in for a compact transposition-table slot. This is **not** a Stockfish benchmark and its result is not equivalent to NPS. The atomic field operations are also not a reproduction of Stockfish's actual TT protocol. The benchmark isolates the cost of randomized PSRAM access, including concurrent traffic from both cores. It allocates and frees each large test table before continuing, so it does not reserve memory for the eventual engine.
+
+The display benchmark compares 40 MHz, 80 MHz and a final 40 MHz restore on the ILI9341. It measures repeated full-screen fills and 160x120 partial fills, then displays a four-quadrant pattern for a visual stability check at each clock. The code restores 40 MHz before the dashboard. 80 MHz is experimental: watch for corrupted pixels, flicker or incomplete updates.
 
 Build and upload the root PlatformIO project using the `freenove_fnk0104b` environment. Capture the complete serial output, especially the lines beginning with `MEMBENCH`. For a fair comparison, use the same firmware, CPU frequency, power conditions, and monitor setup; do not run Wi-Fi, display animation, or other memory-intensive tasks during the test.
 
 Interpretation:
 - Compare `internal_128K` and `psram_128K` first; these use equal working-set sizes.
 - Compare `psram_128K` and `psram_1M` to see the effect of a larger PSRAM working set.
-- Random probe/store ns/op is more relevant to hash-table access than sequential MiB/s, but still omits Stockfish's actual entry layout, hash distribution, search behavior, and multicore contention.
-- Repeat the test after reset at least three times. Use the median, not the best run.
+- Compare `MEMSHARED` probe/store results for 4 MiB and 7 MiB, first with one core and then with two. Aggregate Mops/s measures total throughput; per-core ns/op shows each worker's observed latency.
+- Two-core tests use the same allocated table. They do not emulate Stockfish's complete transposition-table synchronization algorithm.
+- Random probe/store ns/op is more relevant to hash-table access than sequential MiB/s, but still omits Stockfish's actual entry layout, hash distribution, and search behavior.
+- Compare the two `DISPLAYCLOCK` 40 MHz lines with the 80 MHz line. Visually inspect the screen during each 1.5-second pattern display.
+- Repeat the complete test after reset at least three times. Use the median, not the best run. If 80 MHz shows any visual corruption, use the 40 MHz baseline.
 
 ## Source provenance
 
