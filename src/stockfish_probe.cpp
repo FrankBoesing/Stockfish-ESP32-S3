@@ -413,18 +413,18 @@ void setup() {
 
   // Bound depth-16 searches by node count so this remains practical at the
   // current ~1 kNPS performance level. Reached depth is reported by callback.
-  constexpr uint64_t ProbeNodeLimit = 10000;
-  runBoundedSearch(engine, "start position depth-16 / 10k nodes", 16, ProbeNodeLimit);
+  constexpr uint64_t ProbeNodeLimit = 30000;
+  runBoundedSearch(engine, "start position depth-16 / 30k nodes", 16, ProbeNodeLimit);
 
   // Kiwipete is a legal, high-branching middlegame test position.
   const std::string kiwipeteFen =
-    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+    "r3k2r/p1ppqpb1/bn2pnp1/2pP4/1p2P3/2N2N2/PPQBBPPP/R3K2R w KQkq - 0 1";
   const auto positionError = engine.set_position(kiwipeteFen, {});
   if (positionError.has_value()) {
     Serial.printf("[POSITION] Kiwipete FEN rejected: %s\n", positionError->what());
   } else {
     Serial.printf("[POSITION] Kiwipete loaded: %s\n", engine.fen().c_str());
-    runBoundedSearch(engine, "Kiwipete middlegame / depth-16 / 10k nodes",
+    runBoundedSearch(engine, "Kiwipete middlegame / depth-16 / 30k nodes",
                      16, ProbeNodeLimit);
   }
 
