@@ -141,9 +141,8 @@ static void drawDashboard() {
   tft.setCursor(8,138); tft.printf("Free PSRAM: %u KiB",(unsigned)(ESP.getFreePsram()/1024));
   tft.drawFastHLine(8,158,tft.width()-16,TFT_DARKGREY);
   tft.setCursor(8,170); tft.setTextColor(TFT_YELLOW,TFT_BLACK); tft.println("Touch the screen:");
-  tft.setTextColor(TFT_WHITE,TFT_BLACK); tft.setCursor(8,188); tft.println("coordinates appear below");
-  tft.setCursor(8,210); tft.setTextColor(TFT_GREEN,TFT_BLACK); tft.println("Serial: 115200 baud");
-  tft.setCursor(8,232); tft.setTextColor(TFT_LIGHTGREY,TFT_BLACK); tft.printf("Display: %d x %d",tft.width(),tft.height());
+  tft.setTextColor(TFT_WHITE,TFT_BLACK); tft.setCursor(8,188); tft.println("Touch: waiting");
+  tft.setCursor(8,204); tft.setTextColor(TFT_GREEN,TFT_BLACK); tft.println("Serial: 115200 baud");
   const uint32_t bars[]={TFT_RED,TFT_GREEN,TFT_BLUE,TFT_CYAN,TFT_MAGENTA,TFT_YELLOW};
   int y=tft.height()-22,w=tft.width()/6;
   for(int i=0;i<6;++i) tft.fillRect(i*w,y,w,22,bars[i]);
@@ -167,8 +166,8 @@ void loop() {
   static uint32_t lastTouch=0; uint16_t x=0,y=0; uint8_t points=0;
   if(touchRead(x,y,points) && millis()-lastTouch>100) {
     lastTouch=millis(); Serial.printf("TOUCH points=%u x=%u y=%u\n",points,x,y);
-    tft.fillRect(8,204,tft.width()-16,20,TFT_BLACK);
-    tft.setCursor(8,210); tft.setTextColor(TFT_GREEN,TFT_BLACK);
+    tft.fillRect(8,184,tft.width()-16,18,TFT_BLACK);
+    tft.setCursor(8,188); tft.setTextColor(TFT_GREEN,TFT_BLACK);
     tft.printf("Touch: %u, %u",x,y);
   }
   delay(10);
