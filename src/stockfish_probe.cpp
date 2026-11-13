@@ -20,6 +20,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <sdkconfig.h>
 
 #include "stockfish/engine.h"
 #include "stockfish/attacks.h"
@@ -46,6 +47,32 @@ void stockfish_esp_trace(const char* format, ...) {
                 (unsigned)stackFree,
                 buffer);
   Serial.flush();
+}
+
+static void print_panic_configuration() {
+#if CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT
+  Serial.println("Panic mode = SILENT_REBOOT");
+#elif CONFIG_ESP_SYSTEM_PANIC_PRINT_HALT
+  Serial.println("Panic mode = PRINT_HALT");
+#elif CONFIG_ESP_SYSTEM_PANIC_PRINT_REBOOT
+  Serial.println("Panic mode = PRINT_REBOOT");
+#elif CONFIG_ESP_SYSTEM_PANIC_GDBSTUB
+  Serial.println("Panic mode = GDBSTUB");
+#else
+  Serial.println("Panic mode = unknown");
+#endif
+
+#if CONFIG_ESP_CONSOLE_USB_CDC
+  Serial.println("IDF panic/stdio console = USB_CDC");
+#elif CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+  Serial.println("IDF panic/stdio console = USB_SERIAL_JTAG");
+#elif CONFIG_ESP_CONSOLE_UART
+  Serial.println("IDF panic/stdio console = UART");
+#elif CONFIG_ESP_CONSOLE_NONE
+  Serial.println("IDF panic/stdio console = NONE");
+#else
+  Serial.println("IDF panic/stdio console = unknown");
+#endif
 }
 
 static void print_heap(const char* stage) {
@@ -77,6 +104,7 @@ void setup() {
   Serial.printf("Arduino loop task stack = %u bytes; current free stack ~= %u bytes\n",
                 (unsigned)getArduinoLoopTaskStackSize(),
                 (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+  print_panic_configuration();
   Serial.flush();
 
   Stockfish::Attacks::init();
