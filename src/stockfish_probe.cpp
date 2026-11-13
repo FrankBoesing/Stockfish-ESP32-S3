@@ -1,11 +1,14 @@
 #include <Arduino.h>
+#include <Wire.h>
+#include <LovyanGFX.hpp>
+#include "board_config.h"
 
 // Engine construction currently runs inside Arduino's loopTask (setup()).
 // The core default is 8 KiB; increase it temporarily for stack diagnostics.
 SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 // Arduino defines HIGH/LOW as GPIO level macros. Stockfish uses the same
-// identifiers in PrefetchLoc, so remove the macros before including it.
+// identifiers in PrefetchLoc, so remove the macros after the board headers.
 #ifdef HIGH
   #undef HIGH
 #endif
@@ -21,9 +24,6 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <sdkconfig.h>
-#include <Wire.h>
-#include <LovyanGFX.hpp>
-#include "board_config.h"
 
 #include "stockfish/engine.h"
 #include "stockfish/attacks.h"
@@ -353,5 +353,18 @@ void setup() {
 }
 
 void loop() {
-  delay(1000);
+  static uint32_t lastTouch = 0;
+  uint16_t x = 0, y = 0;
+  uint8_t points = 0;
+
+  if (touchRead(x, y, points) && millis() - lastTouch > 100) {
+    lastTouch = millis();
+    Serial.printf("[GUI] touch points=%u x=%u y=%u\n",
+                  (unsigned)points, (unsigned)x, (unsigned)y);
+    tft.fillRect(8, 204, tft.width() - 16, 16, TFT_BLACK);
+    tft.setCursor(8, 204);
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+    tft.printf("Touch: %u, %u", (unsigned)x, (unsigned)y);
+  }
+  delay(10);
 }
