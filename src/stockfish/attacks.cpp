@@ -19,9 +19,11 @@
 #include "attacks.h"
 
 #include <array>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-    #include <cstdlib>
     #include <esp_heap_caps.h>
 #endif
 
@@ -109,10 +111,37 @@ void init_magics(PieceType pt, Bitboard table[], Magic magics[][2]) {
     int seeds[][RANK_NB] = {{8977, 44560, 54343, 38998, 5731, 95205, 104912, 17020},
                             {728, 10316, 55013, 32803, 12281, 15100, 16645, 255}};
 
-    Bitboard occupancy[4096];
-    int      epoch[4096] = {}, cnt = 0;
-    Bitboard reference[4096] = {};
-    int      size            = 0;
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // These three scratch arrays total 80 KiB. Keeping them as automatic
+    // variables overflows the small Arduino loopTask stack on ESP32-S3.
+    // Allocate one temporary block in PSRAM and release it after table setup.
+    constexpr size_t EntryCount = 4096;
+    constexpr size_t ScratchSize =
+      2 * EntryCount * sizeof(Bitboard) + EntryCount * sizeof(int);
+    constexpr uint32_t psramCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+
+    void* scratchAllocation = heap_caps_malloc(ScratchSize + alignof(Bitboard) - 1, psramCaps);
+    if (!scratchAllocation)
+        std::abort();
+
+    const uintptr_t alignedAddress =
+      (reinterpret_cast<uintptr_t>(scratchAllocation) + alignof(Bitboard) - 1)
+      & ~(uintptr_t(alignof(Bitboard) - 1));
+    Bitboard* occupancy = reinterpret_cast<Bitboard*>(alignedAddress);
+    int*      epoch     = reinterpret_cast<int*>(occupancy + EntryCount);
+    Bitboard* reference = reinterpret_cast<Bitboard*>(epoch + EntryCount);
+    std::memset(epoch, 0, EntryCount * sizeof(int));
+    std::memset(reference, 0, EntryCount * sizeof(Bitboard));
+#else
+    Bitboard occupancyStorage[4096];
+    int      epochStorage[4096] = {};
+    Bitboard referenceStorage[4096] = {};
+    Bitboard* occupancy = occupancyStorage;
+    int*      epoch = epochStorage;
+    Bitboard* reference = referenceStorage;
+#endif
+    int cnt = 0;
+    int size = 0;
 
     for (Square s = SQ_A1; s <= SQ_H8; ++s)
     {
@@ -156,6 +185,10 @@ void init_magics(PieceType pt, Bitboard table[], Magic magics[][2]) {
             }
         }
     }
+
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    heap_caps_free(scratchAllocation);
+#endif
 }
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
