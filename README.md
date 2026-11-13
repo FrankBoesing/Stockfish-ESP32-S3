@@ -55,6 +55,30 @@ Interpretation:
 - Compare the two `DISPLAYCLOCK` 40 MHz lines with the 80 MHz line. Visually inspect the screen during each 1.5-second pattern display.
 - Repeat the complete test after reset at least three times. Use the median, not the best run. If 80 MHz shows any visual corruption, use the 40 MHz baseline.
 
+## Compiler optimization comparison
+
+The Stockfish probe can be built with three compiler optimization levels while keeping the source, board settings, CPU clock, NNUE network, hash size, and search tests unchanged:
+
+| PlatformIO environment | Optimization |
+| --- | --- |
+| `freenove_stockfish_compile` | `-Os` (baseline) |
+| `freenove_stockfish_o2` | `-O2` |
+| `freenove_stockfish_o3` | `-O3` |
+
+The baseline explicitly pins `-Os`, which is the Arduino-ESP32 3.3.12 release default. The `-O2` and `-O3` environments remove that default before applying the requested level. They also use separate PlatformIO output directories and linker maps. No `-Ofast` or fast-math options are used.
+
+Build and upload one variant at a time:
+
+```sh
+pio run -e freenove_stockfish_compile -t upload
+pio run -e freenove_stockfish_o2 -t upload
+pio run -e freenove_stockfish_o3 -t upload
+```
+
+The serial startup message identifies the optimization level. Each variant runs the same 30,000-node start-position search, 30,000-node Kiwipete search, and 5-second timed search. For useful hardware results, repeat each variant after three independent resets and compare the median `nps` values from the three `[SEARCH]` summaries. Keep the board, display state, power supply, monitor connection, and other running tasks unchanged. Also compare the reported firmware size and check for successful completion, watchdog reports, and stack warnings. A CI compile confirms buildability only; it does not establish which optimization is fastest on the ESP32-S3.
+
+GitHub Actions compiles all three variants and retains the firmware binaries and linker maps as a single artifact.
+
 ## Source provenance
 
 The engine source will be obtained from the official upstream repository:
