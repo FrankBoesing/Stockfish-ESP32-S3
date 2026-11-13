@@ -18,6 +18,14 @@
 
 #include "search.h"
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    #include <Arduino.h>
+    #define SF_ESP_TRACE(message) \
+        do { Serial.printf("[SFTRACE] %s\\n", message); Serial.flush(); } while (false)
+#else
+    #define SF_ESP_TRACE(message) ((void) 0)
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -180,7 +188,9 @@ Search::Worker::Worker(SharedState&                    sharedState,
     tt(sharedState.tt),
     network(sharedState.network),
     refreshTable(network[token]) {
+    SF_ESP_TRACE("Search::Worker constructor entered; starting clear");
     clear();
+    SF_ESP_TRACE("Search::Worker constructor complete");
 }
 
 void Search::Worker::ensure_network_replicated() {
@@ -687,13 +697,16 @@ void Search::Worker::undo_null_move(Position& pos) { pos.undo_null_move(); }
 
 // Reset histories, usually before a new game
 void Search::Worker::clear() {
+    SF_ESP_TRACE("Worker::clear begin");
     mainHistory.fill(-5);
     captureHistory.fill(-742);
+    SF_ESP_TRACE("Worker::clear local histories cleared");
 
     // Each thread clears its part of the dynamically-sized shared histories.
     // The constant-size continuation history is initialized by thread 0 of each NUMA node.
     sharedHistory.correctionHistory.clear_range(-5, numaThreadIdx, numaTotal);
     sharedHistory.pawnHistory.clear_range(-1338, numaThreadIdx, numaTotal);
+    SF_ESP_TRACE("Worker::clear shared histories cleared");
 
     if (numaThreadIdx == 0)
     {
@@ -708,6 +721,7 @@ void Search::Worker::clear() {
 #endif
     }
 
+    SF_ESP_TRACE("Worker::clear continuation history cleared");
     ttMoveHistory = 0;
 
     for (auto& to : continuationCorrectionHistory)
@@ -717,7 +731,9 @@ void Search::Worker::clear() {
     for (usize i = 1; i < reductions.size(); ++i)
         reductions[i] = int(2872 / 128.0 * std::log(i));
 
+    SF_ESP_TRACE("Worker::clear before refresh table");
     refreshTable.clear(network[numaAccessToken]);
+    SF_ESP_TRACE("Worker::clear complete");
 }
 
 
