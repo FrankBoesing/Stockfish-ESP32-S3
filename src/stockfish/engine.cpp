@@ -48,7 +48,13 @@ namespace Stockfish {
 
 namespace NN = Eval::NNUE;
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+int MaxThreads = 1;  // Start with one search worker on the constrained ESP32 target.
+constexpr int DefaultHashMB = 1;
+#else
 int MaxThreads = std::max(1024, 4 * int(get_hardware_concurrency()));
+constexpr int DefaultHashMB = 16;
+#endif
 
 // The default configuration will attempt to group L3 domains up to 32 threads.
 // This size was found to be a good balance between the Elo gain of increased
@@ -87,7 +93,7 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
       }));
 
     options.add(  //
-      "Hash", Option(16, 1, MaxHashMB, [this](const Option& o) {
+      "Hash", Option(DefaultHashMB, 1, MaxHashMB, [this](const Option& o) {
           set_tt_size(o);
           return std::nullopt;
       }));
