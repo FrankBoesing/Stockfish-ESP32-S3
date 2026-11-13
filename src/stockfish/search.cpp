@@ -35,6 +35,11 @@
 #include <string>
 #include <utility>
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    #include <freertos/FreeRTOS.h>
+    #include <freertos/task.h>
+#endif
+
 #include "bitboard.h"
 #include "evaluate.h"
 #include "history.h"
@@ -2133,6 +2138,20 @@ void SearchManager::check_time(Search::Worker& worker) {
 
     // When using nodes, ensure checking rate is not lower than 0.1% of nodes
     callsCnt = worker.limits.nodes ? std::min(512, int(worker.limits.nodes / 1024)) : 512;
+
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // The Stockfish worker is pinned to Core 0. Yield periodically so Core 0's
+    // IDLE task can run and service the ESP task watchdog during long searches.
+    // Throttle this to once per second: node-limited searches can call
+    // check_time() very frequently, so yielding on every call is too costly.
+    static TickType_t lastYieldTick = xTaskGetTickCount();
+    const TickType_t currentTick = xTaskGetTickCount();
+    if ((TickType_t)(currentTick - lastYieldTick) >= pdMS_TO_TICKS(1000))
+    {
+        lastYieldTick = currentTick;
+        vTaskDelay(2);
+    }
+#endif
 
     static TimePoint lastInfoTime = now();
 
