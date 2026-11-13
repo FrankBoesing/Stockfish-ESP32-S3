@@ -21,7 +21,7 @@
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
     #include <Arduino.h>
     #define SF_ESP_TRACE(message) \
-        do { Serial.printf("[SFTRACE] %s\\n", message); Serial.flush(); } while (false)
+        do { Serial.printf("[SFTRACE] %s\n", message); Serial.flush(); } while (false)
 #else
     #define SF_ESP_TRACE(message) ((void) 0)
 #endif
