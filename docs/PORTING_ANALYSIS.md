@@ -180,16 +180,15 @@ Weitere Punkte:
 ## 8. Aktueller Implementierungs- und Prüfstand
 
 - Stockfish-19-Smallnet-Quellen sind unter src/stockfish/ integriert. Die exakten alten Blob-IDs des Smallnet-Patches wurden gegen den offiziellen SF19-Release geprüft.
-- Der erste ESP32-S3-Compile-Lauf kompilierte die Stockfish-Quellen, scheiterte aber beim Linken an .dram0.bss.
-- Die Linker-Map aus CI-Lauf 43428347452 zeigt als Hauptverursacher die statischen Magic-Angriffstabellen: RookTable mit 0xC8000 Byte und BishopTable mit 0xA400 Byte. Zusammen sind dies 861.184 Byte.
-- Weitere große statische Tabellen sind LineBB, BetweenBB, RayPassBB, cuckoo und cuckooMove. Die Map belegt damit die Ursache des DRAM-Überlaufs konkret.
-- In Commit 54bed36b4410205652667d5f987505dddee5e027 werden Rook-/Bishop-Magic-Tabellen auf ESP32 mit heap_caps_calloc(..., MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) im externen RAM angelegt. Auf Nicht-ESP32-Builds bleibt die ursprüngliche statische std::array-Ablage erhalten.
-- Bei fehlgeschlagener PSRAM-Reservierung werden eventuell bereits reservierte Teilbereiche freigegeben und die Initialisierung bricht mit std::abort() ab. Die Tabellen bleiben nach erfolgreicher Initialisierung für die gesamte Laufzeit bestehen.
-- Die übrigen Tabellen verbleiben zunächst im internen DRAM. Die Laufzeitkosten der PSRAM-Zugriffe sind noch nicht gemessen.
+- Der anfängliche ESP32-S3-Link scheiterte an .dram0.bss. Die Linker-Map aus CI-Lauf 43428347452 identifizierte RookTable (0xC8000 Byte) und BishopTable (0xA400 Byte) als Hauptverursacher; zusammen 861.184 Byte.
+- Commit 54bed36b4410205652667d5f987505dddee5e027 verlagert diese beiden dauerhaften Magic-Tabellen auf ESP32 in den PSRAM-Heap. CI-Lauf 43429621038 bestätigte für diesen Stand den erfolgreichen Compile und Link.
+- Beim ersten Start auf dem ESP32-S3 wurde anschließend ein Stack-canary-Fehler in loopTask gemeldet. Die Ursache ist in init_magics(): occupancy[4096], epoch[4096] und reference[4096] belegten zusammen 80 KiB als lokale Stack-Arrays.
+- Commit 93741b16d23e784ce2316f9efbd6ddf589700375 verschiebt diese drei temporären Initialisierungsarrays auf ESP32 ebenfalls in einen temporären PSRAM-Heap-Block und gibt diesen nach Abschluss jeder Magic-Tabelleninitialisierung wieder frei. Auf Nicht-ESP32-Systemen bleibt der bisherige lokale Stack-/Array-Pfad erhalten.
+- Die übrigen permanenten Tabellen (LineBB, BetweenBB, RayPassBB, cuckoo und cuckooMove) verbleiben zunächst im internen DRAM. Die Performance-Auswirkung der PSRAM-Magic-Tabellen ist noch nicht gemessen.
 
-CI-Lauf 43429621038 prüft diese Änderung. Zum letzten Statusabruf war der PlatformIO-Build noch in Bearbeitung. Ein erfolgreicher Link und ein Lauf auf echter Hardware sind daher noch nicht bestätigt.
+CI-Lauf 43431188861 prüft die Stackkorrektur. Ein erfolgreicher Link für diesen neuen Commit und ein erneuter Start auf dem realen Board müssen noch bestätigt werden.
 
-Noch nicht verifiziert sind insbesondere: tatsächliche PSRAM-Heap-Verfügbarkeit beim Start, Laufzeitinitialisierung der Magic-Tabellen, Größen der relevanten Objekte auf dem Ziel, Thread-Stack, UCI-Ein-/Ausgabe, std::filesystem, NNUE-Laden und Suchkorrektheit.
+Noch nicht verifiziert sind insbesondere: tatsächliche PSRAM-Heap-Verfügbarkeit beim Start, Laufzeitinitialisierung der Magic-Tabellen nach der Stackkorrektur, Thread-Stack, UCI-Ein-/Ausgabe, std::filesystem, NNUE-Laden und Suchkorrektheit.
 
 ## 9. Smallnet-Patch-Abgleich mit dem offiziellen SF19-Release
 
