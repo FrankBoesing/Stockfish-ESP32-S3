@@ -181,9 +181,19 @@ static_assert(sizeof(Cluster) == 32, "Suboptimal Cluster size");
 // Transposition table consists of clusters and each cluster consists
 // of ClusterSize number of TTEntry.
 void TranspositionTable::resize(usize mbSize, ThreadPool& threads) {
+    const usize newClusterCount = mbSize * 1024 * 1024 / sizeof(Cluster);
+
+    // Keep the existing allocation when only the thread count changes.
+    // The caller may resize the thread pool without needing a new hash table.
+    if (table && clusterCount == newClusterCount)
+    {
+        clear(threads);
+        return;
+    }
+
     aligned_large_pages_free(table);
 
-    clusterCount  = mbSize * 1024 * 1024 / sizeof(Cluster);
+    clusterCount  = newClusterCount;
     usize ttBytes = clusterCount * sizeof(Cluster);
 
     // Request 1GB pages if we'd get at least eight per NUMA node, to avoid
@@ -198,7 +208,13 @@ void TranspositionTable::resize(usize mbSize, ThreadPool& threads) {
         SF_FATAL_EXIT(EXIT_FAILURE, "Transposition-table allocation failed");
     }
 
-    clear(threads);
+    // On the ESP32, the initial table is reserved before Search::Worker
+    // allocations to avoid PSRAM fragmentation. At this point the thread pool
+    // is still empty, so initialize it directly on the calling task.
+    if (threads.num_threads() == 0)
+        std::memset(table, 0, ttBytes);
+    else
+        clear(threads);
 }
 
 
