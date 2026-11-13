@@ -41,6 +41,10 @@
 #include "misc.h"
 #include "shm.h"
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    #include <sdkconfig.h>
+#endif
+
 // We support linux very well, but we explicitly do NOT support Android,
 // because there is no affected systems, not worth maintaining.
 #if defined(__linux__) && !defined(__ANDROID__)
@@ -80,16 +84,23 @@ using CpuIndex  = usize;
 using NumaIndex = usize;
 
 inline CpuIndex get_hardware_concurrency() {
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // ESP-IDF knows the configured physical core count. Some Arduino/libstdc++
+    // builds report only one processor from std::thread::hardware_concurrency()
+    // even on dual-core ESP32 targets.
+    return CONFIG_FREERTOS_NUMBER_OF_CORES;
+#else
     CpuIndex concurrency = std::thread::hardware_concurrency();
 
     // Get all processors across all processor groups on windows, since
     // hardware_concurrency() only returns the number of processors in
     // the first group, because only these are available to std::thread.
-#ifdef _WIN64
-    concurrency = std::max<CpuIndex>(concurrency, GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
-#endif
+    #ifdef _WIN64
+        concurrency = std::max<CpuIndex>(concurrency, GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
+    #endif
 
     return concurrency;
+#endif
 }
 
 inline const CpuIndex SYSTEM_THREADS_NB = std::max<CpuIndex>(1, get_hardware_concurrency());
