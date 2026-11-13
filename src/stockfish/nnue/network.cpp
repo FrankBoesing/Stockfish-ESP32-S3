@@ -187,7 +187,7 @@ void Network::verify(const std::function<void(std::string_view)>& f,
             f(msg);
         }
 
-        SF_FATAL_EXIT(EXIT_FAILURE, msg.c_str());
+        SF_FATAL_EXIT(EXIT_FAILURE, "NNUE network verification failed");
     }
 
     if (f)
