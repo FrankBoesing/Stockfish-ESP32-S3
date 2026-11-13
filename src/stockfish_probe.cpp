@@ -212,24 +212,6 @@ static void initDisplayAndTouch() {
   drawProbeDashboard();
 }
 
-static void runDepthSearch(Stockfish::Engine& engine, int depth) {
-  resetSearchProbeStats();
-  Stockfish::Search::LimitsType limits;
-  limits.depth = depth;
-  limits.startTime = Stockfish::now();
-
-  Serial.printf("\nStarting Stockfish depth-%d search...\n", depth);
-  Serial.flush();
-  engine.go(limits);
-  engine.wait_for_search_finished();
-
-  Serial.printf("Depth-%d search complete.\n", depth);
-  printSearchProbeStats("depth search");
-  char label[40];
-  snprintf(label, sizeof(label), "After depth-%d search", depth);
-  print_heap(label);
-}
-
 static void runBoundedSearch(Stockfish::Engine& engine,
                               const char* label,
                               int maxDepth,
