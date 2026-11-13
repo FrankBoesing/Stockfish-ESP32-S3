@@ -152,10 +152,16 @@ NetworkOutput Network::evaluate(const Position&    pos,
 
     NNZInfo<L1> nnzInfo;
 
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    const uint32_t benchStart = Bench::cycle_count();
+#endif
     const int  bucket     = (pos.count<ALL_PIECES>() - 1) / 4;
     const auto psqt       = featureTransformer.transform(pos, accumulatorStack, cache,
                                                          transformedFeatures, bucket, nnzInfo);
     const auto positional = network[bucket].propagate(transformedFeatures, nnzInfo);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::EvaluationTotal, benchStart);
+#endif
     return {static_cast<Value>(psqt / OutputScale), static_cast<Value>(positional / OutputScale)};
 }
 
