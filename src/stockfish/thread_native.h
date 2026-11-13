@@ -96,7 +96,7 @@ class NativeThread {
     // arbitrary/deep Stockfish searches fit. The probe records the task's
     // minimum free stack after each search and can raise this value if needed.
     // Use PSRAM to preserve scarce contiguous internal DRAM for the GUI/DMA.
-    static constexpr usize TH_STACK_SIZE = 128 * 1024;
+    static constexpr usize TH_STACK_SIZE = 192 * 1024;
 #else
     static constexpr usize TH_STACK_SIZE = 8 * 1024 * 1024;
 #endif
