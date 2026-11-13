@@ -8,6 +8,9 @@
 #ifdef LOW
   #undef LOW
 #endif
+#ifdef cli
+  #undef cli
+#endif
 
 #include <esp_heap_caps.h>
 #include <esp_system.h>
@@ -20,6 +23,19 @@
 #include "stockfish/nnue/nnue_accumulator.h"
 #include "stockfish/history.h"
 #include "stockfish/search.h"
+
+#include <cstdarg>
+#include <cstdio>
+
+void stockfish_esp_trace(const char* format, ...) {
+  char buffer[256];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer, sizeof(buffer), format, args);
+  va_end(args);
+  Serial.printf("[SFTRACE] %s\n", buffer);
+  Serial.flush();
+}
 
 static void print_heap(const char* stage) {
   constexpr uint32_t psramCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
