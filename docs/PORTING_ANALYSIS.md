@@ -199,20 +199,26 @@ Diese Analyse ist eine Architektur- und Integrationsgrundlage. Der Compile-/Link
 
 ## 9. Smallnet-Patch-Abgleich mit dem offiziellen SF19-Release
 
-Die Smallnet-Patchserie basiert auf dem Upstream-Entwicklungsstand `3f6f417b87c0e80ee30914b6b539b4ab7d3b2a5b`, nicht direkt auf dem späteren Release-Commit `edb0d9db6731067ec50ce619ff372b463bc4dd5d`. Zwischen beiden liegen sechs Upstream-Commits.
+Die Smallnet-Patchbeschreibung nennt als Entwicklungsbasis `3f6f417b87c0e80ee30914b6b539b4ab7d3b2a5b`. Für die Portierung wurde nicht nur die Patchbeschreibung herangezogen, sondern jede im Unified Diff angegebene alte Blob-ID gegen den Git-Tree des offiziellen SF19-Tags geprüft.
 
-Der Smallnet-Patch wurde quelltextbasiert auf den tatsächlichen SF19-Release-Stand vorwärtsportiert:
-- Alle betroffenen Hunk-Blöcke für Makefile, NNUE-Code, Position und Search ließen sich anhand der SF19-Dateien übernehmen.
-- Nur der Threat-Datenstrukturblock in `types.h` brauchte eine manuelle Auflösung. Entfernt wurden `DirtyThreat`, `DirtyThreats`, `DirtyPawnPairs` und `Dirties`; die übrigen SF19-Änderungen blieben erhalten.
-- Der WebAssembly-Patch 0002 wird nicht übernommen.
-- Ein lokales `git apply --check` und ein tatsächlicher Zielbuild sind noch nicht erfolgt.
+Ergebnis der Prüfung gegen `edb0d9db6731067ec50ce619ff372b463bc4dd5d`:
+
+- Alle 18 bereits existierenden Dateien im Patch besitzen auf SF19 exakt die erwarteten alten Blob-IDs.
+- Die erwarteten Ziel-Blob-IDs aus dem Patch stimmen mit den geänderten Dateien im vendorten Smallnet-Quellstand überein.
+- `src/nnue/features/p_hm.h` ist die einzige neu angelegte Datei.
+- Gelöschte Dateien und die Umbenennung von `half_ka_v2_hm.cpp` zu `p_hm.cpp` entsprechen dem Patch.
+
+Damit ist der Smallnet-Patch **direkt auf den festgepinnten SF19-Release anwendbar**. Eine manuelle Auflösung von `types.h`-Hunks oder ein Ausweichen auf einen späteren Entwicklungsstand ist nicht erforderlich. Frühere Notizen, die eine manuelle Forward-Portierung erwähnen, sind durch diese Blob-Prüfung überholt.
+
+Eine zusätzliche lokale ESP32-Buildkorrektur wurde getrennt gehalten: In `nnue/layers/clipped_relu.h` wird `std::clamp<InputType>` explizit parametrisiert, damit Xtensas Typdeduktion bei gemischten Integer-Typen eindeutig ist. Diese Änderung gehört nicht zum Smallnet-Feature-Patch.
 
 ## 10. Compile-/Link-Testziel
 
-Die Quelle liegt jetzt unter `src/stockfish/`; Upstream-Lizenz und AUTHORS-Datei sind enthalten. `platformio.ini` hat zwei getrennte Umgebungen:
+Die Quelle liegt unter `src/stockfish/`; Upstream-Lizenz und AUTHORS-Datei sind enthalten. `platformio.ini` hat zwei getrennte Umgebungen:
+
 - `freenove_fnk0104b`: bestehende Board-Diagnose, Stockfish-Quellen explizit ausgeschlossen.
 - `freenove_stockfish_compile`: SF19-Smallnet-Quellen, Xtensa-Skalarpfad, C++17, kein Prefetch, keine Syzygy-Tablebases und keine eingebettete NNUE-Datei.
 
 Der Probe-Sketch initialisiert Attack-/Positionsdaten und gibt Objektgrößen aus. Er startet keine Suche, erzeugt keine Worker-Threads und lädt keine NNUE-Gewichte.
 
-Die Firmware wurde hier noch nicht gebaut. Die Quellen sind integriert; die Compile-/Link-Verifikation bleibt der nächste Test.
+Der erste GitHub-Actions-Lauf erreichte den Stockfish-Probe-Übersetzer, scheiterte jedoch an der Arduino-`HIGH`/`LOW`-Makrokollision. Diese Makros werden inzwischen vor den Stockfish-Headern im Probe-Sketch aufgehoben. Der erneute Compile-/Link-Lauf muss noch erfolgreich bestätigt werden.
