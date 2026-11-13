@@ -21,6 +21,9 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <sdkconfig.h>
+#include <Wire.h>
+#include <LovyanGFX.hpp>
+#include "board_config.h"
 
 #include "stockfish/engine.h"
 #include "stockfish/attacks.h"
@@ -33,6 +36,156 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 #include <cstdarg>
 #include <cstdio>
+
+class BoardDisplay : public lgfx::LGFX_Device {
+  lgfx::Bus_SPI _bus;
+  lgfx::Panel_ILI9341 _panel;
+public:
+  BoardDisplay() {
+    auto b = _bus.config();
+    b.spi_host = SPI2_HOST;
+    b.spi_mode = 0;
+    b.freq_write = 40000000;
+    b.freq_read = 16000000;
+    b.spi_3wire = false;
+    b.use_lock = true;
+    b.dma_channel = SPI_DMA_CH_AUTO;
+    b.pin_sclk = LCD_SCLK;
+    b.pin_mosi = LCD_MOSI;
+    b.pin_miso = LCD_MISO;
+    b.pin_dc = LCD_DC;
+    _bus.config(b);
+    _panel.setBus(&_bus);
+
+    auto p = _panel.config();
+    p.pin_cs = LCD_CS;
+    p.pin_rst = LCD_RST;
+    p.pin_busy = -1;
+    p.memory_width = LCD_WIDTH;
+    p.memory_height = LCD_HEIGHT;
+    p.panel_width = LCD_WIDTH;
+    p.panel_height = LCD_HEIGHT;
+    p.offset_x = 0;
+    p.offset_y = 0;
+    p.offset_rotation = 0;
+    p.dummy_read_pixel = 8;
+    p.dummy_read_bits = 1;
+    p.readable = true;
+    p.invert = false;
+    p.rgb_order = false;
+    p.dlen_16bit = false;
+    p.bus_shared = true;
+    _panel.config(p);
+    setPanel(&_panel);
+  }
+};
+static BoardDisplay tft;
+
+static bool touchRead(uint16_t &x, uint16_t &y, uint8_t &points) {
+  Wire.beginTransmission(TOUCH_I2C_ADDR);
+  Wire.write(0x02);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(TOUCH_I2C_ADDR, (uint8_t)5) != 5) return false;
+  uint8_t count = Wire.read() & 0x0F;
+  uint8_t xh = Wire.read(), xl = Wire.read();
+  uint8_t yh = Wire.read(), yl = Wire.read();
+  points = count;
+  x = ((xh & 0x0F) << 8) | xl;
+  y = ((yh & 0x0F) << 8) | yl;
+  return count != 0;
+}
+
+static void drawProbeDashboard() {
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(8, 8);
+  tft.println("Stockfish ESP32");
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_CYAN, TFT_BLACK);
+  tft.println("Engine + display memory test");
+  tft.drawFastHLine(8, 48, tft.width() - 16, TFT_DARKGREY);
+
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setCursor(8, 62);
+  tft.println("ILI9341 / LovyanGFX");
+  tft.setCursor(8, 80);
+  tft.println("FT6336U touch / I2C");
+  tft.setCursor(8, 98);
+  tft.println("Stockfish 19 Smallnet");
+  tft.setCursor(8, 116);
+  tft.println("1 worker / 1 MiB hash");
+  tft.drawFastHLine(8, 144, tft.width() - 16, TFT_DARKGREY);
+
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setCursor(8, 158);
+  tft.println("Search tests: depth 1 / 4 / 8");
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.setCursor(8, 178);
+  tft.println("Timed search: 5 seconds");
+
+  const uint32_t bars[] = {
+    TFT_RED, TFT_GREEN, TFT_BLUE, TFT_CYAN, TFT_MAGENTA, TFT_YELLOW
+  };
+  const int y = tft.height() - 22;
+  const int w = tft.width() / 6;
+  for (int i = 0; i < 6; ++i)
+    tft.fillRect(i * w, y, w, 22, bars[i]);
+}
+
+static void initDisplayAndTouch() {
+  pinMode(LCD_BL, OUTPUT);
+  digitalWrite(LCD_BL, HIGH);
+
+  if (!tft.init()) {
+    Serial.println("[GUI] ILI9341 initialization failed");
+    return;
+  }
+  tft.setRotation(1);
+  Serial.printf("[GUI] Display initialized: %d x %d\n", tft.width(), tft.height());
+
+  pinMode(TOUCH_RST, OUTPUT);
+  digitalWrite(TOUCH_RST, HIGH);
+  Wire.begin(TOUCH_SDA, TOUCH_SCL, 400000);
+  delay(50);
+  Wire.beginTransmission(TOUCH_I2C_ADDR);
+  const bool touchPresent = Wire.endTransmission() == 0;
+  Serial.printf("[GUI] FT6336U I2C @0x%02X: %s\n",
+                TOUCH_I2C_ADDR, touchPresent ? "ACK" : "NOT FOUND");
+
+  drawProbeDashboard();
+}
+
+static void runDepthSearch(Stockfish::Engine& engine, int depth) {
+  Stockfish::Search::LimitsType limits;
+  limits.depth = depth;
+  limits.startTime = Stockfish::now();
+
+  Serial.printf("\nStarting Stockfish depth-%d search...\n", depth);
+  Serial.flush();
+  engine.go(limits);
+  engine.wait_for_search_finished();
+
+  Serial.printf("Depth-%d search complete.\n", depth);
+  char label[40];
+  snprintf(label, sizeof(label), "After depth-%d search", depth);
+  print_heap(label);
+}
+
+static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
+  Stockfish::Search::LimitsType limits;
+  limits.movetime = milliseconds;
+  limits.startTime = Stockfish::now();
+
+  Serial.printf("\nStarting Stockfish timed search (%u ms)...\n",
+                (unsigned)milliseconds);
+  Serial.flush();
+  engine.go(limits);
+  engine.wait_for_search_finished();
+
+  Serial.println("Timed search complete.");
+  print_heap("After 5-second search");
+}
 
 void stockfish_esp_trace(const char* format, ...) {
   char buffer[256];
@@ -107,6 +260,11 @@ void setup() {
   print_panic_configuration();
   Serial.flush();
 
+  // Initialize the same ILI9341/FT6336U diagnostic UI used by the board
+  // firmware before constructing the engine, to measure the combined budget.
+  initDisplayAndTouch();
+  print_heap("After display and touch initialization");
+
   Stockfish::Attacks::init();
   Stockfish::Position::init();
 
@@ -167,8 +325,10 @@ void setup() {
   engine.set_on_update_no_moves([](const Stockfish::Engine::InfoShort&) {
     // No-move diagnostic is not needed for the start-position probe.
   });
-  engine.set_on_update_full([](const Stockfish::Engine::InfoFull&) {
-    // Detailed UCI iteration output is intentionally omitted in this probe.
+  engine.set_on_update_full([](const Stockfish::Engine::InfoFull& info) {
+    Serial.printf("[SEARCH] depth=%d nodes=%u nps=%u hashfull=%d\n",
+                  info.depth, (unsigned)info.nodes, (unsigned)info.nps,
+                  info.hashfull);
   });
   engine.set_on_iter([](const Stockfish::Engine::InfoIter&) {
     // Current-move UCI output is intentionally omitted in this probe.
@@ -181,22 +341,15 @@ void setup() {
     Serial.println();
   });
 
-  // A depth-1 search is the first test that exercises the real search path
-  // and NNUE evaluation. Keep this deliberately short for the initial probe.
-  Stockfish::Search::LimitsType limits;
-  limits.depth = 1;
+  // Grow the search load in small steps while the real display driver stays
+  // initialized. Heap checkpoints include both the engine and the GUI layer.
+  runDepthSearch(engine, 1);
+  runDepthSearch(engine, 4);
+  runDepthSearch(engine, 8);
+  runTimedSearch(engine, 5000);
 
   Serial.println();
-  Serial.println("Starting Stockfish depth-1 search...");
-  Serial.flush();
-  engine.go(limits);
-  engine.wait_for_search_finished();
-
-  Serial.println("Depth-1 search complete.");
-  print_heap("After depth-1 search");
-
-  Serial.println();
-  Serial.println("Probe complete. NNUE verification and depth-1 search succeeded.");
+  Serial.println("Probe complete. GUI, NNUE verification, depth searches and timed search finished.");
 }
 
 void loop() {
