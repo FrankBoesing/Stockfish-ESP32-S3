@@ -141,6 +141,9 @@ class NativeThread {
         esp_pthread_cfg_t workerCfg = previousCfg;
         workerCfg.stack_size = TH_STACK_SIZE;
         workerCfg.stack_alloc_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+        // Arduino setup()/loop() is observed on Core 1 on the target board.
+        // Keep the Stockfish worker on Core 0 to avoid competing with the UI task.
+        workerCfg.pin_to_core = 0;
         workerCfg.inherit_cfg = false;
         const esp_err_t setCfgRc = esp_pthread_set_cfg(&workerCfg);
 
