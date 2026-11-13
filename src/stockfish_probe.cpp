@@ -141,8 +141,36 @@ void setup() {
   Serial.println(threadInfo.c_str());
 
   print_heap("After Engine construction");
+
+  // First verify that the expected NNUE network is loaded and compatible.
+  // Stockfish::Engine::go() performs this check again before starting search.
+  engine.set_on_verify_network([](std::string_view msg) {
+    Serial.printf("[NNUE] %.*s\\n", (int)msg.size(), msg.data());
+  });
+
   Serial.println();
-  Serial.println("Probe complete. No search was started and NNUE verification was not requested.");
+  Serial.println("Starting explicit NNUE network verification...");
+  Serial.flush();
+  engine.verify_network();
+  Serial.println("NNUE verification complete.");
+  print_heap("After NNUE verification");
+
+  // A depth-1 search is the first test that exercises the real search path
+  // and NNUE evaluation. Keep this deliberately short for the initial probe.
+  Stockfish::Search::LimitsType limits;
+  limits.depth = 1;
+
+  Serial.println();
+  Serial.println("Starting Stockfish depth-1 search...");
+  Serial.flush();
+  engine.go(limits);
+  engine.wait_for_search_finished();
+
+  Serial.println("Depth-1 search complete.");
+  print_heap("After depth-1 search");
+
+  Serial.println();
+  Serial.println("Probe complete. NNUE verification and depth-1 search succeeded.");
 }
 
 void loop() {
