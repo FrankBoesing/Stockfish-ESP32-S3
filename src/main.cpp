@@ -104,7 +104,7 @@ static void runMemoryCase(const char *label, uint32_t caps, size_t bytes,
                           uint32_t randomOps, uint32_t sequentialPasses) {
   uint8_t *raw = (uint8_t *)heap_caps_malloc(bytes, caps);
   if (!raw) {
-    Serial.printf("MEMBENCH %s: allocation FAILED (%u bytes)\\n",
+    Serial.printf("MEMBENCH %s: allocation FAILED (%u bytes)\n",
                   label, (unsigned)bytes);
     return;
   }
@@ -176,19 +176,19 @@ static void runMemoryCase(const char *label, uint32_t caps, size_t bytes,
   const double probeMops = probeUs ? (double)randomOps / probeUs : 0.0;
   const double storeMops = storeUs ? (double)randomOps / storeUs : 0.0;
 
-  Serial.printf("MEMBENCH %-14s size=%u bytes entries=%u\\n",
+  Serial.printf("MEMBENCH %-14s size=%u bytes entries=%u\n",
                 label, (unsigned)bytes, (unsigned)entryCount);
-  Serial.printf("  sequential: write=%7.2f MiB/s read=%7.2f MiB/s passes=%u\\n",
+  Serial.printf("  sequential: write=%7.2f MiB/s read=%7.2f MiB/s passes=%u\n",
                 writeMiBs, readMiBs, (unsigned)sequentialPasses);
-  Serial.printf("  random probe: %7.1f ns/op (%6.3f Mops/s)\\n",
+  Serial.printf("  random probe: %7.1f ns/op (%6.3f Mops/s)\n",
                 probeNs, probeMops);
-  Serial.printf("  random store: %7.1f ns/op (%6.3f Mops/s)\\n",
+  Serial.printf("  random store: %7.1f ns/op (%6.3f Mops/s)\n",
                 storeNs, storeMops);
   heap_caps_free(raw);
 }
 
 static void memoryAccessBenchmark() {
-  Serial.println("\\n=== MEMORY ACCESS BENCHMARK (single core, synthetic 16-byte entries) ===");
+  Serial.println("\n=== MEMORY ACCESS BENCHMARK (single core, synthetic 16-byte entries) ===");
   Serial.println("Not Stockfish NPS; no other benchmark task runs concurrently.");
   const uint32_t ops = 300000;
   // Equal 128 KiB working sets give a direct SRAM-vs-PSRAM comparison.
@@ -200,7 +200,7 @@ static void memoryAccessBenchmark() {
   // the internal SRAM budget and is less cache-friendly.
   runMemoryCase("psram_1M", MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
                 1024 * 1024, ops, 4);
-  Serial.printf("MEMBENCH sink=%08" PRIx32 "\\n", (uint32_t)memoryBenchSink);
+  Serial.printf("MEMBENCH sink=%08" PRIx32 "\n", (uint32_t)memoryBenchSink);
 }
 
 static volatile bool cpuGo = false;
