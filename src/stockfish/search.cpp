@@ -2142,9 +2142,16 @@ void SearchManager::check_time(Search::Worker& worker) {
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
     // A Stockfish worker pinned to one ESP32 core can otherwise starve that
     // core's IDLE task and trigger the ESP task watchdog during long searches.
-    // Yield for one RTOS tick at the normal time-check cadence so IDLE/system
-    // tasks can run. This is ESP-only; desktop search behaviour is unchanged.
-    vTaskDelay(1);
+    // Node-limited searches call check_time() very frequently, so throttle the
+    // yield to at most once per second instead of delaying on every check.
+    // One RTOS tick is enough to let IDLE/system tasks run. ESP-only.
+    static TickType_t lastYieldTick = xTaskGetTickCount();
+    const TickType_t currentTick = xTaskGetTickCount();
+    if ((TickType_t)(currentTick - lastYieldTick) >= pdMS_TO_TICKS(1000))
+    {
+        lastYieldTick = currentTick;
+        vTaskDelay(1);
+    }
 #endif
 
     static TimePoint lastInfoTime = now();
