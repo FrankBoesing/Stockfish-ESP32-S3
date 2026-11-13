@@ -32,6 +32,7 @@
 #include "nnue_accumulator.h"
 #include "nnue_architecture.h"
 #include "nnue_common.h"
+#include "nnue_bench.h"
 #include "simd.h"
 
 namespace Stockfish::Eval::NNUE {
@@ -191,7 +192,14 @@ class FeatureTransformer {
                   OutputType*                                 output,
                   int                                         bucket,
                   [[maybe_unused]] NNZInfo<OutputDimensions>& nnzInfo) const {
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+        uint32_t benchStart = Bench::cycle_count();
+#endif
         accumulatorStack.evaluate(pos, *this, cache);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+        Bench::record(Bench::AccumulatorUpdate, benchStart);
+        benchStart = Bench::cycle_count();
+#endif
         const auto& accumulatorState = accumulatorStack.latest();
 
         const Color perspectives[2]  = {pos.side_to_move(), ~pos.side_to_move()};
@@ -205,6 +213,9 @@ class FeatureTransformer {
         for (IndexType p = 0; p < 2; ++p)
             transform_perspective(accumulation[perspectives[p]], output, p, nnzInfo);
 
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+        Bench::record(Bench::FeatureTransform, benchStart);
+#endif
         return psqt;
     }
 
