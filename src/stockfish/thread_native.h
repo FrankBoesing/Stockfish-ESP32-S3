@@ -24,6 +24,7 @@
 #else
     #include <pthread.h>
     #include <cstdlib>
+    #include <cerrno>
     #include <cstring>
     #include <functional>
     #include <iostream>
