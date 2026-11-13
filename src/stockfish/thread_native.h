@@ -92,9 +92,9 @@ class NativeThread {
     bool      running_ = false;
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-    // 128 KiB is the current measured-test starting point, not a claim that
-    // arbitrary/deep Stockfish searches fit. The probe records the task's
-    // minimum free stack after each search and can raise this value if needed.
+    // The 128 KiB run completed 30k-node tests but left only 17.7 KiB free
+    // on the complex middlegame. Increase to 192 KiB to provide more reserve;
+    // deeper and more varied positions still need hardware validation.
     // Use PSRAM to preserve scarce contiguous internal DRAM for the GUI/DMA.
     static constexpr usize TH_STACK_SIZE = 192 * 1024;
 #else
