@@ -121,13 +121,12 @@ class ThreadPool {
     ThreadPool() {}
 
     ~ThreadPool() {
-        // destroy any existing thread(s)
-        if (threads.size() > 0)
-        {
-            main_thread()->wait_for_search_finished();
+        // Wait for any valid threads before destroying the pool.
+        for (auto&& th : threads)
+            if (th)
+                th->wait_for_search_finished();
 
-            threads.clear();
-        }
+        threads.clear();
     }
 
     ThreadPool(const ThreadPool&) = delete;
@@ -146,7 +145,12 @@ class ThreadPool {
               const Search::SearchManager::UpdateContext&);
 
     Search::SearchManager* main_manager();
-    Thread*                main_thread() const { return threads.front().get(); }
+    bool                   has_main_thread() const {
+        return !threads.empty() && bool(threads.front());
+    }
+    Thread*                main_thread() const {
+        return has_main_thread() ? threads.front().get() : nullptr;
+    }
     u64                    nodes_searched() const;
     u64                    tb_hits() const;
     Thread*                get_best_thread() const;
