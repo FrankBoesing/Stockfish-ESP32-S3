@@ -10,6 +10,7 @@
 #endif
 
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 
 #include "stockfish/engine.h"
 #include "stockfish/attacks.h"
@@ -45,6 +46,8 @@ void setup() {
 
   Serial.println();
   Serial.println("Stockfish 19 Smallnet ESP32-S3 engine memory probe");
+  Serial.printf("ESP reset reason = %d\\n", (int) esp_reset_reason());
+  Serial.flush();
 
   Stockfish::Attacks::init();
   Stockfish::Position::init();
