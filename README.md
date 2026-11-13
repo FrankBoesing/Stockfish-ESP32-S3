@@ -29,6 +29,25 @@ Repository and project scaffolding initialized. No Stockfish source has been cop
 5. Measure internal RAM and PSRAM use; only then decide whether any limitations or adaptations are necessary.
 6. Add the touchscreen chess UI as a separate layer.
 
+## Memory access benchmark
+
+The FNK0104B diagnostic firmware includes a synthetic memory benchmark after the heap report:
+
+- 128 KiB internal SRAM versus 128 KiB PSRAM, using the same working-set size.
+- 1 MiB PSRAM working set to show behavior with a larger table.
+- Sequential 32-bit read and write throughput.
+- Randomized reads and writes to 16-byte entries, reporting ns/op and Mops/s.
+
+The 16-byte entry is a deliberately simple stand-in for a compact transposition-table slot. This is **not** a Stockfish benchmark and its result is not equivalent to NPS. It isolates memory behavior under a reproducible single-core workload. The benchmark runs after the allocation/integrity test and before the display benchmark. It allocates and frees its test buffers, so it does not reserve memory for the eventual engine.
+
+Build and upload the root PlatformIO project using the `freenove_fnk0104b` environment. Capture the complete serial output, especially the lines beginning with `MEMBENCH`. For a fair comparison, use the same firmware, CPU frequency, power conditions, and monitor setup; do not run Wi-Fi, display animation, or other memory-intensive tasks during the test.
+
+Interpretation:
+- Compare `internal_128K` and `psram_128K` first; these use equal working-set sizes.
+- Compare `psram_128K` and `psram_1M` to see the effect of a larger PSRAM working set.
+- Random probe/store ns/op is more relevant to hash-table access than sequential MiB/s, but still omits Stockfish's actual entry layout, hash distribution, search behavior, and multicore contention.
+- Repeat the test after reset at least three times. Use the median, not the best run.
+
 ## Source provenance
 
 The engine source will be obtained from the official upstream repository:
