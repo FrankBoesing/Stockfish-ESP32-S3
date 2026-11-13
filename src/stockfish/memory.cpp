@@ -21,6 +21,10 @@
 #include <cstdlib>
 #include <iostream>  // std::cerr
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    #include <esp_heap_caps.h>
+#endif
+
 #if __has_include("features.h")
     #include <features.h>
 #endif
@@ -151,6 +155,13 @@ static void* try_huge_pages_alloc(usize allocSize) {
     #endif  // defined(__linux__) && defined(MAP_HUGE_SHIFT) && defined(__x86_64__)
 
 void* aligned_large_pages_alloc_with_hint(usize allocSize, [[maybe_unused]] bool hugePageHint) {
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // Stockfish places the large NNUE worker, network fallback and TT objects
+    // through this allocator. Use explicitly-capable, cache-safe PSRAM.
+    constexpr usize alignment = 4096;
+    const usize size = (allocSize + alignment - 1) & ~(alignment - 1);
+    return heap_caps_aligned_alloc(alignment, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+#else
     #ifdef HAS_HUGE_PAGES
     if (hugePageHint && allocSize >= HugePageSize)
     {
@@ -189,6 +200,7 @@ void* aligned_large_pages_alloc_with_hint(usize allocSize, [[maybe_unused]] bool
         #endif
     return mem;
     #endif
+#endif
 }
 
 #endif
@@ -251,6 +263,9 @@ void aligned_large_pages_free(void* mem) {
     if (!mem)
         return;
 
+    #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    heap_caps_free(mem);
+    #else
     #if defined(__linux__) && !defined(__ANDROID__)
     {
         std::lock_guard lg(large_page_sizes_mtx);
@@ -268,6 +283,7 @@ void aligned_large_pages_free(void* mem) {
     #endif
 
     std_aligned_free(mem);
+    #endif
 }
 
 #endif
