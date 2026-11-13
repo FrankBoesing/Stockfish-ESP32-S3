@@ -82,17 +82,17 @@ static void capture_fatal_backtrace(FatalBacktrace& trace) {
                   (unsigned) psramFree, (unsigned) psramLargest);
     Serial.printf("Internal free: %u bytes\n", (unsigned) internalFree);
 
-    Serial.printf("Backtrace (%u frames):\n", trace.count);
+    Serial.print("Backtrace:");
     for (unsigned i = 0; i < trace.count; ++i) {
-        Serial.printf("  #%02u  PC=0x%08x  SP=0x%08x\n",
-                      i,
-                      (unsigned) trace.frames[i].pc,
+        const uint32_t pc = esp_cpu_process_stack_pc(trace.frames[i].pc);
+        Serial.printf(" 0x%08x:0x%08x", (unsigned) pc,
                       (unsigned) trace.frames[i].sp);
     }
     if (trace.corrupted)
-        Serial.println("  [backtrace stopped: stack frame is corrupt]");
+        Serial.print(" |<-CORRUPTED");
     if (trace.truncated)
-        Serial.println("  [backtrace truncated at frame limit]");
+        Serial.print(" |<-CONTINUES");
+    Serial.println();
 
     Serial.println("Calling task is suspended; reset the board manually after saving this log.");
     Serial.println("===========================================");
