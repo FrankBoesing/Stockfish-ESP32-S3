@@ -18,6 +18,14 @@
 
 #include "engine.h"
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    #include <Arduino.h>
+    #define SF_ESP_TRACE(message) \
+        do { Serial.printf("[SFTRACE] %s\\n", message); Serial.flush(); } while (false)
+#else
+    #define SF_ESP_TRACE(message) ((void) 0)
+#endif
+
 #include <algorithm>
 #include <cassert>
 #include <filesystem>
@@ -144,9 +152,13 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
           return std::nullopt;
       }));
 
+    SF_ESP_TRACE("Engine ctor body entered; member initializers completed");
     threads.clear();
+    SF_ESP_TRACE("Engine: threads.clear complete");
     threads.ensure_network_replicated();
+    SF_ESP_TRACE("Engine: initial network replication complete");
     resize_threads();
+    SF_ESP_TRACE("Engine ctor complete");
 }
 
 std::variant<u64, PositionSetError>
@@ -251,13 +263,19 @@ bool Engine::set_numa_config_from_option(const std::string& o) {
 }
 
 void Engine::resize_threads() {
+    SF_ESP_TRACE("Engine::resize_threads begin");
     threads.wait_for_search_finished();
+    SF_ESP_TRACE("Engine::resize_threads before ThreadPool::set");
     threads.set(numaContext.get_numa_config(), {options, threads, tt, sharedHists, network},
                 updateContext);
+    SF_ESP_TRACE("Engine::resize_threads after ThreadPool::set");
 
     // Reallocate the hash with the new threadpool size
+    SF_ESP_TRACE("Engine::resize_threads before TT resize");
     set_tt_size(options["Hash"]);
+    SF_ESP_TRACE("Engine::resize_threads after TT resize");
     threads.ensure_network_replicated();
+    SF_ESP_TRACE("Engine::resize_threads complete");
 }
 
 void Engine::set_tt_size(usize mb) {
@@ -306,9 +324,12 @@ void Engine::verify_network() const {
 
 std::unique_ptr<Eval::NNUE::Network> Engine::get_default_network() {
 
+    SF_ESP_TRACE("Engine::get_default_network begin");
     auto network_ = std::make_unique<NN::Network>();
+    SF_ESP_TRACE("Engine::get_default_network Network allocated");
 
     network_->load(binaryDirectory, std::filesystem::path{}, networkFile);
+    SF_ESP_TRACE("Engine::get_default_network load returned");
 
     return network_;
 }
