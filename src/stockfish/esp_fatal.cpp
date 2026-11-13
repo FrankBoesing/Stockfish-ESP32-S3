@@ -6,6 +6,7 @@
 
     #include <Arduino.h>
     #include <esp_debug_helpers.h>
+    #include <esp_cpu_utils.h>
     #include <esp_heap_caps.h>
     #include <freertos/FreeRTOS.h>
     #include <freertos/task.h>
