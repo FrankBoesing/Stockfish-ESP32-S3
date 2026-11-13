@@ -108,7 +108,9 @@ class NativeThread {
         int stackSizeRc = 0;
         if (options.largeStack)
         {
-            stackSizeRc = pthread_attr_setstacksize(attr, TH_STACK_SIZE);
+            stackSizeRc = attrInitRc == 0
+                            ? pthread_attr_setstacksize(attr, TH_STACK_SIZE)
+                            : EINVAL;
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
             SF_ESP_TRACE("pthread_attr_setstacksize(%u) rc=%d",
                          (unsigned) TH_STACK_SIZE, stackSizeRc);
@@ -135,6 +137,7 @@ class NativeThread {
             previousCfg = esp_pthread_get_default_config();
 
         esp_pthread_cfg_t workerCfg = previousCfg;
+        workerCfg.stack_size = TH_STACK_SIZE;
         workerCfg.stack_alloc_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
         workerCfg.inherit_cfg = false;
         const esp_err_t setCfgRc = esp_pthread_set_cfg(&workerCfg);
