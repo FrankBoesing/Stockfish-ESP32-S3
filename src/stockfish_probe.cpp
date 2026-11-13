@@ -46,7 +46,7 @@ void setup() {
 
   Serial.println();
   Serial.println("Stockfish 19 Smallnet ESP32-S3 engine memory probe");
-  Serial.printf("ESP reset reason = %d\\n", (int) esp_reset_reason());
+  Serial.printf("ESP reset reason = %d\n", (int) esp_reset_reason());
   Serial.flush();
 
   Stockfish::Attacks::init();
