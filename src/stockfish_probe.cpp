@@ -1,5 +1,9 @@
 #include <Arduino.h>
 
+// Engine construction currently runs inside Arduino's loopTask (setup()).
+// The core default is 8 KiB; increase it temporarily for stack diagnostics.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
 // Arduino defines HIGH/LOW as GPIO level macros. Stockfish uses the same
 // identifiers in PrefetchLoc, so remove the macros before including it.
 #ifdef HIGH
@@ -14,6 +18,8 @@
 
 #include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include "stockfish/engine.h"
 #include "stockfish/attacks.h"
@@ -33,7 +39,12 @@ void stockfish_esp_trace(const char* format, ...) {
   va_start(args, format);
   vsnprintf(buffer, sizeof(buffer), format, args);
   va_end(args);
-  Serial.printf("[SFTRACE] %s\n", buffer);
+  const char* taskName = pcTaskGetName(nullptr);
+  const UBaseType_t stackFree = uxTaskGetStackHighWaterMark(nullptr);
+  Serial.printf("[SFTRACE][%s stack-free~%u] %s\n",
+                taskName ? taskName : "?",
+                (unsigned)stackFree,
+                buffer);
   Serial.flush();
 }
 
@@ -63,6 +74,9 @@ void setup() {
   Serial.println();
   Serial.println("Stockfish 19 Smallnet ESP32-S3 engine memory probe");
   Serial.printf("ESP reset reason = %d\n", (int) esp_reset_reason());
+  Serial.printf("Arduino loop task stack = %u bytes; current free stack ~= %u bytes\n",
+                (unsigned)getArduinoLoopTaskStackSize(),
+                (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   Serial.flush();
 
   Stockfish::Attacks::init();
