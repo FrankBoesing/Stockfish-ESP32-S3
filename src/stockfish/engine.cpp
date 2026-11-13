@@ -335,7 +335,10 @@ void Engine::verify_network() const {
             message += " " + *error;
         }
 
-        onVerifyNetwork(message);
+        // The verification callback is optional. Network::verify() already
+        // accepts an empty callback, so replica status reporting must do the same.
+        if (onVerifyNetwork)
+            onVerifyNetwork(message);
     }
 }
 
