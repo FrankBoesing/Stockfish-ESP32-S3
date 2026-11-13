@@ -37,6 +37,9 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include <cstdarg>
 #include <cstdio>
 
+// Declared here because the search helpers are above the heap-report definition.
+static void print_heap(const char* stage);
+
 class BoardDisplay : public lgfx::LGFX_Device {
   lgfx::Bus_SPI _bus;
   lgfx::Panel_ILI9341 _panel;
@@ -137,10 +140,7 @@ static void initDisplayAndTouch() {
   pinMode(LCD_BL, OUTPUT);
   digitalWrite(LCD_BL, HIGH);
 
-  if (!tft.init()) {
-    Serial.println("[GUI] ILI9341 initialization failed");
-    return;
-  }
+  tft.init();
   tft.setRotation(1);
   Serial.printf("[GUI] Display initialized: %d x %d\n", tft.width(), tft.height());
 
