@@ -137,7 +137,7 @@ Ein wichtiger Speicherposten liegt in `Search::Worker`:
 - `AccumulatorStack` speichert `MAX_PLY + 1 = 247` Zustände.
 - Jeder Zustand enthält zwei 1024-elementige 16-Bit-Akkumulatoren sowie weitere Daten.
 - Allein die Akkumulatoren belegen damit ungefähr 1 MiB pro Worker.
-- Die Finny-/Refresh-Tabelle enthält 64 × 2 Einträge. Jeder Eintrag speichert erneut einen 1024-elementigen 16-Bit-Akkumulator. Das sind zusätzlich grob 270 KiB pro Worker, zuzüglich Alignment und Metadaten.
+- Die tatsächliche Größe von AccumulatorCaches beträgt auf dem aktuellen ESP32-S3-Build 8.704 Byte (gemessen per sizeof). Die frühere Abschätzung von rund 270 KiB war falsch und ist durch den Messwert ersetzt.
 
 Stockfish legt den Worker über `make_unique_large_page<Search::Worker>()` an. Der konkrete Speicherbedarf sollte im ersten erfolgreichen Build per `sizeof(Search::Worker)` ausgegeben werden; die obigen Zahlen sind eine Größenabschätzung aus den Quellstrukturen.
 
@@ -184,9 +184,11 @@ Weitere Punkte:
 - Commit 54bed36b4410205652667d5f987505dddee5e027 verlagert diese beiden dauerhaften Magic-Tabellen auf ESP32 in den PSRAM-Heap. CI-Lauf 43429621038 bestätigte für diesen Stand den erfolgreichen Compile und Link.
 - Beim ersten Start auf dem ESP32-S3 wurde anschließend ein Stack-canary-Fehler in loopTask gemeldet. Die Ursache ist in init_magics(): occupancy[4096], epoch[4096] und reference[4096] belegten zusammen 80 KiB als lokale Stack-Arrays.
 - Commit 93741b16d23e784ce2316f9efbd6ddf589700375 verschiebt diese drei temporären Initialisierungsarrays auf ESP32 ebenfalls in einen temporären PSRAM-Heap-Block und gibt diesen nach Abschluss jeder Magic-Tabelleninitialisierung wieder frei. Auf Nicht-ESP32-Systemen bleibt der bisherige lokale Stack-/Array-Pfad erhalten.
+- Der lokale ESP32-S3-Probe-Lauf vom 2026-11-13 bestätigt: Attacks::init() und Position::init() laufen ohne Stack-canary-Fehler durch. Gemessen wurden sizeof(Network)=1.882.688 Byte, sizeof(AccumulatorStack)=1.043.392 Byte, sizeof(AccumulatorCaches)=8.704 Byte und sizeof(Search::Worker)=4.085.760 Byte. Nach der Initialisierung verbleiben 7.507.496 Byte PSRAM-Heap und 112.260 Byte interner Heap.
+- CI-Lauf 43431188861 für Commit 93741b16d23e784ce2316f9efbd6ddf589700375 ist erfolgreich (Compile, Link und Map-Artefakt).
 - Die übrigen permanenten Tabellen (LineBB, BetweenBB, RayPassBB, cuckoo und cuckooMove) verbleiben zunächst im internen DRAM. Die Performance-Auswirkung der PSRAM-Magic-Tabellen ist noch nicht gemessen.
 
-CI-Lauf 43431188861 prüft die Stackkorrektur. Ein erfolgreicher Link für diesen neuen Commit und ein erneuter Start auf dem realen Board müssen noch bestätigt werden.
+Der Probe-Lauf erzeugt weiterhin keine Engine, kein NNUE-Netzobjekt, keinen Worker und keine Suchthreads. Engine-Start, PSRAM-Platzierung der großen Objekte und Suchkorrektheit müssen als nächste Stufe geprüft werden.
 
 Noch nicht verifiziert sind insbesondere: tatsächliche PSRAM-Heap-Verfügbarkeit beim Start, Laufzeitinitialisierung der Magic-Tabellen nach der Stackkorrektur, Thread-Stack, UCI-Ein-/Ausgabe, std::filesystem, NNUE-Laden und Suchkorrektheit.
 
