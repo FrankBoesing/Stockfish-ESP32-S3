@@ -15,3 +15,17 @@ Upstream repository: https://github.com/official-stockfish/Stockfish
 
 The upstream source has not yet been vendored or added as a submodule.
 The next step is to inspect a pinned upstream revision and its build assumptions.
+
+
+## Pinned source snapshot
+
+The ESP32-S3 compile target vendors Stockfish 19 under `src/stockfish/`.
+
+- Upstream: https://github.com/official-stockfish/Stockfish
+- Release: `sf_19`
+- Release commit: `edb0d9db6731067ec50ce619ff372b463bc4dd5d`
+- NNUE feature patch: `sf_19_smallnet` patch 1, forward-ported from base `3f6f417b87c0e80ee30914b6b539b4ab7d3b2a5b`
+- Patch 2 (WebAssembly-specific) is not applied.
+- Upstream `Copying.txt` and `AUTHORS` are included.
+
+The diagnostic target excludes Stockfish. The separate `freenove_stockfish_compile` environment is a compile/link probe only; runtime UCI search is not implemented yet.

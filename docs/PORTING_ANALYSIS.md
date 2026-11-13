@@ -62,7 +62,7 @@ Es existiert eine Stockfish-19-Variante mit einem kleineren, speziell trainierte
 - Patch-Sammlung: https://github.com/lichess-org/stockfish-web/tree/main/patches/sf_19_smallnet
 - Patch 1 (Feature-Änderung): https://raw.githubusercontent.com/lichess-org/stockfish-web/main/patches/sf_19_smallnet/0001-simple-mirrored-piece-square-features.patch
 - Patch 2 (Lichess-Web-Integration): https://raw.githubusercontent.com/lichess-org/stockfish-web/main/patches/sf_19_smallnet/0002-stockfish-web.patch
-- Basis: Stockfish-`sf_19`, Commit-Präfix `edb0d9db`
+- Patch-Basis: `3f6f417b87c0e80ee30914b6b539b4ab7d3b2a5b` (SF19-Entwicklungsstand vom 2026-09-01; Vorfahr des Releases), Commit-Präfix `edb0d9db`
 - Netz: `nn-61e7af4bb97d.nnue`
 
 Der Smallnet-Patch ersetzt die drei SF19-Feature-Sets durch `P_hm`. Dieses Feature bildet die farbbezogene Figur und ihr Feld ab und hat nur:
@@ -78,7 +78,7 @@ Die Standard-Netzwerkbreite `L1 = 1024` bleibt in diesem Patch erhalten. Threat-
 | Biases: 1024 × 2 Byte | 2.048 Byte |
 | **Summe Feature-Transformer** | **1.599.488 Byte (1,53 MiB)** |
 
-Das ist rund 71,8-mal kleiner als der Feature-Transformer des Standardnetzes. Die eigentlichen FC-Layer kommen noch hinzu, bleiben bei den kleinen Layer-Dimensionen aber vergleichsweise klein. Die Netzdatei wird in externen Stockfish-19-Lite-Distributionen mit etwa 1,2 MB angegeben.
+Das ist rund 71,8-mal kleiner als der Feature-Transformer des Standardnetzes. Die eigentlichen FC-Layer kommen noch hinzu, bleiben bei den kleinen Layer-Dimensionen aber vergleichsweise klein. Die häufig genannte Größenordnung von etwa 1,2 MB ist bislang nicht für genau diese Patch-/Netzrevision verifiziert. Dateigröße und Hash müssen beim Beschaffen des Netzes separat gemessen werden; 1,2 MB bleibt eine vorläufige Annahme.
 
 **Einordnung:** Dies ist kein unverändertes Stockfish-19-Standardnetz. Der NNUE-Feature-Raum und die dazugehörigen Trainingsgewichte wurden geändert. Die Stockfish-basierte Such-Engine bleibt aber die Grundlage; es handelt sich nicht um eine vereinfachte Fremd-Engine. Die Patch-Beschreibung dokumentiert einen Test mit 20.000 Partien und einen Zugewinn von 9,75 ± 2,7 Elo gegenüber Stockfish 18 mit einem 15-MB-Netz. Das ist kein direkter Vergleich mit dem vollständigen Stockfish-19-Standardnetz und darf nicht als solcher interpretiert werden.
 
@@ -165,7 +165,7 @@ Weitere Punkte:
 
 ## 8. Was noch nicht erledigt oder verifiziert ist
 
-- Stockfish-Quellen sind noch nicht in dieses Projekt integriert.
+- Stockfish-19-Smallnet-Quellen sind inzwischen unter `src/stockfish/` integriert; der Compile-/Link-Test steht noch aus.
 - Es wurde kein PlatformIO-Build für den Stockfish-Port ausgeführt.
 - Die Smallnet-Variante wurde auf dem ESP32-S3 noch nicht kompiliert oder getestet.
 - Die exakten `sizeof`-Werte von Network, Worker und Accumulator-Strukturen müssen im Zielbuild gemessen werden.
@@ -181,3 +181,24 @@ Diese Analyse ist eine Architekturgrundlage, kein Nachweis einer bereits lauffä
 - ESP-IDF 5.5 POSIX/Pthreads: https://docs.espressif.com/projects/esp-idf/en/release-v5.5/esp32/api-reference/system/pthread.html
 - ESP-IDF externe RAM-Speicherverwaltung: https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-reference/system/mem_alloc.html
 - Lite-Netz-Größe / Stockfish-19-Lite-Referenz: https://mychesslab.uk/credits
+
+
+## 9. Smallnet-Patch-Abgleich mit dem offiziellen SF19-Release
+
+Die Smallnet-Patchserie basiert auf dem Upstream-Entwicklungsstand `3f6f417b87c0e80ee30914b6b539b4ab7d3b2a5b`, nicht direkt auf dem späteren Release-Commit `edb0d9db6731067ec50ce619ff372b463bc4dd5d`. Zwischen beiden liegen sechs Upstream-Commits.
+
+Der Smallnet-Patch wurde quelltextbasiert auf den tatsächlichen SF19-Release-Stand vorwärtsportiert:
+- Alle betroffenen Hunk-Blöcke für Makefile, NNUE-Code, Position und Search ließen sich anhand der SF19-Dateien übernehmen.
+- Nur der Threat-Datenstrukturblock in `types.h` brauchte eine manuelle Auflösung. Entfernt wurden `DirtyThreat`, `DirtyThreats`, `DirtyPawnPairs` und `Dirties`; die übrigen SF19-Änderungen blieben erhalten.
+- Der WebAssembly-Patch 0002 wird nicht übernommen.
+- Ein lokales `git apply --check` und ein tatsächlicher Zielbuild sind noch nicht erfolgt.
+
+## 10. Compile-/Link-Testziel
+
+Die Quelle liegt jetzt unter `src/stockfish/`; Upstream-Lizenz und AUTHORS-Datei sind enthalten. `platformio.ini` hat zwei getrennte Umgebungen:
+- `freenove_fnk0104b`: bestehende Board-Diagnose, Stockfish-Quellen explizit ausgeschlossen.
+- `freenove_stockfish_compile`: SF19-Smallnet-Quellen, Xtensa-Skalarpfad, C++17, kein Prefetch, keine Syzygy-Tablebases und keine eingebettete NNUE-Datei.
+
+Der Probe-Sketch initialisiert Attack-/Positionsdaten und gibt Objektgrößen aus. Er startet keine Suche, erzeugt keine Worker-Threads und lädt keine NNUE-Gewichte.
+
+Die Firmware wurde hier noch nicht gebaut. Die Quellen sind integriert; die Compile-/Link-Verifikation bleibt der nächste Test.

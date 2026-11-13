@@ -19,7 +19,7 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 ## Current status
 
-Repository and project scaffolding initialized. No Stockfish source has been copied or modified yet.
+Stockfish 19 source is vendored under `src/stockfish/` with the Smallnet P_hm feature patch forward-ported to the pinned SF19 release. A separate `freenove_stockfish_compile` PlatformIO environment is prepared for compile/link verification. Runtime UCI search is not implemented yet.
 
 ## Planned milestones
 
@@ -66,3 +66,11 @@ The upstream revision used for each port milestone will be pinned and recorded. 
 ## Licensing
 
 Stockfish is distributed under GNU GPL v3. See the upstream repository and its Copying.txt for license terms. Any distributed firmware containing Stockfish must comply with the applicable GPL requirements.
+
+## Compile-only Stockfish target
+
+```sh
+pio run -e freenove_stockfish_compile
+```
+
+This environment excludes the board-diagnostics `src/main.cpp` and uses `src/stockfish_probe.cpp`. It does not instantiate `Stockfish::Engine`, load NNUE weights, create search threads, or claim UCI runtime support. The existing `freenove_fnk0104b` environment remains the board-diagnostics target.
