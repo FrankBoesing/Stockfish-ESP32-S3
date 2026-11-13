@@ -38,6 +38,10 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include <cstdio>
 #include <cstring>
 
+#ifndef STOCKFISH_OPT_LEVEL
+  #define STOCKFISH_OPT_LEVEL 1
+#endif
+
 // Declared here because the search helpers are above the heap-report definition.
 static void print_heap(const char* stage);
 
@@ -318,6 +322,13 @@ void setup() {
 
   Serial.println();
   Serial.println("Stockfish 19 Smallnet ESP32-S3 engine memory probe");
+#if STOCKFISH_OPT_LEVEL == 2
+  Serial.println("Compiler optimization = -O2");
+#elif STOCKFISH_OPT_LEVEL == 3
+  Serial.println("Compiler optimization = -O3");
+#else
+  Serial.println("Compiler optimization = -Os");
+#endif
   Serial.printf("ESP reset reason = %d\n", (int) esp_reset_reason());
   Serial.printf("Arduino loop task stack = %u bytes; current free stack ~= %u bytes\n",
                 (unsigned)getArduinoLoopTaskStackSize(),
