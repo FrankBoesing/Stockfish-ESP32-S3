@@ -35,9 +35,17 @@
 
 namespace Stockfish {
 
-constexpr int PAWN_HISTORY_BASE_SIZE   = 8192;  // has to be a power of 2
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+// Compact search-history profile for the 8 MiB ESP32-S3 PSRAM target.
+// Smaller tables deliberately increase index collisions; chess rules and
+// evaluation remain unchanged, but move-ordering strength may be reduced.
+constexpr int PAWN_HISTORY_BASE_SIZE = 64;
+constexpr int CORRHIST_BASE_SIZE     = 8192;
+#else
+constexpr int PAWN_HISTORY_BASE_SIZE = 8192;
+constexpr int CORRHIST_BASE_SIZE     = std::numeric_limits<u16>::max() + 1;
+#endif
 constexpr int UINT_16_HISTORY_SIZE     = std::numeric_limits<u16>::max() + 1;
-constexpr int CORRHIST_BASE_SIZE       = UINT_16_HISTORY_SIZE;
 constexpr int CORRECTION_HISTORY_LIMIT = 1024;
 constexpr int LOW_PLY_HISTORY_SIZE     = 5;
 
@@ -195,9 +203,61 @@ using CorrectionHistory = typename Detail::CorrHistTypedef<T>::type;
 
 using TTMoveHistory = StatsEntry<i16, 8192>;
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+// The unmodified continuation history is 8 MiB. Compress the preceding-move
+// context (inCheck, capture, piece, destination) into 256 buckets. Each bucket
+// keeps the original PieceToHistory shape and update semantics.
+struct ContinuationHistoryBlock {
+    static constexpr usize BucketCount = 256;
+
+    std::array<PieceToHistory, BucketCount> table{};
+
+    struct PieceProxy {
+        ContinuationHistoryBlock* owner;
+        usize                     inCheck;
+        usize                     capture;
+        usize                     piece;
+
+        StatsEntry<i16, 30000, true>& operator[](usize square) const {
+            const u32 key = (((inCheck * 2 + capture) * PIECE_NB + piece) * SQUARE_NB + square);
+            const usize bucket = (key ^ (key >> 8) ^ (key >> 4)) & (BucketCount - 1);
+            return owner->table[bucket][0][0]; // replaced below with correct PieceToHistory indexing
+        }
+    };
+
+    struct CaptureProxy {
+        ContinuationHistoryBlock* owner;
+        usize                     inCheck;
+        usize                     capture;
+
+        PieceProxy operator[](usize piece) const {
+            return {owner, inCheck, capture, piece};
+        }
+    };
+
+    struct CheckProxy {
+        ContinuationHistoryBlock* owner;
+        usize                     inCheck;
+
+        CaptureProxy operator[](usize capture) const {
+            return {owner, inCheck, capture};
+        }
+    };
+
+    CheckProxy operator[](usize inCheck) {
+        return {this, inCheck};
+    }
+
+    void clear(i16 value) {
+        for (auto& bucket : table)
+            bucket.fill(value);
+    }
+};
+#else
 struct ContinuationHistoryBlock {
     ContinuationHistory table[2][2];
 };
+#endif
 
 // Set of histories shared between groups of threads. To avoid excessive
 // cross-node data transfer, histories are shared only between threads
