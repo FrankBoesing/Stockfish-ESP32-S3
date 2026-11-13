@@ -202,7 +202,10 @@ void Engine::set_on_verify_network(std::function<void(std::string_view)>&& f) {
     onVerifyNetwork = std::move(f);
 }
 
-void Engine::wait_for_search_finished() { threads.main_thread()->wait_for_search_finished(); }
+void Engine::wait_for_search_finished() {
+    if (threads.has_main_thread())
+        threads.main_thread()->wait_for_search_finished();
+}
 
 std::optional<PositionSetError> Engine::set_position(const std::string&              fen,
                                                      const std::vector<std::string>& moves) {
@@ -265,7 +268,10 @@ void Engine::resize_threads() {
     // history allocations fragment PSRAM. TranspositionTable::resize()
     // initializes it directly when the thread pool is still empty.
     SF_ESP_TRACE("Engine::resize_threads before TT resize");
-    set_tt_size(options["Hash"]);
+    if (threads.has_main_thread())
+        set_tt_size(options["Hash"]);
+    else
+        tt.resize(options["Hash"], threads);
     SF_ESP_TRACE("Engine::resize_threads after TT resize");
 #endif
 
@@ -287,9 +293,9 @@ void Engine::resize_threads() {
 }
 
 void Engine::set_tt_size(usize mb) {
-    // During ESP32 startup the hash table is allocated before the first
-    // worker exists; there is then no search thread to wait for.
-    if (threads.num_threads() != 0)
+    // Only wait when a valid main search thread exists. Thread-count metadata
+    // alone is not sufficient during initial or partial ThreadPool setup.
+    if (threads.has_main_thread())
         wait_for_search_finished();
     tt.resize(mb, threads);
 }
