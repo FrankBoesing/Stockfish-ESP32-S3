@@ -14,7 +14,8 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 - Freenove ESP32-S3 Display, 2.8-inch 320x240 capacitive-touch variant
 - ESP32-S3, dual-core Xtensa LX7
-- PSRAM: expected 8 MiB; verify actual board revision and runtime detection before relying on it.
+- 16 MiB flash and 8 MiB OPI PSRAM, both confirmed by the user's runtime diagnostics.
+- ILI9341 SPI display, native 240x320 portrait resolution; diagnostic firmware rotates it to 320x240 landscape.
 
 ## Current status
 
@@ -34,7 +35,6 @@ Repository and project scaffolding initialized. No Stockfish source has been cop
 The FNK0104B diagnostic firmware includes a synthetic memory benchmark after the heap report:
 
 - 128 KiB internal SRAM versus 128 KiB PSRAM, using the same working-set size.
-- 128 KiB internal SRAM versus 128 KiB PSRAM, using the same working-set size.
 - 1 MiB PSRAM working set for a larger single-core reference.
 - 4 MiB and 7 MiB PSRAM tables, tested with one worker and with two workers pinned to different CPU cores.
 - Random probe and random store operations on the same shared 16-byte-entry table. The two workers use independent PRNG streams; 32-bit atomic field accesses avoid C++ data races if both select the same entry.
@@ -44,7 +44,7 @@ The 16-byte entry is a synthetic stand-in for a compact transposition-table slot
 
 The display benchmark compares 40 MHz, 80 MHz and a final 40 MHz restore on the ILI9341. It measures repeated full-screen fills and 160x120 partial fills, then displays a four-quadrant pattern for a visual stability check at each clock. The code restores 40 MHz before the dashboard. 80 MHz is experimental: watch for corrupted pixels, flicker or incomplete updates.
 
-Build and upload the root PlatformIO project using the `freenove_fnk0104b` environment. Capture the complete serial output, especially the lines beginning with `MEMBENCH`. For a fair comparison, use the same firmware, CPU frequency, power conditions, and monitor setup; do not run Wi-Fi, display animation, or other memory-intensive tasks during the test.
+Build and upload the root PlatformIO project using the `freenove_fnk0104b` environment. Capture the complete serial output, especially the lines beginning with `MEMBENCH`, `MEMSHARED`, and `DISPLAYCLOCK`. For a fair comparison, use the same firmware, CPU frequency, power conditions, and monitor setup; do not run Wi-Fi, display animation, or other memory-intensive tasks during the test.
 
 Interpretation:
 - Compare `internal_128K` and `psram_128K` first; these use equal working-set sizes.
