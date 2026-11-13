@@ -113,7 +113,11 @@ using Key      = u64;
 using Bitboard = u64;
 
 constexpr int MAX_MOVES = 256;
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+constexpr int MAX_PLY   = 96;  // Compact ESP32 search-stack/NNUE accumulator profile.
+#else
 constexpr int MAX_PLY   = 246;
+#endif
 
 enum Color : u8 {
     WHITE,
