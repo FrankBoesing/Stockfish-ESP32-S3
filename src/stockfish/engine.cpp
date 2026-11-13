@@ -287,7 +287,10 @@ void Engine::resize_threads() {
 }
 
 void Engine::set_tt_size(usize mb) {
-    wait_for_search_finished();
+    // During ESP32 startup the hash table is allocated before the first
+    // worker exists; there is then no search thread to wait for.
+    if (threads.num_threads() != 0)
+        wait_for_search_finished();
     tt.resize(mb, threads);
 }
 
