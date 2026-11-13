@@ -240,13 +240,13 @@ static void runBoundedSearch(Stockfish::Engine& engine,
   limits.nodes = nodeLimit;
   limits.startTime = Stockfish::now();
 
-  Serial.printf("\\nStarting %s (max depth %d, max nodes %llu)...\\n",
+  Serial.printf("\nStarting %s (max depth %d, max nodes %llu)...\n",
                 label, maxDepth, (unsigned long long)nodeLimit);
   Serial.flush();
   engine.go(limits);
   engine.wait_for_search_finished();
 
-  Serial.printf("%s complete.\\n", label);
+  Serial.printf("%s complete.\n", label);
   printSearchProbeStats(label);
   char heapLabel[64];
   snprintf(heapLabel, sizeof(heapLabel), "After %.48s", label);
@@ -340,7 +340,7 @@ void setup() {
   Serial.printf("Arduino loop task stack = %u bytes; current free stack ~= %u bytes\n",
                 (unsigned)getArduinoLoopTaskStackSize(),
                 (unsigned)uxTaskGetStackHighWaterMark(nullptr));
-  Serial.printf("CPU cores reported by Stockfish = %u; setup running on core %d\\n",
+  Serial.printf("CPU cores reported by Stockfish = %u; setup running on core %d\n",
                 (unsigned)Stockfish::SYSTEM_THREADS_NB, (int)xPortGetCoreID());
   print_panic_configuration();
   Serial.flush();
@@ -439,9 +439,9 @@ void setup() {
     "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
   const auto positionError = engine.set_position(kiwipeteFen, {});
   if (positionError.has_value()) {
-    Serial.printf("[POSITION] Kiwipete FEN rejected: %s\\n", positionError->what());
+    Serial.printf("[POSITION] Kiwipete FEN rejected: %s\n", positionError->what());
   } else {
-    Serial.printf("[POSITION] Kiwipete loaded: %s\\n", engine.fen().c_str());
+    Serial.printf("[POSITION] Kiwipete loaded: %s\n", engine.fen().c_str());
     runBoundedSearch(engine, "Kiwipete middlegame / depth-16 / 10k nodes",
                      16, ProbeNodeLimit);
   }
@@ -451,7 +451,7 @@ void setup() {
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
   const auto restoreError = engine.set_position(startFen, {});
   if (restoreError.has_value())
-    Serial.printf("[POSITION] start position restore failed: %s\\n", restoreError->what());
+    Serial.printf("[POSITION] start position restore failed: %s\n", restoreError->what());
   else
     Serial.println("[POSITION] start position restored.");
 
