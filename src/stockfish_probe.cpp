@@ -31,6 +31,12 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/misc.h"
 #include "stockfish/nnue/network.h"
 #include "stockfish/nnue/nnue_accumulator.h"
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+#include "stockfish/nnue/nnue_bench.h"
+namespace Stockfish::Eval::NNUE::Bench {
+Counter counters[StageCount]{};
+}
+#endif
 #include "stockfish/history.h"
 #include "stockfish/search.h"
 
@@ -116,6 +122,44 @@ struct SearchProbeStats {
 };
 
 static SearchProbeStats searchProbeStats{};
+
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+static void resetNnueBenchCounters() {
+  for (unsigned i = 0; i < Stockfish::Eval::NNUE::Bench::StageCount; ++i) {
+    Stockfish::Eval::NNUE::Bench::counters[i].cycles = 0;
+    Stockfish::Eval::NNUE::Bench::counters[i].calls = 0;
+  }
+}
+
+static void printNnueBenchCounters(const char *label) {
+  using namespace Stockfish::Eval::NNUE::Bench;
+  static const char *const stageNames[StageCount] = {
+    "accumulator", "feature-transform", "fc0", "sqr-relu0", "clip-relu0",
+    "fc1", "sqr-relu1", "clip-relu1", "fc2", "evaluation-total"
+  };
+  const uint64_t totalCycles = counters[EvaluationTotal].cycles;
+  Serial.printf("[NNUEBENCH] %s evals=%u total=%llu cycles avg=%llu cycles/eval\n",
+                label,
+                (unsigned)counters[EvaluationTotal].calls,
+                (unsigned long long)totalCycles,
+                (unsigned long long)(counters[EvaluationTotal].calls
+                  ? totalCycles / counters[EvaluationTotal].calls : 0));
+  for (unsigned i = 0; i < StageCount; ++i) {
+    const Counter &counter = counters[i];
+    const uint64_t average = counter.calls ? counter.cycles / counter.calls : 0;
+    const uint64_t shareTenths = totalCycles
+      ? (counter.cycles * 1000ULL) / totalCycles : 0;
+    Serial.printf("[NNUEBENCH] %-17s calls=%u avg=%llu cycles share=%llu.%01llu%%\n",
+                  stageNames[i], (unsigned)counter.calls,
+                  (unsigned long long)average,
+                  (unsigned long long)(shareTenths / 10),
+                  (unsigned long long)(shareTenths % 10));
+  }
+}
+#else
+static void resetNnueBenchCounters() {}
+static void printNnueBenchCounters(const char *) {}
+#endif
 
 static void copySearchText(char *destination, size_t capacity, std::string_view source) {
   if (capacity == 0) return;
@@ -221,6 +265,7 @@ static void runBoundedSearch(Stockfish::Engine& engine,
                               int maxDepth,
                               uint64_t nodeLimit) {
   resetSearchProbeStats();
+  resetNnueBenchCounters();
   Stockfish::Search::LimitsType limits;
   limits.depth = maxDepth;
   limits.nodes = nodeLimit;
@@ -234,6 +279,7 @@ static void runBoundedSearch(Stockfish::Engine& engine,
 
   Serial.printf("%s complete.\n", label);
   printSearchProbeStats(label);
+  printNnueBenchCounters(label);
   char heapLabel[64];
   snprintf(heapLabel, sizeof(heapLabel), "After %.48s", label);
   print_heap(heapLabel);
@@ -241,6 +287,7 @@ static void runBoundedSearch(Stockfish::Engine& engine,
 
 static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
   resetSearchProbeStats();
+  resetNnueBenchCounters();
   Stockfish::Search::LimitsType limits;
   limits.movetime = milliseconds;
   limits.startTime = Stockfish::now();
@@ -253,6 +300,7 @@ static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
 
   Serial.println("Timed search complete.");
   printSearchProbeStats("timed search");
+  printNnueBenchCounters("timed search");
   print_heap("After 5-second search");
 }
 
