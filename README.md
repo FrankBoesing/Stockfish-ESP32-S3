@@ -19,16 +19,16 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 ## Current status
 
-Stockfish 19 source is vendored under `src/stockfish/` with the Smallnet P_hm feature patch forward-ported to the pinned SF19 release. A separate `freenove_stockfish_compile` PlatformIO environment is prepared for compile/link verification. Runtime UCI search is not implemented yet.
+Stockfish 19 source is vendored under `src/stockfish/` with the Smallnet P_hm feature patch forward-ported to the pinned SF19 release. The `freenove_stockfish_compile` PlatformIO environment now runs a dedicated hardware probe: it initializes the ILI9341/FT6336U diagnostic display, loads the embedded Smallnet network, constructs one search worker with a 1 MiB hash, verifies NNUE, and runs depth 1/4/8 plus a 5-second timed search. This is a validation harness, not yet the final UCI application or touchscreen chess UI.
 
 ## Planned milestones
 
 1. Inspect upstream Stockfish build system, architecture-specific code, NNUE network loading, threading, and memory allocation.
 2. Establish a reproducible PlatformIO environment for the exact Freenove board.
-3. Build a minimal UCI-capable firmware with the fewest possible platform changes.
-4. Validate UCI behavior and benchmark results against a desktop build of the same upstream revision.
-5. Measure internal RAM and PSRAM use; only then decide whether any limitations or adaptations are necessary.
-6. Add the touchscreen chess UI as a separate layer.
+3. Validate Engine construction, embedded NNUE loading, and single-threaded search on hardware.
+4. Measure search scaling, internal RAM/PSRAM use, and the combined engine-plus-display memory budget.
+5. Build a minimal UCI-capable firmware and validate protocol behavior against a desktop build of the same upstream revision.
+6. Add the touchscreen chess UI as a separate layer, avoiding a full-screen double framebuffer unless measurements justify it.
 
 ## Memory access benchmark
 
@@ -67,10 +67,14 @@ The upstream revision used for each port milestone will be pinned and recorded. 
 
 Stockfish is distributed under GNU GPL v3. See the upstream repository and its Copying.txt for license terms. Any distributed firmware containing Stockfish must comply with the applicable GPL requirements.
 
-## Compile-only Stockfish target
+## Engine and display memory probe
 
 ```sh
 pio run -e freenove_stockfish_compile
 ```
 
-This environment excludes the board-diagnostics `src/main.cpp` and uses `src/stockfish_probe.cpp`. It does not instantiate `Stockfish::Engine`, load NNUE weights, create search threads, or claim UCI runtime support. The existing `freenove_fnk0104b` environment remains the board-diagnostics target.
+This environment excludes the board-diagnostics `src/main.cpp` and uses `src/stockfish_probe.cpp` together with the Stockfish sources. The probe initializes the same LovyanGFX ILI9341 driver and FT6336U touch interface used by the board diagnostics before constructing the engine. It then loads and verifies the embedded Stockfish 19 Smallnet network, creates one worker and a 1 MiB hash, and runs depth 1, 4, 8 and a 5-second timed search. Heap checkpoints are taken with the display driver left initialized, so the reported engine/search memory is measured with the display layer resident. This remains a diagnostic dashboard, not the final touchscreen chess UI or a complete UCI application.
+
+The panel is 240 x 320 pixels and uses RGB565. A full-screen framebuffer would require 153,600 bytes; two full-screen buffers would require 307,200 bytes. The previous engine-only probe left 327,112 bytes of free PSRAM, so double buffering would consume almost all of that reserve. The current dashboard uses direct display drawing calls and has no explicit full-screen framebuffer. The final chess UI should initially use direct/partial updates or small tile buffers, and should only allocate a full framebuffer if later combined memory measurements show sufficient headroom.
+
+The existing `freenove_fnk0104b` environment remains the board-diagnostics target.
