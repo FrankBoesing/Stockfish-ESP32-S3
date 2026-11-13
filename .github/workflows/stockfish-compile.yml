@@ -28,14 +28,36 @@ jobs:
       - name: Install PlatformIO
         run: python -m pip install --upgrade platformio
 
-      - name: Compile Stockfish 19 Smallnet for ESP32-S3
-        run: pio run -e freenove_stockfish_compile
+      - name: Compile all optimization levels
+        shell: bash
+        run: |
+          set -euo pipefail
+          for env in freenove_stockfish_compile freenove_stockfish_o2 freenove_stockfish_o3; do
+            echo "===== Building $env ====="
+            log="/tmp/${env}.log"
+            if ! pio run -e "$env" -v > "$log" 2>&1; then
+              cat "$log"
+              exit 1
+            fi
+            echo "Effective compile command (first C++ translation unit):"
+            grep -m 1 -E 'xtensa-esp32s3-elf-g\+\+.* -c ' "$log" || {
+              echo "Could not find the C++ compile command in verbose output."
+              tail -n 100 "$log"
+              exit 1
+            }
+          done
 
-      - name: Upload linker map
+      - name: Upload optimization build artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stockfish-s3-linker-map
-          path: .pio/build/freenove_stockfish_compile/firmware.map
+          name: stockfish-s3-optimization-builds
+          path: |
+            .pio/build/freenove_stockfish_compile/firmware.bin
+            .pio/build/freenove_stockfish_compile/firmware.map
+            .pio/build/freenove_stockfish_o2/firmware.bin
+            .pio/build/freenove_stockfish_o2/firmware.map
+            .pio/build/freenove_stockfish_o3/firmware.bin
+            .pio/build/freenove_stockfish_o3/firmware.map
           if-no-files-found: warn
           retention-days: 7
