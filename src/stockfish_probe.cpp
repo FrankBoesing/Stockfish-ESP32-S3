@@ -155,6 +155,10 @@ void setup() {
   Serial.println("NNUE verification complete.");
   print_heap("After NNUE verification");
 
+  // Engine::go() verifies the network itself as well. Disable the reporting
+  // callback to avoid printing the same verification message twice.
+  engine.set_on_verify_network({});
+
   // A depth-1 search is the first test that exercises the real search path
   // and NNUE evaluation. Keep this deliberately short for the initial probe.
   Stockfish::Search::LimitsType limits;
