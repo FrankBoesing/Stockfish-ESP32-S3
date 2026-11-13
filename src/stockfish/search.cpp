@@ -2142,14 +2142,14 @@ void SearchManager::check_time(Search::Worker& worker) {
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
     // The Stockfish worker is pinned to Core 0. Yield periodically so Core 0's
     // IDLE task can run and service the ESP task watchdog during long searches.
-    // Throttle this to once per second: node-limited searches can call
-    // check_time() very frequently, so yielding on every call is too costly.
+    // One RTOS tick is sufficient; throttle to once per second because
+    // node-limited searches can call check_time() very frequently.
     static TickType_t lastYieldTick = xTaskGetTickCount();
     const TickType_t currentTick = xTaskGetTickCount();
     if ((TickType_t)(currentTick - lastYieldTick) >= pdMS_TO_TICKS(1000))
     {
         lastYieldTick = currentTick;
-        vTaskDelay(2);
+        vTaskDelay(1);
     }
 #endif
 
