@@ -28,6 +28,13 @@
 #include <tuple>
 #include <filesystem>
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    #include <cstddef>
+    #include <cstdlib>
+    #include <new>
+    #include <esp_heap_caps.h>
+#endif
+
 #include "../types.h"
 #include "../misc.h"
 #include "nnue_architecture.h"
@@ -50,6 +57,54 @@ using NetworkOutput = std::tuple<Value, Value>;
 // there is no way to run destructors.
 class Network {
    public:
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // Engine::get_default_network() initially uses std::unique_ptr<Network>.
+    // Keep that ownership model, but place the large inline NNUE object in PSRAM.
+    static void* operator new(std::size_t size) {
+        return allocate_psram(size, alignof(Network));
+    }
+
+    static void* operator new(std::size_t size, std::align_val_t alignment) {
+        return allocate_psram(size, static_cast<std::size_t>(alignment));
+    }
+
+    static void operator delete(void* ptr) noexcept {
+        heap_caps_free(ptr);
+    }
+
+    static void operator delete(void* ptr, std::size_t) noexcept {
+        heap_caps_free(ptr);
+    }
+
+    static void operator delete(void* ptr, std::align_val_t) noexcept {
+        heap_caps_free(ptr);
+    }
+
+    static void operator delete(void* ptr, std::size_t, std::align_val_t) noexcept {
+        heap_caps_free(ptr);
+    }
+
+    // memory_allocator<T>() uses placement new; class allocation overloads
+    // hide the global placement form unless it is explicitly provided.
+    static void* operator new(std::size_t, void* ptr) noexcept { return ptr; }
+    static void operator delete(void*, void*) noexcept {}
+
+   private:
+    static void* allocate_psram(std::size_t size, std::size_t alignment) {
+        constexpr std::size_t MinimumAlignment = alignof(std::max_align_t);
+        if (alignment < MinimumAlignment)
+            alignment = MinimumAlignment;
+
+        const std::size_t alignedSize = (size + alignment - 1) & ~(alignment - 1);
+        void* ptr = heap_caps_aligned_alloc(
+          alignment, alignedSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!ptr)
+            std::abort();
+        return ptr;
+    }
+
+   public:
+#endif
     Network() = default;
 
     Network(const Network& other) = default;
