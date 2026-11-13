@@ -106,6 +106,7 @@ struct SearchProbeStats {
   uint32_t nps;
   int hashfull;
   uint32_t stackFreeBytes;
+  int coreId;
   char bestmove[16];
   char ponder[16];
 };
@@ -122,6 +123,7 @@ static void copySearchText(char *destination, size_t capacity, std::string_view 
 
 static void sampleSearchStack() {
   const uint32_t freeBytes = (uint32_t)uxTaskGetStackHighWaterMark(nullptr);
+  searchProbeStats.coreId = xPortGetCoreID();
   if (searchProbeStats.stackFreeBytes == 0 ||
       freeBytes < searchProbeStats.stackFreeBytes)
     searchProbeStats.stackFreeBytes = freeBytes;
@@ -129,17 +131,19 @@ static void sampleSearchStack() {
 
 static void resetSearchProbeStats() {
   memset(&searchProbeStats, 0, sizeof(searchProbeStats));
+  searchProbeStats.coreId = -1;
 }
 
 static void printSearchProbeStats(const char *label) {
   Serial.printf("[SEARCH] %s started=%s depth=%d nodes=%llu nps=%u hashfull=%d "
-                "worker-stack-min-free=%u bytes bestmove=%s",
+                "worker-core=%d worker-stack-min-free=%u bytes bestmove=%s",
                 label,
                 searchProbeStats.started ? "yes" : "no",
                 searchProbeStats.depth,
                 (unsigned long long)searchProbeStats.nodes,
                 (unsigned)searchProbeStats.nps,
                 searchProbeStats.hashfull,
+                searchProbeStats.coreId,
                 (unsigned)searchProbeStats.stackFreeBytes,
                 searchProbeStats.bestmove[0] ? searchProbeStats.bestmove : "(none)");
   if (searchProbeStats.ponder[0])
@@ -174,10 +178,10 @@ static void drawProbeDashboard() {
 
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   tft.setCursor(8, 158);
-  tft.println("Search tests: depth 1 / 4 / 8");
+  tft.println("Search tests: depth <= 16");
   tft.setTextColor(TFT_GREEN, TFT_BLACK);
   tft.setCursor(8, 178);
-  tft.println("Timed search: 5 seconds");
+  tft.println("Node-capped: start / Kiwipete");
 
   const uint32_t bars[] = {
     TFT_RED, TFT_GREEN, TFT_BLUE, TFT_CYAN, TFT_MAGENTA, TFT_YELLOW
@@ -224,6 +228,29 @@ static void runDepthSearch(Stockfish::Engine& engine, int depth) {
   char label[40];
   snprintf(label, sizeof(label), "After depth-%d search", depth);
   print_heap(label);
+}
+
+static void runBoundedSearch(Stockfish::Engine& engine,
+                              const char* label,
+                              int maxDepth,
+                              uint64_t nodeLimit) {
+  resetSearchProbeStats();
+  Stockfish::Search::LimitsType limits;
+  limits.depth = maxDepth;
+  limits.nodes = nodeLimit;
+  limits.startTime = Stockfish::now();
+
+  Serial.printf("\\nStarting %s (max depth %d, max nodes %llu)...\\n",
+                label, maxDepth, (unsigned long long)nodeLimit);
+  Serial.flush();
+  engine.go(limits);
+  engine.wait_for_search_finished();
+
+  Serial.printf("%s complete.\\n", label);
+  printSearchProbeStats(label);
+  char heapLabel[64];
+  snprintf(heapLabel, sizeof(heapLabel), "After %.48s", label);
+  print_heap(heapLabel);
 }
 
 static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
@@ -313,6 +340,8 @@ void setup() {
   Serial.printf("Arduino loop task stack = %u bytes; current free stack ~= %u bytes\n",
                 (unsigned)getArduinoLoopTaskStackSize(),
                 (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+  Serial.printf("CPU cores reported by Stockfish = %u; setup running on core %d\\n",
+                (unsigned)Stockfish::SYSTEM_THREADS_NB, (int)xPortGetCoreID());
   print_panic_configuration();
   Serial.flush();
 
@@ -400,15 +429,36 @@ void setup() {
     sampleSearchStack();
   });
 
-  // Grow the search load in small steps while the real display driver stays
-  // initialized. Heap checkpoints include both the engine and the GUI layer.
-  runDepthSearch(engine, 1);
-  runDepthSearch(engine, 4);
-  runDepthSearch(engine, 8);
+  // Bound depth-16 searches by node count so this remains practical at the
+  // current ~1 kNPS performance level. Reached depth is reported by callback.
+  constexpr uint64_t ProbeNodeLimit = 10000;
+  runBoundedSearch(engine, "start position depth-16 / 10k nodes", 16, ProbeNodeLimit);
+
+  // Kiwipete is a legal, high-branching middlegame test position.
+  const std::string kiwipeteFen =
+    "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+  const auto positionError = engine.set_position(kiwipeteFen, {});
+  if (positionError.has_value()) {
+    Serial.printf("[POSITION] Kiwipete FEN rejected: %s\\n", positionError->what());
+  } else {
+    Serial.printf("[POSITION] Kiwipete loaded: %s\\n", engine.fen().c_str());
+    runBoundedSearch(engine, "Kiwipete middlegame / depth-16 / 10k nodes",
+                     16, ProbeNodeLimit);
+  }
+
+  // Restore the standard start position for subsequent application tests.
+  const std::string startFen =
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+  const auto restoreError = engine.set_position(startFen, {});
+  if (restoreError.has_value())
+    Serial.printf("[POSITION] start position restore failed: %s\\n", restoreError->what());
+  else
+    Serial.println("[POSITION] start position restored.");
+
   runTimedSearch(engine, 5000);
 
   Serial.println();
-  Serial.println("Probe complete. GUI, NNUE verification, depth searches and timed search finished.");
+  Serial.println("Probe complete. Display, NNUE, bounded depth-16 searches and timed search finished.");
 }
 
 void loop() {
