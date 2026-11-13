@@ -19,7 +19,7 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 ## Current status
 
-Stockfish 19 source is vendored under `src/stockfish/` with the Smallnet P_hm feature patch forward-ported to the pinned SF19 release. The `freenove_stockfish_compile` PlatformIO environment now runs a dedicated hardware probe: it initializes the ILI9341/FT6336U diagnostic display, loads the embedded Smallnet network, constructs one search worker with a 1 MiB hash, verifies NNUE, and runs depth 1/4/8 plus a 5-second timed search. This is a validation harness, not yet the final UCI application or touchscreen chess UI.
+Stockfish 19 source is vendored under `src/stockfish/` with the Smallnet P_hm feature patch forward-ported to the pinned SF19 release. The probe has verified Engine construction, embedded NNUE loading and a completed depth-1 search with the ILI9341/FT6336U driver initialized. The subsequent depth-scaling run exposed a search-thread stack overflow at the original 32 KiB setting. An experimental 128 KiB PSRAM-backed pthread stack and per-search stack high-water reporting are now being tested. This is a validation harness, not yet the final UCI application or touchscreen chess UI.
 
 ## Planned milestones
 
@@ -76,5 +76,9 @@ pio run -e freenove_stockfish_compile
 This environment excludes the board-diagnostics `src/main.cpp` and uses `src/stockfish_probe.cpp` together with the Stockfish sources. The probe initializes the same LovyanGFX ILI9341 driver and FT6336U touch interface used by the board diagnostics before constructing the engine. It then loads and verifies the embedded Stockfish 19 Smallnet network, creates one worker and a 1 MiB hash, and runs depth 1, 4, 8 and a 5-second timed search. Heap checkpoints are taken with the display driver left initialized, so the reported engine/search memory is measured with the display layer resident. This remains a diagnostic dashboard, not the final touchscreen chess UI or a complete UCI application.
 
 The panel is 240 x 320 pixels and uses RGB565. A full-screen framebuffer would require 153,600 bytes; two full-screen buffers would require 307,200 bytes. The previous engine-only probe left 327,112 bytes of free PSRAM, so double buffering would consume almost all of that reserve. The current dashboard uses direct display drawing calls and has no explicit full-screen framebuffer. The final chess UI should initially use direct/partial updates or small tile buffers, and should only allocate a full framebuffer if later combined memory measurements show sufficient headroom.
+
+The search pthread currently requests a 128 KiB stack from PSRAM through the ESP-IDF 5.5 pthread `stack_alloc_caps` setting. This is an experimental starting size: the probe samples `uxTaskGetStackHighWaterMark(nullptr)` from search callbacks and reports the minimum free worker-stack bytes after each completed search. It must be increased if the measured reserve is small; it is not yet validated for arbitrary/deep searches.
+
+PSRAM-backed task stacks have important ESP-IDF restrictions: they are inaccessible while the flash cache is disabled. The search worker must therefore not perform flash erase/write, OTA, NVS operations, or deep-sleep transitions while running. The probe keeps serial output and display updates on the Arduino loop task rather than invoking those drivers from the PSRAM-stacked worker. Treat any future feature that calls ROM routines or disables the flash cache from the search task as requiring a separate safety review. See the ESP-IDF 5.5 external-RAM restrictions and stack-sizing guidance.
 
 The existing `freenove_fnk0104b` environment remains the board-diagnostics target.
