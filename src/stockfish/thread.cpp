@@ -284,7 +284,9 @@ void ThreadPool::set(const NumaConfig&                           numaConfig,
         SF_ESP_TRACE("ThreadPool::set after initial clear");
 #endif
 
+        SF_ESP_TRACE("ThreadPool::set before final worker wait");
         main_thread()->wait_for_search_finished();
+        SF_ESP_TRACE("ThreadPool::set after final worker wait");
     }
 }
 
