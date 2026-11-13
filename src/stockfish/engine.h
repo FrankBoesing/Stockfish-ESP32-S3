@@ -45,7 +45,11 @@
 
 namespace Stockfish {
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+constexpr int MaxHashMB = 1;  // Initial ESP32 target is deliberately limited to 1 MiB.
+#else
 constexpr int MaxHashMB = Is64Bit ? 33554432 : 2048;
+#endif
 extern int    MaxThreads;
 
 class Engine {
