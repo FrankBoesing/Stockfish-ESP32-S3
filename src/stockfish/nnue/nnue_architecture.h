@@ -30,6 +30,7 @@
 #include "layers/clipped_relu.h"
 #include "layers/sqr_clipped_relu.h"
 #include "nnue_common.h"
+#include "nnue_bench.h"
 #include "nnz_helper.h"
 
 namespace Stockfish::Eval::NNUE {
@@ -107,25 +108,59 @@ struct NetworkArchitecture {
 
         Buffer buffer;
 
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+        uint32_t benchStart = Bench::cycle_count();
+#endif
         fc_0.propagate(transformedFeatures, buffer.fc_0_out, nnzInfo);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+        Bench::record(Bench::FC0, benchStart);
+        benchStart = Bench::cycle_count();
+#endif
 #if defined(USE_PAIR_ACTIVATIONS)
         ac_sqr_0.propagate_pair(buffer.fc_0_out, buffer.concat_buffer,
                                 buffer.concat_buffer + FC_0_OUTPUTS);
 #else
         ac_sqr_0.propagate(buffer.fc_0_out, buffer.concat_buffer);
+#endif
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+        Bench::record(Bench::SqrClippedReLU0, benchStart);
+        benchStart = Bench::cycle_count();
+#endif
+#if !defined(USE_PAIR_ACTIVATIONS)
         ac_0.propagate(buffer.fc_0_out, buffer.concat_buffer + FC_0_OUTPUTS);
+#endif
+#if defined(STOCKFISH_NNUE_BENCHMARK) && !defined(USE_PAIR_ACTIVATIONS)
+        Bench::record(Bench::ClippedReLU0, benchStart);
+        benchStart = Bench::cycle_count();
 #endif
 
         fc_1.propagate(buffer.concat_buffer, buffer.fc_1_out);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+        Bench::record(Bench::FC1, benchStart);
+        benchStart = Bench::cycle_count();
+#endif
 #if defined(USE_PAIR_ACTIVATIONS)
         ac_sqr_1.propagate_pair(buffer.fc_1_out, buffer.concat_buffer + FC_0_OUTPUTS * 2,
                                 buffer.concat_buffer + FC_0_OUTPUTS * 2 + FC_1_OUTPUTS);
 #else
         ac_sqr_1.propagate(buffer.fc_1_out, buffer.concat_buffer + FC_0_OUTPUTS * 2);
+#endif
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+        Bench::record(Bench::SqrClippedReLU1, benchStart);
+        benchStart = Bench::cycle_count();
+#endif
+#if !defined(USE_PAIR_ACTIVATIONS)
         ac_1.propagate(buffer.fc_1_out, buffer.concat_buffer + FC_0_OUTPUTS * 2 + FC_1_OUTPUTS);
+#endif
+#if defined(STOCKFISH_NNUE_BENCHMARK) && !defined(USE_PAIR_ACTIVATIONS)
+        Bench::record(Bench::ClippedReLU1, benchStart);
+        benchStart = Bench::cycle_count();
 #endif
 
         fc_2.propagate(buffer.concat_buffer, buffer.fc_2_out);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+        Bench::record(Bench::FC2, benchStart);
+#endif
 
         static_assert(FC_0_OUTPUTS >= 2);
         i32 fwdOut = buffer.fc_2_out[0];
