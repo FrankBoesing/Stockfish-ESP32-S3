@@ -72,21 +72,37 @@ Thread::Thread(Search::SharedState&                    sharedState,
     wait_for_search_finished();
     SF_ESP_TRACE("Thread: idle_loop is ready");
 
-    run_custom_job([this, &binder, &sharedState, &sm, n]() {
-        SF_ESP_TRACE("Thread job: binding NUMA access");
-        // Use the binder to [maybe] bind the threads to a NUMA node before doing
-        // the Worker allocation. Ideally we would also allocate the SearchManager
-        // here, but that's minor.
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    if (!binder.is_binding_enabled())
+    {
+        // A single-worker ESP32 has no NUMA placement requirement. Construct
+        // the large Worker synchronously instead of dispatching an init job
+        // through the new pthread and its condition variable.
+        SF_ESP_TRACE("Thread: constructing Worker synchronously on caller task");
         this->numaAccessToken = binder();
-        SF_ESP_TRACE("Thread job: before Search::Worker allocation");
         this->worker          = make_unique_large_page<Search::Worker>(
           sharedState, std::move(sm), n, idxInNuma, totalNuma, this->numaAccessToken);
-        SF_ESP_TRACE("Thread job: Search::Worker allocation and construction complete");
-    });
+        SF_ESP_TRACE("Thread: synchronous Worker construction complete");
+    }
+    else
+#endif
+    {
+        run_custom_job([this, &binder, &sharedState, &sm, n]() {
+            SF_ESP_TRACE("Thread job: binding NUMA access");
+            // Use the binder to [maybe] bind the threads to a NUMA node before doing
+            // the Worker allocation. Ideally we would also allocate the SearchManager
+            // here, but that's minor.
+            this->numaAccessToken = binder();
+            SF_ESP_TRACE("Thread job: before Search::Worker allocation");
+            this->worker          = make_unique_large_page<Search::Worker>(
+              sharedState, std::move(sm), n, idxInNuma, totalNuma, this->numaAccessToken);
+            SF_ESP_TRACE("Thread job: Search::Worker allocation and construction complete");
+        });
 
-    SF_ESP_TRACE("Thread: waiting for Worker construction job");
-    wait_for_search_finished();
-    SF_ESP_TRACE("Thread: Worker construction job complete");
+        SF_ESP_TRACE("Thread: waiting for Worker construction job");
+        wait_for_search_finished();
+        SF_ESP_TRACE("Thread: Worker construction job complete");
+    }
 }
 
 

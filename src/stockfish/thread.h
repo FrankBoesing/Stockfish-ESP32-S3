@@ -60,6 +60,11 @@ class OptionalThreadToNumaNodeBinder {
             return NumaReplicatedAccessToken(numaId);
     }
 
+    // ESP32 can construct the Worker on the caller task when no NUMA
+    // binding is required. Bound configurations must construct it on the
+    // dedicated search thread, as on desktop platforms.
+    bool is_binding_enabled() const { return numaConfig != nullptr; }
+
    private:
     const NumaConfig* numaConfig;
     NumaIndex         numaId;
