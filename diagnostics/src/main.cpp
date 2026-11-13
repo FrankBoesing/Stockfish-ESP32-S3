@@ -58,11 +58,14 @@ static void memoryReport() {
     (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getHeapSize(),
     (unsigned)ESP.getPsramSize(), (unsigned)ESP.getFreePsram());
   size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  size_t testSize = largest > 65536 ? min(largest - 32768, (size_t)(2 * 1024 * 1024)) : 0;
-  Serial.printf("PSRAM largest block: %u bytes; test allocation: %u bytes\n",
-    (unsigned)largest, (unsigned)testSize);
-  if (!testSize) return;
-  uint8_t *mem = (uint8_t *)heap_caps_malloc(testSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  size_t testSize = largest > 65536 ? largest - 16384 : 0;
+  uint8_t *mem = nullptr;
+  // Probe close to the reported largest block; back off in 64 KiB steps if needed.
+  while (testSize > 65536 && !(mem = (uint8_t *)heap_caps_malloc(testSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT))) {
+    testSize = testSize > 65536 ? testSize - 65536 : 0;
+  }
+  Serial.printf("PSRAM largest block: %u bytes; largest test allocation: %u bytes\\n",
+    (unsigned)largest, (unsigned)(mem ? testSize : 0));
   if (!mem) { Serial.println("PSRAM allocation: FAILED"); return; }
   uint64_t t0 = esp_timer_get_time();
   for (size_t i=0; i<testSize; ++i) mem[i] = (uint8_t)((i*37u) ^ (i>>7) ^ 0xA5u);
