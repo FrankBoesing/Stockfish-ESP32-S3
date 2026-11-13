@@ -159,6 +159,28 @@ void setup() {
   // callback to avoid printing the same verification message twice.
   engine.set_on_verify_network({});
 
+  // The standalone Engine API expects the application to provide all search
+  // callbacks. The UCI frontend normally installs these; this probe does not.
+  engine.set_on_start([]() {
+    Serial.println("[SEARCH] started");
+  });
+  engine.set_on_update_no_moves([](const Stockfish::Engine::InfoShort&) {
+    // No-move diagnostic is not needed for the start-position probe.
+  });
+  engine.set_on_update_full([](const Stockfish::Engine::InfoFull&) {
+    // Detailed UCI iteration output is intentionally omitted in this probe.
+  });
+  engine.set_on_iter([](const Stockfish::Engine::InfoIter&) {
+    // Current-move UCI output is intentionally omitted in this probe.
+  });
+  engine.set_on_bestmove([](std::string_view bestmove, std::string_view ponder) {
+    Serial.printf("[SEARCH] bestmove %.*s",
+                  (int)bestmove.size(), bestmove.data());
+    if (!ponder.empty())
+      Serial.printf(" ponder %.*s", (int)ponder.size(), ponder.data());
+    Serial.println();
+  });
+
   // A depth-1 search is the first test that exercises the real search path
   // and NNUE evaluation. Keep this deliberately short for the initial probe.
   Stockfish::Search::LimitsType limits;
