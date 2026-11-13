@@ -28,11 +28,11 @@ jobs:
       - name: Install PlatformIO
         run: python -m pip install --upgrade platformio
 
-      - name: Compile all optimization levels
+      - name: Compile baseline and NNUE profiler
         shell: bash
         run: |
           set -euo pipefail
-          for env in freenove_stockfish_compile freenove_stockfish_o2 freenove_stockfish_o3 freenove_stockfish_nnubench; do
+          for env in freenove_stockfish_compile freenove_stockfish_nnubench; do
             echo "===== Building $env ====="
             log="/tmp/${env}.log"
             if ! pio run -e "$env" -v > "$log" 2>&1; then
@@ -47,18 +47,14 @@ jobs:
             }
           done
 
-      - name: Upload optimization build artifacts
+      - name: Upload baseline and profiler artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stockfish-s3-optimization-builds
+          name: stockfish-s3-nnue-profiler-builds
           path: |
             .pio/build/freenove_stockfish_compile/firmware.bin
             .pio/build/freenove_stockfish_compile/firmware.map
-            .pio/build/freenove_stockfish_o2/firmware.bin
-            .pio/build/freenove_stockfish_o2/firmware.map
-            .pio/build/freenove_stockfish_o3/firmware.bin
-            .pio/build/freenove_stockfish_o3/firmware.map
             .pio/build/freenove_stockfish_nnubench/firmware.bin
             .pio/build/freenove_stockfish_nnubench/firmware.map
           if-no-files-found: warn
