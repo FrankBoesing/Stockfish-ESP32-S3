@@ -716,14 +716,25 @@ void Search::Worker::clear() {
     }
 
     SF_ESP_TRACE("Worker::clear continuation history cleared");
+    SF_ESP_TRACE("Worker::clear before ttMoveHistory reset");
     ttMoveHistory = 0;
+    SF_ESP_TRACE("Worker::clear after ttMoveHistory reset");
 
+    usize correctionRows = 0;
+    SF_ESP_TRACE("Worker::clear before continuation correction history fill");
     for (auto& to : continuationCorrectionHistory)
+    {
         for (auto& h : to)
             h.fill(5);
+        ++correctionRows;
+        SF_ESP_TRACE("Worker::clear correction history rows=%u", (unsigned) correctionRows);
+    }
+    SF_ESP_TRACE("Worker::clear after continuation correction history fill");
 
+    SF_ESP_TRACE("Worker::clear before reductions init count=%u", (unsigned) reductions.size());
     for (usize i = 1; i < reductions.size(); ++i)
         reductions[i] = int(2872 / 128.0 * std::log(i));
+    SF_ESP_TRACE("Worker::clear after reductions init");
 
     SF_ESP_TRACE("Worker::clear before refresh table");
     refreshTable.clear(network[numaAccessToken]);
