@@ -84,7 +84,7 @@ static void memoryReport() {
 }
 
 
-struct alignas(16) TTBenchEntry {
+struct TTBenchEntry {
   volatile uint32_t key;
   volatile uint32_t value;
   volatile uint32_t meta;
