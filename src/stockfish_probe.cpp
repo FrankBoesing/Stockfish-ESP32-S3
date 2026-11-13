@@ -288,7 +288,7 @@ void setup() {
                 (unsigned)Stockfish::PAWN_HISTORY_BASE_SIZE);
   Serial.printf("Correction history entries= %u\n",
                 (unsigned)Stockfish::CORRHIST_BASE_SIZE);
-  print_heap("After core initialization");
+  print_heap("After GUI and core initialization");
 
   Serial.println();
   Serial.println("Constructing Engine (1 worker, 1 MiB hash; no search)...");
