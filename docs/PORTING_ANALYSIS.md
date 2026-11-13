@@ -179,23 +179,17 @@ Weitere Punkte:
 
 ## 8. Aktueller Implementierungs- und Prüfstand
 
-- Stockfish-19-Smallnet-Quellen sind inzwischen unter `src/stockfish/` integriert; der Compile-/Link-Test steht noch aus.
-- Es wurde kein PlatformIO-Build für den Stockfish-Port ausgeführt.
-- Die Smallnet-Variante wurde auf dem ESP32-S3 noch nicht kompiliert oder getestet.
-- Die exakten `sizeof`-Werte von Network, Worker und Accumulator-Strukturen müssen im Zielbuild gemessen werden.
-- Thread-Stack, UCI-Ein-/Ausgabe, `std::filesystem` und die PSRAM-Platzierung sind noch nicht auf dem Board verifiziert.
+- Stockfish-19-Smallnet-Quellen sind unter src/stockfish/ integriert. Die exakten alten Blob-IDs des Smallnet-Patches wurden gegen den offiziellen SF19-Release geprüft.
+- Der erste ESP32-S3-Compile-Lauf kompilierte die Stockfish-Quellen, scheiterte aber beim Linken an .dram0.bss.
+- Die Linker-Map aus CI-Lauf 43428347452 zeigt als Hauptverursacher die statischen Magic-Angriffstabellen: RookTable mit 0xC8000 Byte und BishopTable mit 0xA400 Byte. Zusammen sind dies 861.184 Byte.
+- Weitere große statische Tabellen sind LineBB, BetweenBB, RayPassBB, cuckoo und cuckooMove. Die Map belegt damit die Ursache des DRAM-Überlaufs konkret.
+- In Commit 54bed36b4410205652667d5f987505dddee5e027 werden Rook-/Bishop-Magic-Tabellen auf ESP32 mit heap_caps_calloc(..., MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) im externen RAM angelegt. Auf Nicht-ESP32-Builds bleibt die ursprüngliche statische std::array-Ablage erhalten.
+- Bei fehlgeschlagener PSRAM-Reservierung werden eventuell bereits reservierte Teilbereiche freigegeben und die Initialisierung bricht mit std::abort() ab. Die Tabellen bleiben nach erfolgreicher Initialisierung für die gesamte Laufzeit bestehen.
+- Die übrigen Tabellen verbleiben zunächst im internen DRAM. Die Laufzeitkosten der PSRAM-Zugriffe sind noch nicht gemessen.
 
-Diese Analyse ist eine Architektur- und Integrationsgrundlage. Der Compile-/Link-Smoke-Test ist angelegt, aber noch nicht erfolgreich bestätigt; eine lauffähige UCI-Portierung ist damit ausdrücklich noch nicht nachgewiesen.
+CI-Lauf 43429621038 prüft diese Änderung. Zum letzten Statusabruf war der PlatformIO-Build noch in Bearbeitung. Ein erfolgreicher Link und ein Lauf auf echter Hardware sind daher noch nicht bestätigt.
 
-## Quellen
-
-- Stockfish Upstream: https://github.com/official-stockfish/Stockfish/tree/sf_19
-- Stockfish-19 NNUE-Architektur: https://github.com/official-stockfish/Stockfish/tree/sf_19/src/nnue
-- Stockfish-19 Smallnet-Patches: https://github.com/lichess-org/stockfish-web/tree/main/patches/sf_19_smallnet
-- ESP-IDF 5.5 POSIX/Pthreads: https://docs.espressif.com/projects/esp-idf/en/release-v5.5/esp32/api-reference/system/pthread.html
-- ESP-IDF externe RAM-Speicherverwaltung: https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-reference/system/mem_alloc.html
-- Lite-Netz-Größe / Stockfish-19-Lite-Referenz: https://mychesslab.uk/credits
-
+Noch nicht verifiziert sind insbesondere: tatsächliche PSRAM-Heap-Verfügbarkeit beim Start, Laufzeitinitialisierung der Magic-Tabellen, Größen der relevanten Objekte auf dem Ziel, Thread-Stack, UCI-Ein-/Ausgabe, std::filesystem, NNUE-Laden und Suchkorrektheit.
 
 ## 9. Smallnet-Patch-Abgleich mit dem offiziellen SF19-Release
 
@@ -214,11 +208,13 @@ Eine zusätzliche lokale ESP32-Buildkorrektur wurde getrennt gehalten: In `nnue/
 
 ## 10. Compile-/Link-Testziel
 
-Die Quelle liegt unter `src/stockfish/`; Upstream-Lizenz und AUTHORS-Datei sind enthalten. `platformio.ini` hat zwei getrennte Umgebungen:
+Die Quelle liegt unter src/stockfish/; Upstream-Lizenz und AUTHORS-Datei sind enthalten. platformio.ini hat zwei getrennte Umgebungen:
 
-- `freenove_fnk0104b`: bestehende Board-Diagnose, Stockfish-Quellen explizit ausgeschlossen.
-- `freenove_stockfish_compile`: SF19-Smallnet-Quellen, Xtensa-Skalarpfad, C++17, kein Prefetch, keine Syzygy-Tablebases und keine eingebettete NNUE-Datei.
+- freenove_fnk0104b: bestehende Board-Diagnose, Stockfish-Quellen explizit ausgeschlossen.
+- freenove_stockfish_compile: SF19-Smallnet-Quellen, Xtensa-Skalarpfad, C++17, kein Prefetch, keine Syzygy-Tablebases und keine eingebettete NNUE-Datei.
 
 Der Probe-Sketch initialisiert Attack-/Positionsdaten und gibt Objektgrößen aus. Er startet keine Suche, erzeugt keine Worker-Threads und lädt keine NNUE-Gewichte.
 
-Der erste GitHub-Actions-Lauf erreichte den Stockfish-Probe-Übersetzer, scheiterte jedoch an der Arduino-`HIGH`/`LOW`-Makrokollision. Diese Makros werden inzwischen vor den Stockfish-Headern im Probe-Sketch aufgehoben. Der erneute Compile-/Link-Lauf muss noch erfolgreich bestätigt werden.
+Für die Linkerdiagnose wird firmware.map erzeugt und auch bei fehlgeschlagenem Link als GitHub-Actions-Artefakt hochgeladen. Der erste Map-Lauf zeigte, dass die beiden Magic-Angriffstabellen zusammen 861.184 Byte statisches DRAM beanspruchten. Diese beiden Tabellen werden seit Commit 54bed36b4410205652667d5f987505dddee5e027 auf ESP32 dynamisch aus PSRAM reserviert; native Builds behalten die statische Ablage.
+
+Der erneute Compile-/Link-Lauf 43429621038 muss noch erfolgreich abgeschlossen werden. Der Compile-/Link-Smoke-Test ist somit noch nicht als erfolgreich bestätigt; eine lauffähige UCI-Portierung ist ausdrücklich noch nicht nachgewiesen.
