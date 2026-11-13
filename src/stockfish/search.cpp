@@ -2150,7 +2150,9 @@ void SearchManager::check_time(Search::Worker& worker) {
     if ((TickType_t)(currentTick - lastYieldTick) >= pdMS_TO_TICKS(1000))
     {
         lastYieldTick = currentTick;
-        vTaskDelay(1);
+        // Block across two ticks so the lower-priority IDLE task gets a
+        // complete scheduling window before this higher-priority worker wakes.
+        vTaskDelay(2);
     }
 #endif
 
