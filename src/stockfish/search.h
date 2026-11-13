@@ -353,7 +353,11 @@ class Worker {
 
     TTMoveHistory    ttMoveHistory;
     SharedHistories& sharedHistory;
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    ContinuationHistoryBlock& continuationHistory;
+#else
     ContinuationHistory (&continuationHistory)[2][2];
+#endif
 
    private:
     bool iterative_deepening();
