@@ -79,6 +79,29 @@ The serial startup message identifies the optimization level. Each variant runs 
 
 GitHub Actions compiles all three variants and retains the firmware binaries and linker maps as a single artifact.
 
+## NNUE cycle profiler
+
+A diagnostic-only build enables cycle counters inside the real Stockfish NNUE evaluation path:
+
+```sh
+pio run -e freenove_stockfish_nnubench -t upload
+```
+
+The profiler uses the same `-Os` optimization level as the baseline. It instruments the following stages on the search worker:
+
+- Accumulator update (`AccumulatorStack::evaluate`)
+- Feature transformation (both perspectives)
+- FC0, SqrClippedReLU0, ClippedReLU0
+- FC1, SqrClippedReLU1, ClippedReLU1
+- FC2
+- Complete `Network::evaluate` call
+
+After each 30,000-node search and the timed search, the serial output contains `[NNUEBENCH]` records with invocation count, total cycles, average cycles per invocation, and share of total NNUE evaluation cycles. The counters are reset before each search. Cycle counts are read using ESP-IDF's `esp_cpu_get_cycle_count()` API on the pinned Core 0 worker.
+
+**Important:** This build adds measurement overhead to each NNUE evaluation. Do not compare its search NPS directly with the uninstrumented `freenove_stockfish_compile` build. Use the per-stage cycle distribution to identify expensive components; later optimization changes must be compared with the uninstrumented baseline and checked for identical chess results.
+
+The ordinary `freenove_stockfish_compile` environment does not define `STOCKFISH_NNUE_BENCHMARK`; the instrumentation is compiled out of the normal diagnostic firmware.
+
 ## Source provenance
 
 The engine source will be obtained from the official upstream repository:
