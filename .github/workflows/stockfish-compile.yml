@@ -30,3 +30,12 @@ jobs:
 
       - name: Compile Stockfish 19 Smallnet for ESP32-S3
         run: pio run -e freenove_stockfish_compile
+
+      - name: Upload linker map
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stockfish-s3-linker-map
+          path: .pio/build/freenove_stockfish_compile/firmware.map
+          if-no-files-found: warn
+          retention-days: 7
