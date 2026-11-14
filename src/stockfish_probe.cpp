@@ -135,7 +135,9 @@ static void printNnueBenchCounters(const char *label) {
   using namespace Stockfish::Eval::NNUE::Bench;
   static const char *const stageNames[StageCount] = {
     "accumulator", "feature-transform", "fc0", "sqr-relu0", "clip-relu0",
-    "fc1", "sqr-relu1", "clip-relu1", "fc2", "evaluation-total"
+    "fc1", "sqr-relu1", "clip-relu1", "fc2", "evaluation-total",
+    "accum-find-last", "accum-forward", "accum-backward", "accum-forward-both",
+    "accum-refresh-cache"
   };
   const uint64_t totalCycles = counters[EvaluationTotal].cycles;
   Serial.printf("[NNUEBENCH] %s evals=%u total=%llu cycles avg=%llu cycles/eval\n",
