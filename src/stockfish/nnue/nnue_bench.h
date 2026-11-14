@@ -30,6 +30,10 @@ enum Stage : uint8_t {
     AccumulatorBackwardIncremental,
     AccumulatorForwardBoth,
     AccumulatorRefreshCache,
+    AccumulatorBuildIndices,
+    AccumulatorApplyMainLoop,
+    AccumulatorApplyPsqtLoop,
+    AccumulatorUpdateBoth,
     StageCount
 };
 
