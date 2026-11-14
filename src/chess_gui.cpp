@@ -45,7 +45,7 @@ constexpr char StartFen[] =
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 constexpr int BoardX = 4;
-constexpr int BoardY = 24;
+constexpr int BoardY = 16;  // Center the 208px board vertically on the 240px display.
 constexpr int SquareSize = 26;
 constexpr int BoardSize = SquareSize * 8;
 static_assert(PIECE_ICON_SIZE == SquareSize, "Piece icon size must match a board square");
@@ -251,12 +251,22 @@ static void loadTouchCalibration() {
                  && touchCalibration.magic == TouchCalibrationMagic;
 }
 
-static void saveTouchCalibration() {
+static bool saveTouchCalibration() {
   Preferences preferences;
-  if (!preferences.begin("sf-gui", false))
-    return;
-  preferences.putBytes("touch", &touchCalibration, sizeof(touchCalibration));
+  if (!preferences.begin("sf-gui", false)) {
+    Serial.println("[GUI] ERROR: could not open NVS namespace sf-gui");
+    return false;
+  }
+
+  const size_t written =
+    preferences.putBytes("touch", &touchCalibration, sizeof(touchCalibration));
   preferences.end();
+
+  const bool saved = written == sizeof(touchCalibration);
+  Serial.printf("[GUI] Touch calibration %s (%u/%u bytes in NVS)\n",
+                saved ? "saved" : "SAVE FAILED",
+                (unsigned)written, (unsigned)sizeof(touchCalibration));
+  return saved;
 }
 
 static void mapTouch(uint16_t rawX, uint16_t rawY, int &x, int &y) {
@@ -269,27 +279,36 @@ static void mapTouch(uint16_t rawX, uint16_t rawY, int &x, int &y) {
 }
 
 static void drawCenteredText(const char *text, int x, int y, int w, int h,
-                             uint16_t color, uint8_t size) {
-  tft.setTextSize(size);
+                             uint16_t color, const lgfx::IFont *font) {
+  tft.setFont(font);
+  tft.setTextSize(1);
   tft.setTextColor(color);
-  const int textWidth = tft.textWidth(text);
-  const int textHeight = 8 * size;
-  tft.setCursor(x + (w - textWidth) / 2, y + (h - textHeight) / 2);
-  tft.print(text);
+  tft.setTextDatum(textdatum_t::middle_center);
+  tft.drawString(text, x + w / 2, y + h / 2);
+}
+
+static void drawTextAt(const char *text, int x, int y, uint16_t color,
+                       const lgfx::IFont *font) {
+  tft.setFont(font);
+  tft.setTextSize(1);
+  tft.setTextColor(color);
+  tft.setTextDatum(textdatum_t::top_left);
+  tft.drawString(text, x, y);
 }
 
 static void drawButton(int x, int y, int w, int h, const char *label,
-                       bool active = false, bool enabled = true) {
+                       bool active = false, bool enabled = true,
+                       const lgfx::IFont *font = &fonts::FreeSansBold12pt7b) {
   const uint16_t fill = !enabled ? ColorDisabled
                           : active ? ColorOrange : ColorButton;
   const uint16_t text = active ? ColorBackground : ColorText;
   tft.fillRoundRect(x, y, w, h, 7, fill);
   tft.drawRoundRect(x, y, w, h, 7, active ? ColorOrange : ColorButton);
-  tft.setTextSize(2);
-  tft.setTextColor(enabled ? text : ColorMuted, fill);
-  const int tw = tft.textWidth(label);
-  tft.setCursor(x + (w - tw) / 2, y + (h - 16) / 2);
-  tft.print(label);
+  tft.setFont(font);
+  tft.setTextSize(1);
+  tft.setTextColor(enabled ? text : ColorMuted);
+  tft.setTextDatum(textdatum_t::middle_center);
+  tft.drawString(label, x + w / 2, y + h / 2);
 }
 
 static void drawCrosshair(int x, int y) {
@@ -301,13 +320,16 @@ static void drawCrosshair(int x, int y) {
 
 static void renderCalibration() {
   tft.fillScreen(ColorBackground);
-  drawCenteredText("Touch calibration", 20, 79, 280, 38, ColorOrange, 3);
+  drawCenteredText("Touch calibration", 20, 79, 280, 38,
+                   ColorOrange, &fonts::FreeSansBold18pt7b);
   tft.drawFastHLine(48, 119, 224, ColorButton);
-  drawCenteredText("Tap the crosshair", 20, 130, 280, 36, ColorText, 2);
+  drawCenteredText("Tap the crosshair", 20, 130, 280, 36,
+                   ColorText, &fonts::FreeSans12pt7b);
 
   char stepText[24];
   snprintf(stepText, sizeof(stepText), "Step %d of 3", calibrationStep + 1);
-  drawCenteredText(stepText, 20, 177, 280, 28, ColorMuted, 2);
+  drawCenteredText(stepText, 20, 177, 280, 28,
+                   ColorMuted, &fonts::FreeSans12pt7b);
 
   drawCrosshair(CalibrationTargets[calibrationStep][0],
                 CalibrationTargets[calibrationStep][1]);
@@ -475,17 +497,20 @@ static void drawBoard() {
 static void drawGamePanel() {
   const int x = BoardX + BoardSize + 6;
   const int w = 320 - x - 4;
-  tft.fillRect(x, BoardY, w, 216, ColorPanel);
+  tft.fillRect(x, BoardY, w, 224, ColorPanel);
 
-  drawCenteredText("Stockfish", x, 25, w, 18, ColorText, 2);
+  drawCenteredText("Stockfish", x, 25, w, 18,
+                   ColorText, &fonts::FreeSansBold12pt7b);
   char levelText[20];
   snprintf(levelText, sizeof(levelText), "Level %d", skillLevel);
-  drawCenteredText(levelText, x, 44, w, 14, ColorOrange, 1);
+  drawCenteredText(levelText, x, 44, w, 14,
+                   ColorOrange, &fonts::FreeSansBold9pt7b);
 
   const char *turnText = searchInFlight ? "Thinking"
                        : sideToMove() == playerColor ? "Your move" : "Engine";
   drawCenteredText(turnText, x + 1, 62, w - 2, 16,
-                   searchInFlight ? ColorOrange : ColorText, 1);
+                   searchInFlight ? ColorOrange : ColorText,
+                   &fonts::FreeSansBold9pt7b);
 
   int uiDepth;
   uint32_t uiNps;
@@ -496,35 +521,38 @@ static void drawGamePanel() {
 
   char depthText[24];
   snprintf(depthText, sizeof(depthText), "Depth %d", uiDepth);
-  drawCenteredText(depthText, x, 82, w, 14, ColorMuted, 1);
+  drawCenteredText(depthText, x, 82, w, 14,
+                   ColorMuted, &fonts::FreeSans9pt7b);
 
   char npsText[24];
   if (uiNps >= 1000)
     snprintf(npsText, sizeof(npsText), "%.1fk N/s", uiNps / 1000.0f);
   else
     snprintf(npsText, sizeof(npsText), "%lu N/s", (unsigned long)uiNps);
-  drawCenteredText(npsText, x, 97, w, 14, ColorMuted, 1);
+  drawCenteredText(npsText, x, 97, w, 14,
+                   ColorMuted, &fonts::FreeSans9pt7b);
 
   const int material = materialBalanceForPlayer();
   char materialText[20];
   snprintf(materialText, sizeof(materialText), "Material %+d", material);
   drawCenteredText(materialText, x, 113, w, 14,
-                   material > 0 ? ColorOrange : ColorText, 1);
+                   material > 0 ? ColorOrange : ColorText,
+                   &fonts::FreeSansBold9pt7b);
 
-  drawCenteredText(statusText, x + 1, 129, w - 2, 14, ColorMuted, 1);
+  drawCenteredText(statusText, x + 1, 129, w - 2, 14,
+                   ColorMuted, &fonts::FreeSans9pt7b);
   drawButton(x + 2, 147, w - 4, 25, "HINT", false,
-             !searchInFlight && sideToMove() == playerColor);
-  drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty());
-  drawButton(x + 2, 207, w - 4, 25, "NEW");
+             !searchInFlight && sideToMove() == playerColor,
+             &fonts::FreeSansBold9pt7b);
+  drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty(),
+             &fonts::FreeSansBold9pt7b);
+  drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
+             &fonts::FreeSansBold9pt7b);
 }
 
 static void renderGame() {
   screen = Screen::Game;
   tft.fillScreen(ColorBackground);
-  tft.setTextSize(1);
-  tft.setTextColor(ColorText, ColorBackground);
-  tft.setCursor(5, 5);
-  tft.print("Stockfish ESP32-S3");
   drawBoard();
   drawGamePanel();
 }
@@ -533,38 +561,35 @@ static void renderMenu() {
   screen = Screen::Menu;
   tft.fillScreen(ColorBackground);
 
-  drawCenteredText("New Game", 20, 12, 280, 40, ColorOrange, 3);
-  tft.setTextSize(2);
-  tft.setTextColor(ColorMuted, ColorBackground);
-  tft.setCursor(31, 61);
-  tft.print("Play as");
+  drawCenteredText("New Game", 20, 12, 280, 40,
+                   ColorOrange, &fonts::FreeSansBold18pt7b);
+  drawTextAt("Play as", 31, 59, ColorMuted, &fonts::FreeSans12pt7b);
 
   drawButton(28, 87, 128, 42, "White", playerColor == 'w');
   drawButton(164, 87, 128, 42, "Black", playerColor == 'b');
 
-  tft.setTextColor(ColorMuted, ColorBackground);
-  tft.setCursor(31, 143);
-  tft.print("Stockfish level");
+  drawTextAt("Stockfish level", 31, 142,
+             ColorMuted, &fonts::FreeSans12pt7b);
 
   drawButton(30, 164, 50, 38, "-");
   char levelText[12];
   snprintf(levelText, sizeof(levelText), "%d", skillLevel);
-  drawCenteredText(levelText, 94, 164, 132, 38, ColorText, 3);
+  drawCenteredText(levelText, 94, 164, 132, 38,
+                   ColorText, &fonts::FreeSansBold18pt7b);
   drawButton(240, 164, 50, 38, "+");
 
   drawButton(28, 207, 128, 30, "Start");
   drawButton(164, 207, 128, 30, "Cancel");
-  tft.setTextSize(1);
-  tft.setTextColor(ColorMuted, ColorBackground);
-  tft.setCursor(266, 5);
-  tft.print("TOUCH");
+  drawButton(230, 5, 86, 26, "CALIBRATE", false, true,
+             &fonts::FreeSansBold9pt7b);
 }
 
 static void renderLoading() {
   tft.fillScreen(ColorBackground);
-  drawCenteredText("Stockfish ESP32", 20, 76, 280, 32, ColorOrange, 3);
+  drawCenteredText("Stockfish ESP32", 20, 76, 280, 32,
+                   ColorOrange, &fonts::FreeSansBold18pt7b);
   drawCenteredText("Loading engine and NNUE...", 20, 122, 280, 24,
-                   ColorText, 1);
+                   ColorText, &fonts::FreeSans9pt7b);
 }
 
 static bool setSkillOption() {
@@ -575,11 +600,13 @@ static bool setSkillOption() {
   return true;
 }
 
-static void renderCalibrationComplete() {
+static void renderCalibrationComplete(bool saved) {
   tft.fillScreen(ColorBackground);
-  drawCenteredText("Touch ready", 20, 88, 280, 34, ColorOrange, 3);
-  drawCenteredText("Calibration saved", 20, 132, 280, 24, ColorText, 1);
-  delay(350);
+  drawCenteredText("Touch ready", 20, 88, 280, 34,
+                   ColorOrange, &fonts::FreeSansBold18pt7b);
+  drawCenteredText(saved ? "Calibration saved to flash" : "Flash save failed",
+                   20, 132, 280, 24, ColorText, &fonts::FreeSans9pt7b);
+  delay(500);
 }
 
 static void startSearch(SearchMode mode) {
@@ -888,6 +915,11 @@ static void handleMenuTouch(int x, int y) {
     return;
   }
 
+  if (x >= 230 && x < 316 && y >= 5 && y < 31) {
+    beginTouchCalibration();
+    return;
+  }
+
   if (y >= 207 && y < 239) {
     if (x >= 28 && x < 156) {
       startNewGame();
@@ -899,9 +931,6 @@ static void handleMenuTouch(int x, int y) {
     }
     return;
   }
-
-  if (x >= 260 && y <= 22)
-    beginTouchCalibration();
 }
 
 static void handleCalibrationTouch(uint16_t rawX, uint16_t rawY) {
@@ -922,9 +951,9 @@ static void handleCalibrationTouch(uint16_t rawX, uint16_t rawY) {
     return;
   }
 
-  saveTouchCalibration();
+  const bool saved = saveTouchCalibration();
   touchCalibrated = true;
-  renderCalibrationComplete();
+  renderCalibrationComplete(saved);
   renderMenu();
 }
 
@@ -1032,6 +1061,8 @@ void setup() {
   initializeEngine();
 
   loadTouchCalibration();
+  Serial.printf("[GUI] Touch calibration: %s\n",
+                touchCalibrated ? "loaded from NVS" : "not found");
   if (touchCalibrated) {
     renderMenu();
   } else {
