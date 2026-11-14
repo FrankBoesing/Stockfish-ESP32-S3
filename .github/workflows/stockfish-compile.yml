@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for env in freenove_stockfish_compile freenove_stockfish_nnubench; do
+          for env in freenove_stockfish_compile freenove_stockfish_nnubench freenove_stockfish_piebench; do
             echo "===== Building $env ====="
             log="/tmp/${env}.log"
             if ! pio run -e "$env" -v > "$log" 2>&1; then
@@ -57,5 +57,7 @@ jobs:
             .pio/build/freenove_stockfish_compile/firmware.map
             .pio/build/freenove_stockfish_nnubench/firmware.bin
             .pio/build/freenove_stockfish_nnubench/firmware.map
+            .pio/build/freenove_stockfish_piebench/firmware.bin
+            .pio/build/freenove_stockfish_piebench/firmware.map
           if-no-files-found: warn
           retention-days: 7
