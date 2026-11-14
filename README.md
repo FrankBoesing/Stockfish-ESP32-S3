@@ -40,15 +40,29 @@ orange TeensyFish-inspired theme, a three-point affine touch calibration saved
 in NVS, a new-game screen, and a directly rendered 8x8 board. The board rotates
 180 degrees for a Black player so the human side is always at the bottom.
 
-Moves are submitted as UCI moves through Stockfish's existing
-`Engine::set_position()` API. Stockfish remains the source of truth for move
-legality and position state; this GUI does not implement a second chess-rules
-engine. Pawn promotion is handled by an on-screen chooser for Queen, Rook,
-Bishop or Knight. Legal destination squares are highlighted from Stockfish's
-legal-move list when a piece is selected. The GUI also detects check, checkmate
-and stalemate using Stockfish's own position and legal-move code. Search callbacks only publish
-compact status/best-move data; drawing and position updates remain in the
-Arduino loop task. The GUI deliberately avoids a full-screen framebuffer.
+Moves are stored in a compact 16-bit UCI move history. Its backing buffer
+prefers PSRAM and falls back to internal 8-bit-capable RAM. Stockfish receives
+the move list when rebuilding a position and retains its full `StateInfo`
+chain for repetition checks. Pawn promotion is handled by an on-screen chooser
+for Queen, Rook, Bishop or Knight. Legal destination squares are highlighted
+from Stockfish's legal-move list when a piece is selected. The GUI detects
+check, checkmate, stalemate, the 50-move rule, threefold repetition and
+supported insufficient-material cases from the live Stockfish position.
+The GUI automatically ends the game at the 50-move and threefold claim
+thresholds; an interactive draw-claim action is not yet implemented.
+
+The current game (player colour, skill level and full move sequence) is stored
+in a versioned, checksummed NVS blob after each accepted human move, engine
+move, undo and new-game initialization. A valid saved game is reconstructed
+through `Engine::set_position()` on startup, including Stockfish's repetition
+history; if the engine is to move after reset, its search is restarted. Type
+`moves` (or `uci`) in the serial monitor and press Enter to print a UCI
+`position startpos moves ...` command and the current FEN. PGN export is a
+separate planned feature.
+
+Search callbacks only publish compact status/best-move data; drawing and
+position updates remain in the Arduino loop task. The GUI deliberately avoids
+a full-screen framebuffer.
 
 This is an initial implementation milestone. Touch mapping, rendering, search
 responsiveness and move handling still require a hardware test on the FNK0104B.
@@ -61,6 +75,7 @@ responsiveness and move handling still require a hardware test on the FNK0104B.
 4. Measure search scaling, internal RAM/PSRAM use, and the combined engine-plus-display memory budget.
 5. Build a minimal UCI-capable firmware and validate protocol behavior against a desktop build of the same upstream revision.
 6. Add the touchscreen chess UI as a separate layer, avoiding a full-screen double framebuffer unless measurements justify it.
+7. Add PGN export (SAN notation, tags and game result) from the established UCI move history.
 
 ## Memory access benchmark
 

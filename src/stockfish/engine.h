@@ -68,6 +68,17 @@ class Engine {
 
     ~Engine() { wait_for_search_finished(); }
 
+    struct GameStatus {
+        bool inCheck = false;
+        bool hasLegalMoves = false;
+        bool drawByFiftyMove = false;
+        bool drawByRepetition = false;
+        bool insufficientMaterial = false;
+        int halfmoveClock = 0;
+    };
+
+    GameStatus game_status() const;
+
     std::variant<u64, PositionSetError> perft(const std::string& fen, Depth depth, bool isChess960);
 
     // non blocking call to start searching

@@ -24,6 +24,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/position.h"
 #include "stockfish/movegen.h"
 #include "gui/pieces.h"
+#include "gui/game_history.h"
 
 #include <algorithm>
 #include <cctype>
@@ -44,6 +45,18 @@ namespace {
 
 constexpr char StartFen[] =
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+constexpr uint32_t SavedGameMagic = 0x53464731; // "SFG1"
+constexpr uint16_t SavedGameVersion = 1;
+struct SavedGameHeader {
+  uint32_t magic;
+  uint16_t version;
+  uint8_t playerColor;
+  uint8_t skillLevel;
+  uint32_t moveCount;
+  uint32_t checksum;
+};
+static_assert(sizeof(SavedGameHeader) == 16, "Unexpected saved-game header layout");
 
 constexpr int BoardX = 4;
 constexpr int BoardY = 16;  // Center the 208px board vertically on the 240px display.
@@ -128,7 +141,7 @@ enum class SearchMode : uint8_t { None, EngineMove, Hint };
 Screen screen = Screen::Menu;
 SearchMode searchMode = SearchMode::None;
 
-std::vector<std::string> gameMoves;
+GameHistory gameHistory;
 std::string currentFen = StartFen;
 char board[64] = {};
 char playerColor = 'w';
@@ -184,6 +197,8 @@ constexpr int16_t CalibrationTargets[3][2] = {
 int calibrationStep = 0;
 
 uint32_t lastPanelRefresh = 0;
+static char serialCommand[24] = {};
+static size_t serialCommandLength = 0;
 
 static void setStatus(const char *message) {
   snprintf(statusText, sizeof(statusText), "%s", message ? message : "");
@@ -391,16 +406,18 @@ static int squareFromUci(const char *text) {
 
 static void updateLastMove() {
   lastFrom = lastTo = -1;
-  if (gameMoves.empty())
+  char move[6];
+  if (!gameHistory.size() || !gameHistory.formatMoveAt(gameHistory.size() - 1, move))
     return;
-  lastFrom = squareFromUci(gameMoves.back().c_str());
-  lastTo = squareFromUci(gameMoves.back().c_str() + 2);
+  lastFrom = squareFromUci(move);
+  lastTo = squareFromUci(move + 2);
 }
 
 static bool syncEnginePosition() {
   if (!engine)
     return false;
-  const auto error = engine->set_position(StartFen, gameMoves);
+  const std::vector<std::string> moves = gameHistory.toUciMoves();
+  const auto error = engine->set_position(StartFen, moves);
   if (error.has_value()) {
     Serial.printf("[GUI] Position rejected: %s\n", error->what());
     return false;
@@ -418,22 +435,20 @@ struct PositionStatus {
   bool valid;
   bool inCheck;
   bool hasLegalMoves;
+  bool drawByFiftyMove;
+  bool drawByRepetition;
+  bool insufficientMaterial;
+  int halfmoveClock;
 };
 
-// Reuse Stockfish's Position and legal move generator for terminal-state
-// detection. No second chess-rules implementation is introduced.
+// Query the live Stockfish Position so its complete StateInfo history remains
+// available to the repetition check.
 static PositionStatus inspectCurrentPosition() {
-  Stockfish::Position position;
-  Stockfish::StateInfo state;
-  const auto error = position.set(currentFen, false, &state);
-  if (error.has_value()) {
-    Serial.printf("[GUI] Cannot inspect current FEN: %s\n", error->what());
-    return { false, false, false };
-  }
-
-  const bool inCheck = position.checkers() != 0;
-  Stockfish::MoveList<Stockfish::LEGAL> legalMoves(position);
-  return { true, inCheck, legalMoves.size() != 0 };
+  if (!engine)
+    return { false, false, false, false, false, false, 0 };
+  const Stockfish::Engine::GameStatus status = engine->game_status();
+  return { true, status.inCheck, status.hasLegalMoves, status.drawByFiftyMove,
+           status.drawByRepetition, status.insufficientMaterial, status.halfmoveClock };
 }
 
 static bool updateGameStatusFromPosition() {
@@ -444,6 +459,7 @@ static bool updateGameStatusFromPosition() {
     return false;
   }
 
+  // Checkmate and stalemate take precedence over the draw counters.
   if (!position.hasLegalMoves) {
     gameOver = true;
     if (!position.inCheck)
@@ -452,7 +468,21 @@ static bool updateGameStatusFromPosition() {
       setStatus(sideToMove() == playerColor ? "You lose" : "You win");
     return true;
   }
-
+  if (position.drawByFiftyMove) {
+    gameOver = true;
+    setStatus("Draw: 50 moves");
+    return true;
+  }
+  if (position.drawByRepetition) {
+    gameOver = true;
+    setStatus("Draw: repetition");
+    return true;
+  }
+  if (position.insufficientMaterial) {
+    gameOver = true;
+    setStatus("Draw: material");
+    return true;
+  }
   gameOver = false;
   setStatus(position.inCheck ? "Check!" : "Your move");
   return false;
@@ -654,7 +684,7 @@ static void drawGamePanelInfo() {
              !searchInFlight && !gameOver
                && sideToMove() == playerColor,
              &fonts::FreeSansBold9pt7b, 2);
-  drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty(),
+  drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameHistory.empty(),
              &fonts::FreeSansBold9pt7b, 2);
   drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
              &fonts::FreeSansBold9pt7b, 2);
@@ -779,6 +809,118 @@ static bool setSkillOption() {
   return true;
 }
 
+static uint32_t savedGameChecksum(const uint8_t *blob, size_t bytes) {
+  uint32_t hash = 2166136261u;
+  for (size_t i = 0; i < 12; ++i) { hash ^= blob[i]; hash *= 16777619u; }
+  for (size_t i = sizeof(SavedGameHeader); i < bytes; ++i) { hash ^= blob[i]; hash *= 16777619u; }
+  return hash;
+}
+
+static uint8_t *allocateSavedGameBlob(size_t bytes) {
+  uint8_t *blob = static_cast<uint8_t *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (!blob) blob = static_cast<uint8_t *>(heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+  return blob;
+}
+
+static void discardSavedGame() {
+  Preferences preferences;
+  if (preferences.begin("sf-gui", false)) { preferences.remove("game"); preferences.end(); }
+}
+
+static bool saveGameToNvs() {
+  if (!hasGame) return false;
+  const size_t moveCount = gameHistory.size();
+  const size_t totalBytes = sizeof(SavedGameHeader) + moveCount * sizeof(uint16_t);
+  uint8_t *blob = allocateSavedGameBlob(totalBytes);
+  if (!blob) { Serial.println("[GAME] ERROR: no memory for NVS save buffer"); return false; }
+
+  SavedGameHeader header{};
+  header.magic = SavedGameMagic;
+  header.version = SavedGameVersion;
+  header.playerColor = uint8_t(playerColor);
+  header.skillLevel = uint8_t(skillLevel);
+  header.moveCount = uint32_t(moveCount);
+  memcpy(blob, &header, sizeof(header));
+  if (moveCount) memcpy(blob + sizeof(header), gameHistory.packedData(), moveCount * sizeof(uint16_t));
+  header.checksum = savedGameChecksum(blob, totalBytes);
+  memcpy(blob, &header, sizeof(header));
+
+  Preferences preferences;
+  if (!preferences.begin("sf-gui", false)) {
+    heap_caps_free(blob);
+    Serial.println("[GAME] ERROR: could not open NVS namespace sf-gui");
+    return false;
+  }
+  const size_t written = preferences.putBytes("game", blob, totalBytes);
+  preferences.end();
+  heap_caps_free(blob);
+  const bool saved = written == totalBytes;
+  if (!saved)
+    Serial.printf("[GAME] ERROR: NVS save incomplete (%u/%u bytes)\n", (unsigned)written, (unsigned)totalBytes);
+  else
+    Serial.printf("[GAME] Saved %u plies to NVS (%u bytes)\n", (unsigned)moveCount, (unsigned)totalBytes);
+  return saved;
+}
+
+static bool loadSavedGameFromNvs() {
+  Preferences preferences;
+  if (!preferences.begin("sf-gui", true)) {
+    Serial.println("[GAME] NVS namespace unavailable; starting without saved game");
+    return false;
+  }
+  const size_t bytes = preferences.getBytesLength("game");
+  const size_t maxBytes = sizeof(SavedGameHeader) + GameHistory::MaxMoves * sizeof(uint16_t);
+  if (!bytes) { preferences.end(); Serial.println("[GAME] No saved game found"); return false; }
+  if (bytes < sizeof(SavedGameHeader) || bytes > maxBytes) {
+    preferences.end(); discardSavedGame();
+    Serial.println("[GAME] Saved game has invalid size; discarded");
+    return false;
+  }
+  uint8_t *blob = allocateSavedGameBlob(bytes);
+  if (!blob) { preferences.end(); Serial.println("[GAME] ERROR: no memory to load saved game"); return false; }
+  const size_t read = preferences.getBytes("game", blob, bytes);
+  preferences.end();
+  if (read != bytes) {
+    heap_caps_free(blob); discardSavedGame();
+    Serial.println("[GAME] Saved game read failed; discarded");
+    return false;
+  }
+
+  SavedGameHeader header{};
+  memcpy(&header, blob, sizeof(header));
+  const size_t expectedBytes = sizeof(SavedGameHeader) + size_t(header.moveCount) * sizeof(uint16_t);
+  const bool headerValid = header.magic == SavedGameMagic && header.version == SavedGameVersion
+                        && (header.playerColor == 'w' || header.playerColor == 'b')
+                        && header.skillLevel >= 1 && header.skillLevel <= 20
+                        && header.moveCount <= GameHistory::MaxMoves && expectedBytes == bytes;
+  const bool checksumValid = headerValid && savedGameChecksum(blob, bytes) == header.checksum;
+  const uint16_t *packed = reinterpret_cast<const uint16_t *>(blob + sizeof(SavedGameHeader));
+  const bool historyValid = checksumValid && gameHistory.assignPacked(packed, header.moveCount);
+  heap_caps_free(blob);
+  if (!historyValid) {
+    gameHistory.clear(); discardSavedGame();
+    Serial.println("[GAME] Saved game validation failed; discarded");
+    return false;
+  }
+
+  playerColor = char(header.playerColor);
+  skillLevel = header.skillLevel;
+  setSkillOption();
+  if (!syncEnginePosition()) {
+    gameHistory.clear(); playerColor = 'w'; skillLevel = 10; setSkillOption();
+    const std::vector<std::string> noMoves;
+    engine->set_position(StartFen, noMoves);
+    syncEnginePosition(); discardSavedGame();
+    Serial.println("[GAME] Saved move sequence is illegal; discarded");
+    return false;
+  }
+  hasGame = true;
+  updateGameStatusFromPosition();
+  Serial.printf("[GAME] Restored %u plies (%s history storage)\n",
+                (unsigned)gameHistory.size(), gameHistory.usesPsram() ? "PSRAM" : "internal RAM");
+  return true;
+}
+
 static void renderCalibrationComplete(bool saved) {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Touch ready", 20, 88, 280, 34,
@@ -822,6 +964,12 @@ static void startSearch(SearchMode mode) {
   setStatus(mode == SearchMode::Hint ? "Finding hint" : "Thinking");
   engine->go(limits);
   drawGamePanelInfo();
+}
+
+static void showCurrentGame() {
+  renderGame();
+  if (!gameOver && sideToMove() != playerColor)
+    startSearch(SearchMode::EngineMove);
 }
 
 static void stopSearch() {
@@ -874,13 +1022,15 @@ static void handleSearchResult(const char *bestMove) {
     char oldBoard[64];
     memcpy(oldBoard, board, sizeof(board));
 
-    gameMoves.emplace_back(bestMove);
-    if (!syncEnginePosition()) {
-      gameMoves.pop_back();
+    if (!gameHistory.appendUci(bestMove)) {
+      setStatus("History full");
+    } else if (!syncEnginePosition()) {
+      gameHistory.popBack();
       syncEnginePosition();
       setStatus("Engine move error");
     } else {
       updateGameStatusFromPosition();
+      saveGameToNvs();
     }
     searchMode = SearchMode::None;
     drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
@@ -920,7 +1070,7 @@ static void pollSearchMailbox() {
 static void startNewGame() {
   stopSearch();
   engine->search_clear();
-  gameMoves.clear();
+  gameHistory.clear();
   gameOver = false;
   clearLegalDestinations(false);
   selectedSquare = -1;
@@ -938,6 +1088,7 @@ static void startNewGame() {
 
   hasGame = true;
   setStatus("Ready");
+  saveGameToNvs();
   renderGame();
 
   // When the human chooses Black, Stockfish makes the opening move.
@@ -949,7 +1100,7 @@ static void undoMove() {
   if (searchInFlight)
     stopSearch();
 
-  if (gameMoves.empty()) {
+  if (gameHistory.empty()) {
     setStatus("Nothing to undo");
     drawGamePanelInfo();
     return;
@@ -961,9 +1112,9 @@ static void undoMove() {
   char oldBoard[64];
   memcpy(oldBoard, board, sizeof(board));
 
-  const size_t removeCount = gameMoves.size() >= 2 ? 2 : 1;
+  const size_t removeCount = gameHistory.size() >= 2 ? 2 : 1;
   for (size_t i = 0; i < removeCount; ++i)
-    gameMoves.pop_back();
+    gameHistory.popBack();
 
   gameOver = false;
   selectedSquare = -1;
@@ -976,6 +1127,7 @@ static void undoMove() {
 
   clearLegalDestinations();
   setStatus("Move undone");
+  saveGameToNvs();
   drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
                           oldHintFrom, oldHintTo, oldSelected);
   drawGamePanelInfo();
@@ -1013,11 +1165,14 @@ static void applyMove(int from, int to, char promotion) {
     move[length++] = promotion;
   move[length] = '\0';
 
-  gameMoves.emplace_back(move);
-  const auto error = engine->set_position(StartFen, gameMoves);
-  if (error.has_value()) {
-    gameMoves.pop_back();
-    engine->set_position(StartFen, gameMoves);
+  if (!gameHistory.appendUci(move)) {
+    setStatus("History full");
+    drawGamePanelInfo();
+    return;
+  }
+  if (!syncEnginePosition()) {
+    gameHistory.popBack();
+    syncEnginePosition();
     selectedSquare = from;
     setStatus("Illegal move");
     if (wasPromotion) {
@@ -1038,6 +1193,7 @@ static void applyMove(int from, int to, char promotion) {
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
   const bool terminalPosition = updateGameStatusFromPosition();
+  saveGameToNvs();
   clearLegalDestinations(!wasPromotion);
   if (!terminalPosition && sideToMove() != playerColor)
     setStatus("Thinking");
@@ -1250,7 +1406,8 @@ static void handleCalibrationTouch(uint16_t rawX, uint16_t rawY) {
   const bool saved = saveTouchCalibration();
   touchCalibrated = true;
   renderCalibrationComplete(saved);
-  renderMenu();
+  if (hasGame) showCurrentGame();
+  else renderMenu();
 }
 
 static void processTouch(int x, int y, uint16_t rawX, uint16_t rawY) {
@@ -1267,6 +1424,44 @@ static void processTouch(int x, int y, uint16_t rawX, uint16_t rawY) {
     case Screen::Promotion:
       handlePromotionTouch(x, y);
       break;
+  }
+}
+
+static void printGameUciPosition() {
+  if (!hasGame) { Serial.println("[GAME] No active game"); return; }
+  Serial.printf("[GAME] %u plies; UCI position follows\n", (unsigned)gameHistory.size());
+  Serial.print("position startpos");
+  if (!gameHistory.empty()) {
+    Serial.print(" moves");
+    char move[6];
+    for (size_t i = 0; i < gameHistory.size(); ++i)
+      if (gameHistory.formatMoveAt(i, move)) { Serial.print(' '); Serial.print(move); }
+  }
+  Serial.println();
+  Serial.printf("[FEN] %s\n", currentFen.c_str());
+}
+
+static void executeSerialCommand() {
+  for (size_t i = 0; i < serialCommandLength; ++i)
+    serialCommand[i] = char(tolower((unsigned char)serialCommand[i]));
+  serialCommand[serialCommandLength] = '\0';
+  if (!strcmp(serialCommand, "moves") || !strcmp(serialCommand, "uci"))
+    printGameUciPosition();
+  else if (!strcmp(serialCommand, "help"))
+    Serial.println("Commands: moves (or uci) = print current game as UCI position; help");
+  else if (serialCommandLength)
+    Serial.printf("[SERIAL] Unknown command: %s\n", serialCommand);
+  serialCommandLength = 0;
+}
+
+static void pollSerialCommands() {
+  while (Serial.available() > 0) {
+    const int value = Serial.read();
+    if (value == '\r') continue;
+    if (value == '\n') { executeSerialCommand(); continue; }
+    if (serialCommandLength + 1 < sizeof(serialCommand))
+      serialCommand[serialCommandLength++] = char(value);
+    else { serialCommandLength = 0; Serial.println("[SERIAL] Command too long"); }
   }
 }
 
@@ -1366,14 +1561,16 @@ void setup() {
   loadTouchCalibration();
   Serial.printf("[GUI] Touch calibration: %s\n",
                 touchCalibrated ? "loaded from NVS" : "not found");
-  if (touchCalibrated) {
-    renderMenu();
-  } else {
-    beginTouchCalibration();
-  }
+  const bool restoredGame = loadSavedGameFromNvs();
+  Serial.printf("[GUI] Move history storage: %s (PSRAM preferred)\n",
+                gameHistory.usesPsram() ? "PSRAM" : "internal RAM fallback");
+  if (!touchCalibrated) beginTouchCalibration();
+  else if (restoredGame) showCurrentGame();
+  else renderMenu();
 }
 
 void loop() {
+  pollSerialCommands();
   pollSearchMailbox();
 
   uint16_t rawX = 0;

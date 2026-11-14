@@ -39,6 +39,7 @@
 #include "numa.h"
 #include "perft.h"
 #include "position.h"
+#include "movegen.h"
 #include "search.h"
 #include "shm.h"
 #include "syzygy/tbprobe.h"
@@ -153,6 +154,30 @@ Engine::Engine(std::optional<std::filesystem::path> path) :
     SF_ESP_TRACE("Engine: initial network replication complete");
     resize_threads();
     SF_ESP_TRACE("Engine ctor complete");
+}
+
+Engine::GameStatus Engine::game_status() const {
+    GameStatus status;
+    status.inCheck = pos.checkers() != 0;
+    status.hasLegalMoves = MoveList<LEGAL>(pos).size() != 0;
+    status.halfmoveClock = pos.rule50_count();
+    status.drawByFiftyMove = status.halfmoveClock >= 100
+                          && (!status.inCheck || status.hasLegalMoves);
+    // At the root, Stockfish marks the third occurrence with a negative distance.
+    status.drawByRepetition = pos.is_repetition(0);
+
+    if (!(pos.pieces(PAWN) | pos.pieces(ROOK) | pos.pieces(QUEEN))) {
+        const Bitboard minors = pos.pieces(KNIGHT) | pos.pieces(BISHOP);
+        if (popcount(minors) <= 1)
+            status.insufficientMaterial = true;
+        else if (!pos.pieces(KNIGHT)) {
+            constexpr Bitboard DarkSquares = 0xAA55AA55AA55AA55ULL;
+            const Bitboard bishops = pos.pieces(BISHOP);
+            status.insufficientMaterial = !(bishops & DarkSquares)
+                                       || !(bishops & ~DarkSquares);
+        }
+    }
+    return status;
 }
 
 std::variant<u64, PositionSetError>
