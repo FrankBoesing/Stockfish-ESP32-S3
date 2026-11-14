@@ -102,6 +102,8 @@ After each 30,000-node search and the timed search, the serial output contains `
 
 The ordinary `freenove_stockfish_compile` environment does not define `STOCKFISH_NNUE_BENCHMARK`; the instrumentation is compiled out of the normal diagnostic firmware.
 
+The accumulator total is further divided into mutually exclusive update paths: lookup of the last usable accumulator, forward incremental update for one perspective, backward incremental update after a cache refresh, combined forward update for both perspectives, and Finny-cache refresh. These path timings help distinguish the cost of incremental updates from full cache refreshes. Small dispatcher and branch overhead remains included only in the enclosing accumulator total.
+
 ## Source provenance
 
 The engine source will be obtained from the official upstream repository:
