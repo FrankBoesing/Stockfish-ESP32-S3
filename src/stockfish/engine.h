@@ -148,6 +148,7 @@ class Engine {
 
     Search::SearchManager::UpdateContext  updateContext;
     std::function<void(std::string_view)> onVerifyNetwork;
+    mutable bool networkVerificationReported = false;
     std::map<NumaIndex, SharedHistories>  sharedHists;
 };
 

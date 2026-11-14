@@ -225,6 +225,7 @@ void Engine::set_on_start(std::function<void()>&& f) { updateContext.onStart = s
 
 void Engine::set_on_verify_network(std::function<void(std::string_view)>&& f) {
     onVerifyNetwork = std::move(f);
+    networkVerificationReported = false;
 }
 
 void Engine::wait_for_search_finished() {
@@ -331,7 +332,17 @@ void Engine::set_ponderhit(bool b) { threads.main_manager()->ponder = b; }
 
 void Engine::verify_network() const {
     const auto file = path_from_utf8(std::string(options["EvalFile"]));
-    network->verify(onVerifyNetwork, networkFile, file);
+
+    // Keep the validation on every search, but report network details only once
+    // per loaded network. The callback is restored by set_on_verify_network()
+    // and a new report is enabled whenever load_network() changes the net.
+    if (networkVerificationReported)
+        network->verify(std::function<void(std::string_view)>{}, networkFile, file);
+    else
+        network->verify(onVerifyNetwork, networkFile, file);
+
+    if (networkVerificationReported || !onVerifyNetwork)
+        return;
 
     auto statuses = network.get_status_and_errors();
     for (usize i = 0; i < statuses.size(); ++i)
@@ -365,6 +376,8 @@ void Engine::verify_network() const {
         if (onVerifyNetwork)
             onVerifyNetwork(message);
     }
+
+    networkVerificationReported = true;
 }
 
 std::unique_ptr<Eval::NNUE::Network> Engine::get_default_network() {
@@ -384,6 +397,7 @@ void Engine::load_network(const std::filesystem::path& file) {
       [this, &file](NN::Network& network_) { network_.load(binaryDirectory, file, networkFile); });
     threads.clear();
     threads.ensure_network_replicated();
+    networkVerificationReported = false;
 }
 
 void Engine::save_network(const std::optional<std::filesystem::path>& file) {
