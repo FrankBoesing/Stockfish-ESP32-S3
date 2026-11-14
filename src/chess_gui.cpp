@@ -322,7 +322,7 @@ static void drawCrosshair(int x, int y) {
 static void renderCalibration() {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Touch calibration", 20, 79, 280, 38,
-                   ColorOrange, &fonts::FreeSansBold9pt7b);
+                   ColorOrange, &fonts::FreeSansBold12pt7b);
   tft.drawFastHLine(48, 119, 224, ColorButton);
   drawCenteredText("Tap the crosshair", 20, 130, 280, 36,
                    ColorText, &fonts::FreeSans9pt7b);
@@ -563,7 +563,7 @@ static void renderMenu() {
   tft.fillScreen(ColorBackground);
 
   drawCenteredText("New Game", 20, 12, 280, 40,
-                   ColorOrange, &fonts::FreeSansBold9pt7b);
+                   ColorOrange, &fonts::FreeSansBold12pt7b);
   drawTextAt("Play as", 31, 59, ColorMuted, &fonts::FreeSans9pt7b);
 
   drawButton(28, 87, 128, 42, "White", playerColor == 'w');
@@ -576,7 +576,7 @@ static void renderMenu() {
   char levelText[12];
   snprintf(levelText, sizeof(levelText), "%d", skillLevel);
   drawCenteredText(levelText, 94, 164, 132, 38,
-                   ColorText, &fonts::FreeSansBold9pt7b);
+                   ColorText, &fonts::FreeSansBold12pt7b);
   drawButton(240, 164, 50, 38, "+");
 
   drawButton(28, 207, 128, 30, "Start");
@@ -588,7 +588,7 @@ static void renderMenu() {
 static void renderLoading() {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Stockfish ESP32", 20, 76, 280, 32,
-                   ColorOrange, &fonts::FreeSansBold9pt7b);
+                   ColorOrange, &fonts::FreeSansBold12pt7b);
   drawCenteredText("Loading engine and NNUE...", 20, 122, 280, 24,
                    ColorText, &fonts::FreeSans9pt7b);
 }
@@ -604,7 +604,7 @@ static bool setSkillOption() {
 static void renderCalibrationComplete(bool saved) {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Touch ready", 20, 88, 280, 34,
-                   ColorOrange, &fonts::FreeSansBold9pt7b);
+                   ColorOrange, &fonts::FreeSansBold12pt7b);
   drawCenteredText(saved ? "Calibration saved to flash" : "Flash save failed",
                    20, 132, 280, 24, ColorText, &fonts::FreeSans9pt7b);
   delay(500);
