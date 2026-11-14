@@ -51,14 +51,19 @@ supported insufficient-material cases from the live Stockfish position.
 The GUI automatically ends the game at the 50-move and threefold claim
 thresholds; an interactive draw-claim action is not yet implemented.
 
-The current game (player colour, skill level and full move sequence) is stored
-in a versioned, checksummed NVS blob after each accepted human move, engine
-move, undo and new-game initialization. A valid saved game is reconstructed
-through `Engine::set_position()` on startup, including Stockfish's repetition
-history; if the engine is to move after reset, its search is restarted. Type
-`moves` (or `uci`) in the serial monitor and press Enter to print the current UCI position
-command and FEN. Positions can be loaded through the same serial monitor:
+The selected skill level is saved immediately in NVS whenever it changes in
+the menu. The current game (player colour, skill level and full move sequence)
+is also stored in a versioned, checksummed NVS blob after each accepted human
+move, engine move, undo and new-game initialization. A valid saved game is
+reconstructed through Engine::set_position() on startup, including Stockfish's
+repetition history; if the engine is to move after reset, its search is
+restarted.
 
+The serial monitor logs each received command as [SERIAL] RX and each accepted
+move in UCI notation as [MOVE], distinguishing the player from Stockfish and
+showing the moving colour. Type moves (or uci) and press Enter to print the
+current UCI position command and FEN. Positions can be loaded through the same
+serial monitor:
 ```text
 position startpos moves e2e4 e7e5
 position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1

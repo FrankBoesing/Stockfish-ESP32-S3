@@ -852,6 +852,47 @@ static void discardSavedGame() {
   if (preferences.begin("sf-gui", false)) { preferences.remove("game"); preferences.end(); }
 }
 
+static bool saveSkillSettingToNvs() {
+  Preferences preferences;
+  if (!preferences.begin("sf-gui", false)) {
+    Serial.println("[SETTINGS] ERROR: could not open NVS namespace sf-gui");
+    return false;
+  }
+  const size_t written = preferences.putUChar("skill", uint8_t(skillLevel));
+  preferences.end();
+  if (written != sizeof(uint8_t)) {
+    Serial.println("[SETTINGS] ERROR: skill level was not saved to NVS");
+    return false;
+  }
+  Serial.printf("[SETTINGS] Saved skill level %d to NVS\n", skillLevel);
+  return true;
+}
+
+static bool loadSkillSettingFromNvs() {
+  Preferences preferences;
+  if (!preferences.begin("sf-gui", true)) {
+    Serial.println("[SETTINGS] NVS namespace unavailable; using default skill level");
+    return false;
+  }
+  const bool found = preferences.isKey("skill");
+  const uint8_t storedSkill = found ? preferences.getUChar("skill", 0) : 0;
+  preferences.end();
+
+  if (!found) {
+    Serial.printf("[SETTINGS] No saved skill level; using default Level %d\n", skillLevel);
+    return false;
+  }
+  if (storedSkill < 1 || storedSkill > 20) {
+    Serial.printf("[SETTINGS] Invalid saved skill level %u; using default Level %d\n",
+                  unsigned(storedSkill), skillLevel);
+    return false;
+  }
+
+  skillLevel = storedSkill;
+  Serial.printf("[SETTINGS] Restored skill level %d from NVS\n", skillLevel);
+  return true;
+}
+
 static bool saveGameToNvs() {
   if (!hasGame || gameBaseFen.empty() || gameBaseFen.size() > SavedGameMaxFenBytes)
     return false;
@@ -1092,6 +1133,11 @@ static void stopSearch() {
   portEXIT_CRITICAL(&searchMux);
 }
 
+static void logAcceptedMove(const char *actor, char movingSide, const char *uciMove) {
+  Serial.printf("[MOVE] %s (%s): %s\n", actor,
+                movingSide == 'w' ? "White" : "Black", uciMove);
+}
+
 static void handleSearchResult(const char *bestMove) {
   if (!bestMove || !bestMove[0] || strcmp(bestMove, "0000") == 0) {
     searchMode = SearchMode::None;
@@ -1122,6 +1168,7 @@ static void handleSearchResult(const char *bestMove) {
   }
 
   if (searchMode == SearchMode::EngineMove) {
+    const char movingSide = sideToMove();
     const int oldLastFrom = lastFrom, oldLastTo = lastTo;
     const int oldHintFrom = hintFrom, oldHintTo = hintTo;
     const int oldSelected = selectedSquare;
@@ -1135,6 +1182,7 @@ static void handleSearchResult(const char *bestMove) {
       syncEnginePosition();
       setStatus("Engine move error");
     } else {
+      logAcceptedMove("Stockfish", movingSide, bestMove);
       updateGameStatusFromPosition();
       saveGameToNvs();
     }
@@ -1187,6 +1235,7 @@ static void startNewGame() {
   searchMode = SearchMode::None;
 
   setSkillOption();
+  saveSkillSettingToNvs();
   if (!syncEnginePosition()) {
     setStatus("Position error");
     renderMenu();
@@ -1258,6 +1307,7 @@ static void applyMove(int from, int to, char promotion) {
     return;
 
   const bool wasPromotion = promotion != '\0';
+  const char movingSide = sideToMove();
   const int oldLastFrom = lastFrom, oldLastTo = lastTo;
   const int oldHintFrom = hintFrom, oldHintTo = hintTo;
   const int oldSelected = selectedSquare;
@@ -1293,6 +1343,7 @@ static void applyMove(int from, int to, char promotion) {
     return;
   }
 
+  logAcceptedMove("Player", movingSide, move);
   currentFen = engine->fen();
   loadFenBoard(currentFen);
   updateLastMove();
@@ -1466,9 +1517,11 @@ static void handleMenuTouch(int x, int y) {
   if (y >= 164 && y < 202) {
     if (x >= 30 && x < 80 && skillLevel > 1) {
       --skillLevel;
+      saveSkillSettingToNvs();
       renderMenu();
     } else if (x >= 240 && x < 290 && skillLevel < 20) {
       ++skillLevel;
+      saveSkillSettingToNvs();
       renderMenu();
     }
     return;
@@ -1675,6 +1728,8 @@ static void printGameUciPosition() {
 static void executeSerialCommand() {
   serialCommand[serialCommandLength] = '\0';
   const std::string line(serialCommand, serialCommandLength);
+  if (!line.empty())
+    Serial.printf("[SERIAL] RX: %s\n", line.c_str());
   std::istringstream input(line);
   std::string command;
   input >> command;
@@ -1807,6 +1862,7 @@ void setup() {
   loadTouchCalibration();
   Serial.printf("[GUI] Touch calibration: %s\n",
                 touchCalibrated ? "loaded from NVS" : "not found");
+  loadSkillSettingFromNvs();
   const bool restoredGame = loadSavedGameFromNvs();
   Serial.printf("[GUI] Move history storage: %s (PSRAM preferred)\n",
                 gameHistory.usesPsram() ? "PSRAM" : "internal RAM fallback");
