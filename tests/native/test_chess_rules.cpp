@@ -108,7 +108,7 @@ void testLegalDestinationHighlights() {
   // The internal Stockfish move encodes castling to the rook's square.
   // GUI highlights must instead point to the king's landing square.
   CHECK(p.setFen("r3k2r/8/8/8/8/8/4P3/R3K2R w KQkq - 0 1"));
-  checkDestinations(p, "e1", {"c1", "d1", "f1", "g1"});
+  checkDestinations(p, "e1", {"c1", "d1", "f1", "g1", "d2", "f2"});
   bool castles[64] = {};
   CHECK(ChessGuiRules::legalDestinations(p.get(), squareIndex("e1"), castles));
   CHECK(!castles[squareIndex("a1")]);
