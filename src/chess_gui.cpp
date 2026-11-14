@@ -105,7 +105,10 @@ public:
     p.dummy_read_pixel = 8;
     p.dummy_read_bits = 1;
     p.readable = true;
-    p.invert = false;
+    // FNK0104B uses an IPS ILI9341 panel. LovyanGFX requires invert=true
+    // for IPS panels; otherwise dark RGB565 colours can appear inverted.
+    p.invert = true;
+    // The ILI9341 panel uses BGR colour order on this board.
     p.rgb_order = false;
     p.dlen_16bit = false;
     p.bus_shared = true;
@@ -531,9 +534,15 @@ static void drawPanelText(const char *text, int x, int y, int w, int h,
   drawCenteredText(text, x, y, w, h, color, font);
 }
 
+static void drawGamePanelSearchStats();
+
 static void drawGamePanelInfo() {
   const int x = BoardX + BoardSize + 6;
   const int w = 320 - x - 4;
+
+  // Clear the complete changing information area, including font overhang.
+  // The depth/NPS strip is redrawn separately immediately afterwards.
+  tft.fillRect(x, 60, w, 85, ColorPanel);
 
   const char *turnText = searchInFlight ? "Thinking"
                        : sideToMove() == playerColor ? "Your move" : "Engine";
@@ -557,11 +566,17 @@ static void drawGamePanelInfo() {
              &fonts::FreeSansBold9pt7b);
   drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
              &fonts::FreeSansBold9pt7b);
+
+  drawGamePanelSearchStats();
 }
 
 static void drawGamePanelSearchStats() {
   const int x = BoardX + BoardSize + 6;
   const int w = 320 - x - 4;
+
+  // Clear both changing search rows together; FreeSans glyphs have vertical
+  // overhang beyond the nominal row height.
+  tft.fillRect(x, 80, w, 33, ColorPanel);
 
   int uiDepth;
   uint32_t uiNps;
@@ -594,7 +609,6 @@ static void drawGamePanel() {
   drawCenteredText(levelText, x, 44, w, 14,
                    ColorOrange, &fonts::FreeSansBold9pt7b);
   drawGamePanelInfo();
-  drawGamePanelSearchStats();
 }
 
 static void renderGame() {
@@ -627,7 +641,7 @@ static void renderMenu() {
 
   drawButton(28, 207, 128, 30, "Start");
   drawButton(164, 207, 128, 30, "Cancel");
-  drawButton(230, 5, 86, 26, "CALIBRATE", false, true,
+  drawButton(230, 5, 86, 26, "CALIB.", false, true,
              &fonts::FreeSansBold9pt7b);
 }
 
@@ -690,7 +704,6 @@ static void startSearch(SearchMode mode) {
   setStatus(mode == SearchMode::Hint ? "Finding hint" : "Thinking");
   engine->go(limits);
   drawGamePanelInfo();
-  drawGamePanelSearchStats();
 }
 
 static void stopSearch() {
@@ -1151,7 +1164,8 @@ void setup() {
   delay(1200);
   Serial.println();
   Serial.println("Stockfish ESP32-S3 touchscreen GUI");
-  Serial.println("[GUI] Build: partial-redraw-dark-navy-v2");
+  Serial.println("[GUI] Build: ips-invert-panel-clear-v1");
+  Serial.println("[GUI] ILI9341 config: IPS inversion=ON, color order=BGR");
   Serial.printf("[GUI] Palette RGB565: background=0x%04X panel=0x%04X\n",
                 ColorBackground, ColorPanel);
 
