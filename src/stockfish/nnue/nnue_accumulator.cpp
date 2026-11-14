@@ -446,16 +446,16 @@ __attribute__((noinline)) void apply_features_esp32_s3_pie(Color                
     // its loop registers are shared with compiler-generated hardware loops.
     asm volatile(
       "1:\n\t"
-      "ee.vld.128.ip q0, %[from], 1\n\t"
-      "ee.vld.128.ip q1, %[removed0], 1\n\t"
-      "ee.vld.128.ip q2, %[removed1], 1\n\t"
-      "ee.vld.128.ip q3, %[added0], 1\n\t"
-      "ee.vld.128.ip q4, %[added1], 1\n\t"
+      "ee.vld.128.ip q0, %[from], 16\n\t"
+      "ee.vld.128.ip q1, %[removed0], 16\n\t"
+      "ee.vld.128.ip q2, %[removed1], 16\n\t"
+      "ee.vld.128.ip q3, %[added0], 16\n\t"
+      "ee.vld.128.ip q4, %[added1], 16\n\t"
       "ee.vsubs.s16 q5, q0, q1\n\t"
       "ee.vsubs.s16 q5, q5, q2\n\t"
       "ee.vadds.s16 q5, q5, q3\n\t"
       "ee.vadds.s16 q5, q5, q4\n\t"
-      "ee.vst.128.ip q5, %[to], 1\n\t"
+      "ee.vst.128.ip q5, %[to], 16\n\t"
       "addi %[iterations], %[iterations], -1\n\t"
       "bnez %[iterations], 1b\n\t"
       : [from] "+&a"(fromPtr),
