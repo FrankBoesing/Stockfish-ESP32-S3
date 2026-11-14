@@ -31,7 +31,8 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/misc.h"
 #include "stockfish/nnue/network.h"
 #include "stockfish/nnue/nnue_accumulator.h"
-#if defined(STOCKFISH_NNUE_BENCHMARK) || defined(STOCKFISH_ESP32_S3_PIE_VALIDATE)
+#if defined(STOCKFISH_NNUE_BENCHMARK) || defined(STOCKFISH_ESP32_S3_PIE_VALIDATE) \
+    || defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
 #include "stockfish/nnue/nnue_bench.h"
 #endif
 #if defined(STOCKFISH_NNUE_BENCHMARK)
@@ -42,6 +43,11 @@ Counter counters[StageCount]{};
 #if defined(STOCKFISH_ESP32_S3_PIE_VALIDATE)
 namespace Stockfish::Eval::NNUE::Bench {
 PieValidationStats pieValidationStats{};
+}
+#endif
+#if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
+namespace Stockfish::Eval::NNUE::Bench {
+FC0AccxValidationStats fc0AccxValidationStats{};
 }
 #endif
 #include "stockfish/history.h"
@@ -144,7 +150,7 @@ static void printNnueBenchCounters(const char *label) {
     "accumulator", "feature-transform", "fc0", "sqr-relu0", "clip-relu0",
     "fc1", "sqr-relu1", "clip-relu1", "fc2", "evaluation-total",
     "accum-find-last", "accum-forward", "accum-backward", "accum-forward-both",
-    "accum-refresh-cache", "accum-build-indices", "accum-main-loop",
+    "fc0-accx-kernel", "accum-refresh-cache", "accum-build-indices", "accum-main-loop",
     "accum-psqt-loop", "accum-update-both", "accum-pie-loop"
   };
   const uint64_t totalCycles = counters[EvaluationTotal].cycles;
@@ -197,6 +203,38 @@ static void printPieValidationStats(const char *label) {
 #else
 static void resetPieValidationStats() {}
 static void printPieValidationStats(const char *) {}
+#endif
+
+#if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
+static void resetFc0AccxValidationStats() {
+  Stockfish::Eval::NNUE::Bench::fc0AccxValidationStats = {};
+}
+
+static void printFc0AccxValidationStats(const char *label) {
+  using Stockfish::Eval::NNUE::Bench::fc0AccxValidationStats;
+  const auto &stats = fc0AccxValidationStats;
+  const char *status = stats.acceleratedCalls == 0
+    ? (stats.scalarFallbackCalls ? "NO_ACCEL" : "NOT_RUN")
+    : ((stats.mismatchedCalls == 0 && stats.inputOutOfRangeCalls == 0)
+        ? (stats.scalarFallbackCalls == 0 ? "PASS" : "PARTIAL")
+        : "FAIL");
+  Serial.printf("[FC0_ACCX_VALIDATE] %s status=%s accelerated_calls=%llu scalar_fallback_calls=%llu mismatched_calls=%llu mismatched_elements=%llu input_out_of_range_calls=%llu input_out_of_range_elements=%llu",
+                label, status,
+                (unsigned long long)stats.acceleratedCalls,
+                (unsigned long long)stats.scalarFallbackCalls,
+                (unsigned long long)stats.mismatchedCalls,
+                (unsigned long long)stats.mismatchedElements,
+                (unsigned long long)stats.inputOutOfRangeCalls,
+                (unsigned long long)stats.inputOutOfRangeElements);
+  if (stats.hasMismatch)
+    Serial.printf(" first_mismatch_index=%u expected=%ld actual=%ld",
+                  (unsigned)stats.firstMismatchIndex,
+                  (long)stats.firstExpected, (long)stats.firstActual);
+  Serial.println();
+}
+#else
+static void resetFc0AccxValidationStats() {}
+static void printFc0AccxValidationStats(const char *) {}
 #endif
 
 static void copySearchText(char *destination, size_t capacity, std::string_view source) {
@@ -305,6 +343,7 @@ static void runBoundedSearch(Stockfish::Engine& engine,
   resetSearchProbeStats();
   resetNnueBenchCounters();
   resetPieValidationStats();
+  resetFc0AccxValidationStats();
   Stockfish::Search::LimitsType limits;
   limits.depth = maxDepth;
   limits.nodes = nodeLimit;
@@ -320,6 +359,7 @@ static void runBoundedSearch(Stockfish::Engine& engine,
   printSearchProbeStats(label);
   printNnueBenchCounters(label);
   printPieValidationStats(label);
+  printFc0AccxValidationStats(label);
   char heapLabel[64];
   snprintf(heapLabel, sizeof(heapLabel), "After %.48s", label);
   print_heap(heapLabel);
@@ -329,6 +369,7 @@ static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
   resetSearchProbeStats();
   resetNnueBenchCounters();
   resetPieValidationStats();
+  resetFc0AccxValidationStats();
   Stockfish::Search::LimitsType limits;
   limits.movetime = milliseconds;
   limits.startTime = Stockfish::now();
@@ -343,6 +384,7 @@ static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
   printSearchProbeStats("timed search");
   printNnueBenchCounters("timed search");
   printPieValidationStats("timed search");
+  printFc0AccxValidationStats("timed search");
   print_heap("After 5-second search");
 }
 
