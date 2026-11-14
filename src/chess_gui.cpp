@@ -20,6 +20,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 #include "stockfish/engine.h"
 #include "stockfish/misc.h"
+#include "gui/pieces.h"
 
 #include <algorithm>
 #include <cctype>
@@ -45,6 +46,8 @@ constexpr int BoardX = 4;
 constexpr int BoardY = 24;
 constexpr int SquareSize = 26;
 constexpr int BoardSize = SquareSize * 8;
+static_assert(PIECE_ICON_SIZE == SquareSize, "Piece icon size must match a board square");
+static uint16_t pieceTile[SquareSize * SquareSize];
 
 constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
   return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
@@ -400,77 +403,46 @@ static int materialBalanceForPlayer() {
   return playerColor == 'w' ? white - black : black - white;
 }
 
-static void drawPiece(char piece, int x, int y) {
-  const bool white = isupper((unsigned char)piece);
-  const uint16_t fill = white ? rgb(244, 244, 237) : rgb(23, 26, 34);
-  const uint16_t outline = white ? rgb(22, 25, 34) : rgb(225, 229, 237);
-  const int cx = x + SquareSize / 2;
-  const int top = y + 3;
-  const int base = y + SquareSize - 4;
-
-  // The piece silhouettes use a few primitives instead of a framebuffer or
-  // runtime image allocation. This keeps the renderer small and PSRAM-neutral.
+static int pieceIconIndex(char piece) {
   switch (tolower((unsigned char)piece)) {
-    case 'p':
-      tft.fillCircle(cx, top + 4, 3, fill);
-      tft.drawCircle(cx, top + 4, 3, outline);
-      tft.fillTriangle(cx - 5, top + 17, cx + 5, top + 17, cx, top + 7, fill);
-      tft.drawLine(cx - 5, top + 17, cx, top + 7, outline);
-      tft.drawLine(cx + 5, top + 17, cx, top + 7, outline);
-      break;
-    case 'r':
-      tft.fillRect(cx - 6, top + 6, 12, 11, fill);
-      tft.drawRect(cx - 6, top + 6, 12, 11, outline);
-      tft.fillRect(cx - 8, top + 2, 16, 5, fill);
-      tft.drawRect(cx - 8, top + 2, 16, 5, outline);
-      tft.fillRect(cx - 6, top, 3, 4, fill);
-      tft.fillRect(cx - 1, top, 3, 4, fill);
-      tft.fillRect(cx + 4, top, 3, 4, fill);
-      break;
-    case 'n':
-      tft.fillTriangle(cx - 7, top + 18, cx + 7, top + 18,
-                       cx + 2, top + 3, fill);
-      tft.drawLine(cx - 7, top + 18, cx + 2, top + 3, outline);
-      tft.drawLine(cx + 2, top + 3, cx + 7, top + 18, outline);
-      tft.drawCircle(cx + 1, top + 6, 1, outline);
-      break;
-    case 'b':
-      tft.fillCircle(cx, top + 5, 4, fill);
-      tft.drawCircle(cx, top + 5, 4, outline);
-      tft.fillTriangle(cx - 6, top + 18, cx + 6, top + 18,
-                       cx, top + 8, fill);
-      tft.drawLine(cx - 6, top + 18, cx, top + 8, outline);
-      tft.drawLine(cx + 6, top + 18, cx, top + 8, outline);
-      tft.drawLine(cx - 1, top + 3, cx + 2, top + 7, outline);
-      break;
-    case 'q':
-      tft.fillTriangle(cx - 8, top + 17, cx + 8, top + 17,
-                       cx, top + 7, fill);
-      tft.drawLine(cx - 8, top + 17, cx, top + 7, outline);
-      tft.drawLine(cx + 8, top + 17, cx, top + 7, outline);
-      tft.fillCircle(cx - 6, top + 4, 2, fill);
-      tft.fillCircle(cx, top + 2, 2, fill);
-      tft.fillCircle(cx + 6, top + 4, 2, fill);
-      tft.drawLine(cx - 7, top + 5, cx - 4, top + 13, outline);
-      tft.drawLine(cx, top + 3, cx, top + 13, outline);
-      tft.drawLine(cx + 7, top + 5, cx + 4, top + 13, outline);
-      break;
-    case 'k':
-      tft.fillTriangle(cx - 7, top + 18, cx + 7, top + 18,
-                       cx, top + 7, fill);
-      tft.drawLine(cx - 7, top + 18, cx, top + 7, outline);
-      tft.drawLine(cx + 7, top + 18, cx, top + 7, outline);
-      tft.fillRect(cx - 1, top, 3, 9, fill);
-      tft.fillRect(cx - 4, top + 3, 9, 3, fill);
-      tft.drawRect(cx - 1, top, 3, 9, outline);
-      tft.drawRect(cx - 4, top + 3, 9, 3, outline);
-      break;
-    default:
-      break;
+    case 'p': return 0;
+    case 'n': return 1;
+    case 'b': return 2;
+    case 'r': return 3;
+    case 'q': return 4;
+    case 'k': return 5;
+    default: return -1;
+  }
+}
+
+static void drawPiece(char piece, int x, int y, uint16_t squareColor) {
+  const int iconIndex = pieceIconIndex(piece);
+  if (iconIndex < 0) {
+    tft.fillRect(x, y, SquareSize, SquareSize, squareColor);
+    return;
   }
 
-  tft.fillRoundRect(cx - 8, base - 2, 16, 4, 1, fill);
-  tft.drawRoundRect(cx - 8, base - 2, 16, 4, 1, outline);
+  const bool white = isupper((unsigned char)piece);
+  const uint16_t body = white ? rgb(255, 255, 255) : rgb(0, 0, 0);
+  const uint16_t outline = white ? rgb(0, 0, 0) : rgb(150, 150, 150);
+
+  // The 2-bit source icon uses 0=transparent, 1=body and 2=outline.
+  // Compose one 26x26 RGB565 tile and send it as a single display transfer.
+  // This uses 1.3 KiB of static internal RAM, not a full-screen framebuffer.
+  for (int i = 0; i < SquareSize * SquareSize; ++i)
+    pieceTile[i] = squareColor;
+
+  constexpr int PixelCount = PIECE_ICON_SIZE * PIECE_ICON_SIZE;
+  for (int i = 0; i < PixelCount; ++i) {
+    const uint8_t packed = pgm_read_byte(&PIECE_ICONS[iconIndex][i >> 2]);
+    const uint8_t pixel = (packed >> (6 - 2 * (i & 3))) & 0x03;
+    if (pixel == 1)
+      pieceTile[i] = body;
+    else if (pixel == 2)
+      pieceTile[i] = outline;
+  }
+
+  tft.pushImage(x, y, SquareSize, SquareSize, pieceTile);
 }
 
 static void drawBoard() {
@@ -490,9 +462,10 @@ static void drawBoard() {
       if (square == selectedSquare)
         squareColor = ColorSelected;
 
-      tft.fillRect(x, y, SquareSize, SquareSize, squareColor);
       if (board[square])
-        drawPiece(board[square], x, y);
+        drawPiece(board[square], x, y, squareColor);
+      else
+        tft.fillRect(x, y, SquareSize, SquareSize, squareColor);
     }
   }
 }
