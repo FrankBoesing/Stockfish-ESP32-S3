@@ -103,6 +103,13 @@ After each 30,000-node search and the timed search, the serial output contains `
 The ordinary `freenove_stockfish_compile` environment does not define `STOCKFISH_NNUE_BENCHMARK`; the instrumentation is compiled out of the normal diagnostic firmware.
 
 The accumulator total is further divided into mutually exclusive update paths: lookup of the last usable accumulator, forward incremental update for one perspective, backward incremental update after a cache refresh, combined forward update for both perspectives, and Finny-cache refresh. These path timings help distinguish the cost of incremental updates from full cache refreshes. Small dispatcher and branch overhead remains included only in the enclosing accumulator total.
+The combined incremental update is additionally decomposed into:
+- `accum-build-indices`: building the added/removed feature lists for both colors
+- `accum-main-loop`: updating the 1024-element accumulator vectors (counted once per perspective)
+- `accum-psqt-loop`: updating the PSQT buckets (counted once per perspective)
+- `accum-update-both`: complete per-dirty-state update, including index construction and both perspectives
+
+The main-loop and PSQT-loop counters are nested within `accum-update-both`; do not add their percentages to the enclosing counter. Their sum and the index-building time should approximately explain the helper cost.
 
 ## Source provenance
 
