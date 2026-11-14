@@ -60,6 +60,19 @@ public:
     size_ = count;
     return true;
   }
+  bool assignPackedBytes(const uint8_t *packedBytes, size_t count) {
+    if (count > MaxMoves || (count && !packedBytes)) return false;
+    for (size_t i = 0; i < count; ++i) {
+      uint16_t packed = 0;
+      char move[6];
+      std::memcpy(&packed, packedBytes + i * sizeof(uint16_t), sizeof(packed));
+      if (!decodeUci(packed, move)) return false;
+    }
+    if (!reserve(count)) return false;
+    if (count) std::memcpy(moves_, packedBytes, count * sizeof(uint16_t));
+    size_ = count;
+    return true;
+  }
 
 private:
   static bool encodeUci(std::string_view uci, uint16_t &packed) {

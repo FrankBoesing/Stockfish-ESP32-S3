@@ -945,7 +945,7 @@ static bool loadSavedGameFromNvs() {
   SavedGameHeaderV1 headerV1{};
   SavedGameHeader header{};
   std::string candidateFen = StartFen;
-  const uint16_t *packed = nullptr;
+  const uint8_t *packedBytes = nullptr;
   uint32_t moveCount = 0;
   bool legacyV1 = false;
   bool valid = magic == SavedGameMagic;
@@ -959,7 +959,7 @@ static bool loadSavedGameFromNvs() {
          && headerV1.moveCount <= GameHistory::MaxMoves && expected == bytes
          && savedGameChecksum(blob, bytes, sizeof(headerV1), 12) == headerV1.checksum;
     moveCount = headerV1.moveCount;
-    packed = reinterpret_cast<const uint16_t *>(blob + sizeof(headerV1));
+    packedBytes = blob + sizeof(headerV1);
   } else if (valid && version == SavedGameVersion && bytes >= sizeof(header)) {
     memcpy(&header, blob, sizeof(header));
     const size_t expected = sizeof(header) + size_t(header.baseFenLength)
@@ -976,7 +976,7 @@ static bool loadSavedGameFromNvs() {
       if (valid)
         candidateFen.assign(fenData, header.baseFenLength);
       moveCount = header.moveCount;
-      packed = reinterpret_cast<const uint16_t *>(blob + sizeof(header) + header.baseFenLength);
+      packedBytes = blob + sizeof(header) + header.baseFenLength;
     }
   } else {
     valid = false;
@@ -986,7 +986,7 @@ static bool loadSavedGameFromNvs() {
   const uint8_t savedSkill = legacyV1 ? headerV1.skillLevel : header.skillLevel;
   GameHistory candidateHistory;
   if (valid)
-    valid = candidateHistory.assignPacked(packed, moveCount);
+    valid = candidateHistory.assignPackedBytes(packedBytes, moveCount);
   heap_caps_free(blob);
 
   if (valid) {
@@ -1537,6 +1537,11 @@ static void processTouch(int x, int y, uint16_t rawX, uint16_t rawY) {
 static bool applySerialPosition(const std::string &baseFen, GameHistory &candidateHistory) {
   if (!engine)
     return false;
+  if (baseFen.empty() || baseFen.size() > SavedGameMaxFenBytes) {
+    Serial.printf("[SERIAL] ERROR: FEN must be 1..%u bytes to fit the saved-game format\n",
+                  (unsigned)SavedGameMaxFenBytes);
+    return false;
+  }
 
   const std::vector<std::string> candidateMoves = candidateHistory.toUciMoves();
   const std::string previousBaseFen = gameBaseFen;
