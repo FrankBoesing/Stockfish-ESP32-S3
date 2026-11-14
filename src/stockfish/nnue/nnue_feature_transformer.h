@@ -146,6 +146,9 @@ class FeatureTransformer {
         permute<16>(weights, InversePackusEpi16Order);
     }
 
+#if defined(STOCKFISH_ESP32_S3_PIE)
+    bool accumulator_range_safe() const noexcept { return accumulatorRangeSafe; }
+#endif
 
     // Read network parameters
     bool read_parameters(std::istream& stream) {
@@ -155,6 +158,10 @@ class FeatureTransformer {
         read_leb_128(stream, psqtWeights);
 
         permute_weights();
+
+#if defined(STOCKFISH_ESP32_S3_PIE)
+        accumulatorRangeSafe = calculate_accumulator_range_safe();
+#endif
 
         return !stream.fail();
     }
@@ -220,6 +227,117 @@ class FeatureTransformer {
     }
 
    private:
+#if defined(STOCKFISH_ESP32_S3_PIE)
+    static void keep_largest_positive(std::array<i16, FeatureSet::MaxActiveDimensions>& heap,
+                                      usize& count,
+                                      i16 value) {
+        if (value <= 0)
+            return;
+
+        if (count < heap.size()) {
+            usize index = count++;
+            heap[index] = value;
+            while (index > 0) {
+                const usize parent = (index - 1) / 2;
+                if (heap[parent] <= heap[index])
+                    break;
+                std::swap(heap[parent], heap[index]);
+                index = parent;
+            }
+        } else if (value > heap[0]) {
+            heap[0] = value;
+            usize index = 0;
+            while (true) {
+                usize child = index * 2 + 1;
+                if (child >= count)
+                    break;
+                if (child + 1 < count && heap[child + 1] < heap[child])
+                    ++child;
+                if (heap[index] <= heap[child])
+                    break;
+                std::swap(heap[index], heap[child]);
+                index = child;
+            }
+        }
+    }
+
+    static void keep_smallest_negative(
+      std::array<i16, FeatureSet::MaxActiveDimensions>& heap, usize& count, i16 value) {
+        if (value >= 0)
+            return;
+
+        if (count < heap.size()) {
+            usize index = count++;
+            heap[index] = value;
+            while (index > 0) {
+                const usize parent = (index - 1) / 2;
+                if (heap[parent] >= heap[index])
+                    break;
+                std::swap(heap[parent], heap[index]);
+                index = parent;
+            }
+        } else if (value < heap[0]) {
+            heap[0] = value;
+            usize index = 0;
+            while (true) {
+                usize child = index * 2 + 1;
+                if (child >= count)
+                    break;
+                if (child + 1 < count && heap[child + 1] > heap[child])
+                    ++child;
+                if (heap[index] >= heap[child])
+                    break;
+                std::swap(heap[index], heap[child]);
+                index = child;
+            }
+        }
+    }
+
+    bool calculate_accumulator_range_safe() const {
+        // A legal P_hm accumulator contains at most MaxActiveDimensions
+        // distinct piece-square features. Bound every intermediate subset sum
+        // by the 32 largest positive / 32 smallest negative weights per output.
+        constexpr usize Lanes = 8;
+        constexpr usize MaxActive = FeatureSet::MaxActiveDimensions;
+        using Heap = std::array<i16, MaxActive>;
+
+        static_assert(MaxActive == 32);
+        static_assert(OutputDimensions % Lanes == 0);
+
+        for (IndexType base = 0; base < OutputDimensions; base += Lanes) {
+            std::array<Heap, Lanes> largestPositive{};
+            std::array<Heap, Lanes> smallestNegative{};
+            std::array<usize, Lanes> positiveCount{};
+            std::array<usize, Lanes> negativeCount{};
+
+            for (IndexType feature = 0; feature < InputDimensions; ++feature) {
+                const WeightType* row = weights.data() + feature * OutputDimensions + base;
+                for (usize lane = 0; lane < Lanes; ++lane) {
+                    keep_largest_positive(largestPositive[lane], positiveCount[lane], row[lane]);
+                    keep_smallest_negative(smallestNegative[lane], negativeCount[lane], row[lane]);
+                }
+            }
+
+            for (usize lane = 0; lane < Lanes; ++lane) {
+                i32 upperBound = biases[base + lane];
+                i32 lowerBound = biases[base + lane];
+
+                for (usize i = 0; i < positiveCount[lane]; ++i)
+                    upperBound += largestPositive[lane][i];
+                for (usize i = 0; i < negativeCount[lane]; ++i)
+                    lowerBound += smallestNegative[lane][i];
+
+                if (upperBound > 32767 || lowerBound < -32768)
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool accumulatorRangeSafe = false;
+#endif
+
     static void transform_perspective(const std::array<i16, HalfDimensions>&      accumulation,
                                       OutputType*                                 output,
                                       IndexType                                   perspective,
