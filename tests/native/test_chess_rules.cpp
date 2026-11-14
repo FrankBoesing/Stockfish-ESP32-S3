@@ -357,7 +357,7 @@ void testUndoAndNewAfterCheckmate() {
   const auto fresh = Stockfish::get_position_status(game.get());
   const auto freshOutcome = ChessGuiRules::classifyGame(fresh, 'w', 'w');
   CHECK(ChessGuiRules::acceptsBoardMoves(
-    ChessGuiRules::isTerminal(freshOutcome) == false));
+    ChessGuiRules::isTerminal(freshOutcome)));
   CHECK(!ChessGuiRules::undoEnabled(game.historySize()));
 }
 
