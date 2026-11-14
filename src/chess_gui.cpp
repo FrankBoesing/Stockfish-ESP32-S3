@@ -158,7 +158,8 @@ std::string gameBaseFen = StartFen;
 std::string currentFen = StartFen;
 char board[64] = {};
 char playerColor = 'w';
-int skillLevel = 10;
+int skillLevel = 10; // Strength for the current game
+int selectedSkillLevel = 10; // Default for the next game
 int selectedSquare = -1;
 int lastFrom = -1;
 int lastTo = -1;
@@ -796,7 +797,7 @@ static void renderMenu() {
 
   drawButton(30, 164, 50, 38, "-");
   char levelText[12];
-  snprintf(levelText, sizeof(levelText), "%d", skillLevel);
+  snprintf(levelText, sizeof(levelText), "%d", selectedSkillLevel);
   drawCenteredText(levelText, 94, 164, 132, 38,
                    ColorText, &fonts::FreeSansBold12pt7b);
   drawButton(240, 164, 50, 38, "+");
@@ -858,13 +859,13 @@ static bool saveSkillSettingToNvs() {
     Serial.println("[SETTINGS] ERROR: could not open NVS namespace sf-gui");
     return false;
   }
-  const size_t written = preferences.putUChar("skill", uint8_t(skillLevel));
+  const size_t written = preferences.putUChar("skill", uint8_t(selectedSkillLevel));
   preferences.end();
   if (written != sizeof(uint8_t)) {
     Serial.println("[SETTINGS] ERROR: skill level was not saved to NVS");
     return false;
   }
-  Serial.printf("[SETTINGS] Saved skill level %d to NVS\n", skillLevel);
+  Serial.printf("[SETTINGS] Saved next-game skill level %d to NVS\n", selectedSkillLevel);
   return true;
 }
 
@@ -888,8 +889,8 @@ static bool loadSkillSettingFromNvs() {
     return false;
   }
 
-  skillLevel = storedSkill;
-  Serial.printf("[SETTINGS] Restored skill level %d from NVS\n", skillLevel);
+  selectedSkillLevel = storedSkill;
+  Serial.printf("[SETTINGS] Restored next-game skill level %d from NVS\n", selectedSkillLevel);
   return true;
 }
 
@@ -942,7 +943,7 @@ static bool saveGameToNvs() {
   return saved;
 }
 
-static bool loadSavedGameFromNvs() {
+static bool loadSavedGameFromNvs(bool hasSavedSkillSetting) {
   Preferences preferences;
   if (!preferences.begin("sf-gui", true)) {
     Serial.println("[GAME] NVS namespace unavailable; starting without saved game");
@@ -1054,6 +1055,8 @@ static bool loadSavedGameFromNvs() {
   gameBaseFen = candidateFen;
   playerColor = char(savedPlayer);
   skillLevel = savedSkill;
+  if (!hasSavedSkillSetting)
+    selectedSkillLevel = savedSkill;
   setSkillOption();
   currentFen = engine->fen();
   loadFenBoard(currentFen);
@@ -1224,6 +1227,7 @@ static void pollSearchMailbox() {
 static void startNewGame() {
   stopSearch();
   engine->search_clear();
+  skillLevel = selectedSkillLevel;
   gameHistory.clear();
   gameBaseFen = StartFen;
   gameOver = false;
@@ -1515,12 +1519,12 @@ static void handleMenuTouch(int x, int y) {
   }
 
   if (y >= 164 && y < 202) {
-    if (x >= 30 && x < 80 && skillLevel > 1) {
-      --skillLevel;
+    if (x >= 30 && x < 80 && selectedSkillLevel > 1) {
+      --selectedSkillLevel;
       saveSkillSettingToNvs();
       renderMenu();
-    } else if (x >= 240 && x < 290 && skillLevel < 20) {
-      ++skillLevel;
+    } else if (x >= 240 && x < 290 && selectedSkillLevel < 20) {
+      ++selectedSkillLevel;
       saveSkillSettingToNvs();
       renderMenu();
     }
@@ -1862,8 +1866,8 @@ void setup() {
   loadTouchCalibration();
   Serial.printf("[GUI] Touch calibration: %s\n",
                 touchCalibrated ? "loaded from NVS" : "not found");
-  loadSkillSettingFromNvs();
-  const bool restoredGame = loadSavedGameFromNvs();
+  const bool hasSavedSkillSetting = loadSkillSettingFromNvs();
+  const bool restoredGame = loadSavedGameFromNvs(hasSavedSkillSetting);
   Serial.printf("[GUI] Move history storage: %s (PSRAM preferred)\n",
                 gameHistory.usesPsram() ? "PSRAM" : "internal RAM fallback");
   if (!touchCalibrated) beginTouchCalibration();
