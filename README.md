@@ -44,9 +44,10 @@ Moves are submitted as UCI moves through Stockfish's existing
 `Engine::set_position()` API. Stockfish remains the source of truth for move
 legality and position state; this GUI does not implement a second chess-rules
 engine. Pawn promotion is handled by an on-screen chooser for Queen, Rook,
-Bishop or Knight. Search callbacks only publish compact status/best-move data;
-drawing and position updates remain in the Arduino loop task. The GUI
-deliberately avoids a full-screen framebuffer.
+Bishop or Knight. The GUI also detects check, checkmate and stalemate using
+Stockfish's own position and legal-move code. Search callbacks only publish
+compact status/best-move data; drawing and position updates remain in the
+Arduino loop task. The GUI deliberately avoids a full-screen framebuffer.
 
 This is an initial implementation milestone. Touch mapping, rendering, search
 responsiveness and move handling still require a hardware test on the FNK0104B.
