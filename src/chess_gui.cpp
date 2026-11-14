@@ -55,8 +55,9 @@ constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
   return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-constexpr uint16_t ColorBackground = rgb(25, 29, 43);
-constexpr uint16_t ColorPanel      = rgb(31, 37, 54);
+// Deep navy background, closer to the TeensyFish reference palette.
+constexpr uint16_t ColorBackground = rgb(16, 18, 28);
+constexpr uint16_t ColorPanel      = rgb(22, 26, 39);
 constexpr uint16_t ColorLight      = rgb(194, 193, 201);
 constexpr uint16_t ColorDark       = rgb(54, 99, 197);
 constexpr uint16_t ColorOrange     = rgb(255, 169, 0);
@@ -298,7 +299,7 @@ static void drawTextAt(const char *text, int x, int y, uint16_t color,
 
 static void drawButton(int x, int y, int w, int h, const char *label,
                        bool active = false, bool enabled = true,
-                       const lgfx::IFont *font = &fonts::FreeSansBold12pt7b) {
+                       const lgfx::IFont *font = &fonts::FreeSansBold9pt7b) {
   const uint16_t fill = !enabled ? ColorDisabled
                           : active ? ColorOrange : ColorButton;
   const uint16_t text = active ? ColorBackground : ColorText;
@@ -321,15 +322,15 @@ static void drawCrosshair(int x, int y) {
 static void renderCalibration() {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Touch calibration", 20, 79, 280, 38,
-                   ColorOrange, &fonts::FreeSansBold18pt7b);
+                   ColorOrange, &fonts::FreeSansBold9pt7b);
   tft.drawFastHLine(48, 119, 224, ColorButton);
   drawCenteredText("Tap the crosshair", 20, 130, 280, 36,
-                   ColorText, &fonts::FreeSans12pt7b);
+                   ColorText, &fonts::FreeSans9pt7b);
 
   char stepText[24];
   snprintf(stepText, sizeof(stepText), "Step %d of 3", calibrationStep + 1);
   drawCenteredText(stepText, 20, 177, 280, 28,
-                   ColorMuted, &fonts::FreeSans12pt7b);
+                   ColorMuted, &fonts::FreeSans9pt7b);
 
   drawCrosshair(CalibrationTargets[calibrationStep][0],
                 CalibrationTargets[calibrationStep][1]);
@@ -500,7 +501,7 @@ static void drawGamePanel() {
   tft.fillRect(x, BoardY, w, 224, ColorPanel);
 
   drawCenteredText("Stockfish", x, 25, w, 18,
-                   ColorText, &fonts::FreeSansBold12pt7b);
+                   ColorText, &fonts::FreeSansBold9pt7b);
   char levelText[20];
   snprintf(levelText, sizeof(levelText), "Level %d", skillLevel);
   drawCenteredText(levelText, x, 44, w, 14,
@@ -562,20 +563,20 @@ static void renderMenu() {
   tft.fillScreen(ColorBackground);
 
   drawCenteredText("New Game", 20, 12, 280, 40,
-                   ColorOrange, &fonts::FreeSansBold18pt7b);
-  drawTextAt("Play as", 31, 59, ColorMuted, &fonts::FreeSans12pt7b);
+                   ColorOrange, &fonts::FreeSansBold9pt7b);
+  drawTextAt("Play as", 31, 59, ColorMuted, &fonts::FreeSans9pt7b);
 
   drawButton(28, 87, 128, 42, "White", playerColor == 'w');
   drawButton(164, 87, 128, 42, "Black", playerColor == 'b');
 
   drawTextAt("Stockfish level", 31, 142,
-             ColorMuted, &fonts::FreeSans12pt7b);
+             ColorMuted, &fonts::FreeSans9pt7b);
 
   drawButton(30, 164, 50, 38, "-");
   char levelText[12];
   snprintf(levelText, sizeof(levelText), "%d", skillLevel);
   drawCenteredText(levelText, 94, 164, 132, 38,
-                   ColorText, &fonts::FreeSansBold18pt7b);
+                   ColorText, &fonts::FreeSansBold9pt7b);
   drawButton(240, 164, 50, 38, "+");
 
   drawButton(28, 207, 128, 30, "Start");
@@ -587,7 +588,7 @@ static void renderMenu() {
 static void renderLoading() {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Stockfish ESP32", 20, 76, 280, 32,
-                   ColorOrange, &fonts::FreeSansBold18pt7b);
+                   ColorOrange, &fonts::FreeSansBold9pt7b);
   drawCenteredText("Loading engine and NNUE...", 20, 122, 280, 24,
                    ColorText, &fonts::FreeSans9pt7b);
 }
@@ -603,7 +604,7 @@ static bool setSkillOption() {
 static void renderCalibrationComplete(bool saved) {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Touch ready", 20, 88, 280, 34,
-                   ColorOrange, &fonts::FreeSansBold18pt7b);
+                   ColorOrange, &fonts::FreeSansBold9pt7b);
   drawCenteredText(saved ? "Calibration saved to flash" : "Flash save failed",
                    20, 132, 280, 24, ColorText, &fonts::FreeSans9pt7b);
   delay(500);
