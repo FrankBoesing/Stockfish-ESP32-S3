@@ -160,7 +160,7 @@ class FeatureTransformer {
         permute_weights();
 
 #if defined(STOCKFISH_ESP32_S3_PIE)
-        accumulatorRangeSafe = calculate_accumulator_range_safe();
+        accumulatorRangeSafe = !stream.fail() && calculate_accumulator_range_safe();
 #endif
 
         return !stream.fail();
