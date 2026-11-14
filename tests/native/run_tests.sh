@@ -42,7 +42,7 @@ STOCKFISH_SOURCES=(
 echo "Building native Stockfish GUI rule regression tests..."
 "$CXX" -std=c++17 -O2 -pthread \
   -DNNUE_EMBEDDING_OFF -DNO_TABLEBASES -DNO_PREFETCH \
-  -Isrc/stockfish -Isrc/gui -Itests/native/stubs \
+  -Isrc -Isrc/stockfish -Itests/native/stubs \
   tests/native/test_chess_rules.cpp "${STOCKFISH_SOURCES[@]}" \
   -o "$OUT"
 
