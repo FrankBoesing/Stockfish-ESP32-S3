@@ -81,8 +81,17 @@ void checkDestinations(const TestPosition& testPosition, const char* from,
   for (const char* name : expected)
     expectedSquares[squareIndex(name)] = true;
 
-  for (int i = 0; i < 64; ++i)
-    CHECK(destinations[i] == expectedSquares[i]);
+  for (int i = 0; i < 64; ++i) {
+    if (destinations[i] != expectedSquares[i]) {
+      std::cerr << "Destination mismatch from " << from << " at "
+                << Stockfish::UCIEngine::square(static_cast<Stockfish::Square>(i))
+                << ": expected=" << expectedSquares[i]
+                << " actual=" << destinations[i] << "\\n";
+      CHECK(false);
+    } else {
+      CHECK(true);
+    }
+  }
 }
 
 void testLegalDestinationHighlights() {
