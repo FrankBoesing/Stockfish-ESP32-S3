@@ -541,6 +541,28 @@ static void drawGamePanelInfo() {
                 searchInFlight ? ColorOrange : ColorText,
                 &fonts::FreeSansBold9pt7b);
 
+  const int material = materialBalanceForPlayer();
+  char materialText[20];
+  snprintf(materialText, sizeof(materialText), "Material %+d", material);
+  drawPanelText(materialText, x, 113, w, 14,
+                material > 0 ? ColorOrange : ColorText,
+                &fonts::FreeSansBold9pt7b);
+
+  drawPanelText(statusText, x + 1, 129, w - 2, 14,
+                ColorMuted, &fonts::FreeSans9pt7b);
+  drawButton(x + 2, 147, w - 4, 25, "HINT", false,
+             !searchInFlight && sideToMove() == playerColor,
+             &fonts::FreeSansBold9pt7b);
+  drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty(),
+             &fonts::FreeSansBold9pt7b);
+  drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
+             &fonts::FreeSansBold9pt7b);
+}
+
+static void drawGamePanelSearchStats() {
+  const int x = BoardX + BoardSize + 6;
+  const int w = 320 - x - 4;
+
   int uiDepth;
   uint32_t uiNps;
   portENTER_CRITICAL(&searchMux);
@@ -558,23 +580,6 @@ static void drawGamePanelInfo() {
   else
     snprintf(npsText, sizeof(npsText), "%lu N/s", (unsigned long)uiNps);
   drawPanelText(npsText, x, 97, w, 14, ColorMuted, &fonts::FreeSans9pt7b);
-
-  const int material = materialBalanceForPlayer();
-  char materialText[20];
-  snprintf(materialText, sizeof(materialText), "Material %+d", material);
-  drawPanelText(materialText, x, 113, w, 14,
-                material > 0 ? ColorOrange : ColorText,
-                &fonts::FreeSansBold9pt7b);
-
-  drawPanelText(statusText, x + 1, 129, w - 2, 14,
-                ColorMuted, &fonts::FreeSans9pt7b);
-  drawButton(x + 2, 147, w - 4, 25, "HINT", false,
-             !searchInFlight && sideToMove() == playerColor,
-             &fonts::FreeSansBold9pt7b);
-  drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty(),
-             &fonts::FreeSansBold9pt7b);
-  drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
-             &fonts::FreeSansBold9pt7b);
 }
 
 static void drawGamePanel() {
@@ -657,8 +662,14 @@ static void startSearch(SearchMode mode) {
   if (mode == SearchMode::Hint && sideToMove() != playerColor)
     return;
 
+  const int previousHintFrom = hintFrom;
+  const int previousHintTo = hintTo;
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
+  if (screen == Screen::Game) {
+    drawBoardSquare(previousHintFrom);
+    drawBoardSquare(previousHintTo);
+  }
   searchMode = mode;
 
   portENTER_CRITICAL(&searchMux);
@@ -762,7 +773,7 @@ static void pollSearchMailbox() {
   portEXIT_CRITICAL(&searchMux);
 
   if (infoDirty && screen == Screen::Game) {
-    drawGamePanelInfo();
+    drawGamePanelSearchStats();
   }
 
   if (bestMoveReady) {
@@ -1138,8 +1149,9 @@ void setup() {
   delay(1200);
   Serial.println();
   Serial.println("Stockfish ESP32-S3 touchscreen GUI");
-  Serial.println("[GUI] Build: partial-redraw-dark-navy-v1");
-  Serial.println("[GUI] Palette RGB565: background=0x0842 panel=0x1104");
+  Serial.println("[GUI] Build: partial-redraw-dark-navy-v2");
+  Serial.printf("[GUI] Palette RGB565: background=0x%04X panel=0x%04X\\n",
+                ColorBackground, ColorPanel);
 
   initializeDisplayAndTouch();
   renderLoading();
