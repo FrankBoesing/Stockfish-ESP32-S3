@@ -129,6 +129,18 @@ The PIE kernel processes eight int16 lanes per iteration with 128-bit loads, sat
 
 The `accum-pie-loop` counter is nested inside `accum-main-loop`; do not add their percentages. A successful CI build verifies assembly/compiler acceptance only. Before accepting this optimization, compare the PIE build with the scalar baseline on hardware, confirm NNUE verification and identical search results, and check the PIE-loop counter is nonzero. The experimental environment must not be treated as the default firmware until those hardware checks pass.
 
+### Exact scalar-vs-PIE parity validation
+
+The separate `freenove_stockfish_pievalidate` environment runs the PIE kernel and then independently recomputes every one of the 1024 output lanes with the former scalar update sequence for **every** incremental accumulator update:
+
+```sh
+pio run -e freenove_stockfish_pievalidate -t upload
+```
+
+The reference calculation mirrors the scalar path's per-operation int16 wrapping. It also records whether any intermediate scalar result would leave the signed int16 range, because such a value would be saturated by the PIE instructions. After each search, the probe prints a `[PIE_VALIDATE]` line. A valid result requires `status=PASS`, `updates` greater than zero, and zero mismatched updates/elements and zero out-of-range updates/elements. `NOT_RUN` means the PIE path was not exercised; it is not a pass. A failure reports the first mismatching lane and its expected/actual values.
+
+This mode deliberately doubles the accumulator-update work and includes the profiler, so its NPS is not a performance result. The reference comparison runs outside the `accum-pie-loop` timing counter. It is a diagnostic build only; normal firmware, `pie`, `piebench`, and the scalar environments do not compile the reference calculation. CI compiles this environment but cannot execute the hardware parity test.
+
 ## Source provenance
 
 The engine source will be obtained from the official upstream repository:

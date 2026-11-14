@@ -470,6 +470,23 @@ __attribute__((noinline)) void apply_features_esp32_s3_pie(Color                
 }
 #endif
 
+#if defined(STOCKFISH_ESP32_S3_PIE_VALIDATE)
+template<int sign>
+sf_always_inline i32 pie_validation_apply(i32 accumulator, i16 weight, bool& outOfRange) {
+    static_assert(sign == 1 || sign == -1);
+    const i32 raw = sign == -1 ? accumulator - static_cast<i32>(weight)
+                               : accumulator + static_cast<i32>(weight);
+    if (raw < -32768 || raw > 32767)
+        outOfRange = true;
+
+    // Mirror the scalar path's int16 wrap after each individual operation.
+    // The range flag separately detects any operation that would saturate in PIE.
+    const u16 bits = static_cast<u16>(raw);
+    return bits < 0x8000U ? static_cast<i32>(bits)
+                          : static_cast<i32>(bits) - 0x10000;
+}
+#endif
+
 void apply_features(Color                        perspective,
                     const FeatureTransformer&    featureTransformer,
                     const AccumulatorState&      from,
@@ -497,6 +514,58 @@ void apply_features(Color                        perspective,
         apply_features_esp32_s3_pie(perspective, featureTransformer, from, to, added, removed);
     #if defined(STOCKFISH_NNUE_BENCHMARK)
         Bench::record(Bench::AccumulatorApplyPieLoop, pieBenchStart);
+    #endif
+    #if defined(STOCKFISH_ESP32_S3_PIE_VALIDATE)
+        // Compare every output lane against the former scalar update sequence.
+        // This is deliberately outside the PIE timing counter and compiled only
+        // into the parity-validation environment.
+        auto& validation = Bench::pieValidationStats;
+        ++validation.calls;
+        uint64_t mismatches = 0;
+        uint64_t outOfRange = 0;
+
+        const i16* weights = featureTransformer.weights.data();
+        const i16* removed0 = weights + removed[0] * Dimensions;
+        const i16* removed1 = removed.ssize() > 1
+                                ? weights + removed[1] * Dimensions : nullptr;
+        const i16* added0 = weights + added[0] * Dimensions;
+        const i16* added1 = added.ssize() > 1
+                              ? weights + added[1] * Dimensions : nullptr;
+
+        for (IndexType j = 0; j < Dimensions; ++j)
+        {
+            bool laneOutOfRange = false;
+            i32 expected = fromAcc[j];
+            expected = pie_validation_apply<-1>(expected, removed0[j], laneOutOfRange);
+            if (removed1)
+                expected = pie_validation_apply<-1>(expected, removed1[j], laneOutOfRange);
+            expected = pie_validation_apply<+1>(expected, added0[j], laneOutOfRange);
+            if (added1)
+                expected = pie_validation_apply<+1>(expected, added1[j], laneOutOfRange);
+
+            const i16 expected16 = static_cast<i16>(expected);
+            const i16 actual = toAcc[j];
+            if (actual != expected16)
+            {
+                if (!validation.hasMismatch)
+                {
+                    validation.hasMismatch = true;
+                    validation.firstMismatchIndex = static_cast<uint32_t>(j);
+                    validation.firstExpected = expected16;
+                    validation.firstActual = actual;
+                }
+                ++mismatches;
+            }
+            if (laneOutOfRange)
+                ++outOfRange;
+        }
+
+        if (mismatches)
+            ++validation.mismatchedCalls;
+        validation.mismatchedElements += mismatches;
+        if (outOfRange)
+            ++validation.outOfRangeCalls;
+        validation.outOfRangeElements += outOfRange;
     #endif
     } else
 #endif

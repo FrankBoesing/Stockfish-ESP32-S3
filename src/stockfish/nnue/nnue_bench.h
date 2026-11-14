@@ -1,18 +1,21 @@
 /*
-  Diagnostic-only cycle counters for the ESP32-S3 NNUE benchmark.
-  This header has no effect on normal firmware unless
-  STOCKFISH_NNUE_BENCHMARK is defined.
+  Diagnostic-only cycle counters and PIE parity statistics for the ESP32-S3.
+  These declarations have no effect on normal firmware unless their respective
+  diagnostic build macros are defined.
 */
 
 #ifndef NNUE_BENCH_H_INCLUDED
 #define NNUE_BENCH_H_INCLUDED
 
-#if defined(STOCKFISH_NNUE_BENCHMARK)
-
 #include <cstdint>
+
+#if defined(STOCKFISH_NNUE_BENCHMARK)
 #include "esp_cpu.h"
+#endif
 
 namespace Stockfish::Eval::NNUE::Bench {
+
+#if defined(STOCKFISH_NNUE_BENCHMARK)
 
 enum Stage : uint8_t {
     AccumulatorUpdate,
@@ -54,7 +57,27 @@ inline void record(Stage stage, uint32_t start) {
     ++counters[stage].calls;
 }
 
+#endif  // STOCKFISH_NNUE_BENCHMARK
+
+#if defined(STOCKFISH_ESP32_S3_PIE_VALIDATE)
+
+// Updated only by the single Stockfish search worker in the validation build.
+struct PieValidationStats {
+    uint64_t calls;
+    uint64_t mismatchedCalls;
+    uint64_t mismatchedElements;
+    uint64_t outOfRangeCalls;
+    uint64_t outOfRangeElements;
+    uint32_t firstMismatchIndex;
+    int32_t firstExpected;
+    int32_t firstActual;
+    bool hasMismatch;
+};
+
+extern PieValidationStats pieValidationStats;
+
+#endif  // STOCKFISH_ESP32_S3_PIE_VALIDATE
+
 }  // namespace Stockfish::Eval::NNUE::Bench
 
-#endif  // STOCKFISH_NNUE_BENCHMARK
 #endif  // NNUE_BENCH_H_INCLUDED
