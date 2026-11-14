@@ -266,7 +266,7 @@ static void mapTouch(uint16_t rawX, uint16_t rawY, int &x, int &y) {
 static void drawCenteredText(const char *text, int x, int y, int w, int h,
                              uint16_t color, uint8_t size) {
   tft.setTextSize(size);
-  tft.setTextColor(color, ColorBackground);
+  tft.setTextColor(color);
   const int textWidth = tft.textWidth(text);
   const int textHeight = 8 * size;
   tft.setCursor(x + (w - textWidth) / 2, y + (h - textHeight) / 2);
