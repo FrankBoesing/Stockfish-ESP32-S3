@@ -29,6 +29,7 @@
 #include "nnue_architecture.h"
 #include "nnue_common.h"
 #include "nnue_feature_transformer.h"  // IWYU pragma: keep
+#include "nnue_bench.h"
 #include "simd.h"
 
 namespace Stockfish::Eval::NNUE {
@@ -84,8 +85,14 @@ void AccumulatorStack::evaluate(const Position&           pos,
                                 const FeatureTransformer& featureTransformer,
                                 // Silence spurious warning on GCC 10
                                 [[maybe_unused]] AccumulatorCaches& cache) noexcept {
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    const uint32_t benchStart = Bench::cycle_count();
+#endif
     const usize last_white = find_last_usable_accumulator(WHITE);
     const usize last_black = find_last_usable_accumulator(BLACK);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::AccumulatorFindLast, benchStart);
+#endif
 
     if (accumulators[last_white].computed[WHITE] && accumulators[last_black].computed[BLACK])
         forward_update_incremental_both(pos, featureTransformer, last_white, last_black);
@@ -132,6 +139,9 @@ void AccumulatorStack::forward_update_incremental(Color                     pers
                                                   const Position&           pos,
                                                   const FeatureTransformer& featureTransformer,
                                                   const usize               begin) noexcept {
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    const uint32_t benchStart = Bench::cycle_count();
+#endif
 
     assert(begin < accumulators.size());
     assert(accumulators[begin].computed[perspective]);
@@ -143,12 +153,18 @@ void AccumulatorStack::forward_update_incremental(Color                     pers
                                              accumulators[next], accumulators[next - 1]);
 
     assert(latest().computed[perspective]);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::AccumulatorForwardIncremental, benchStart);
+#endif
 }
 
 void AccumulatorStack::backward_update_incremental(Color                     perspective,
                                                    const Position&           pos,
                                                    const FeatureTransformer& featureTransformer,
                                                    const usize               end) noexcept {
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    const uint32_t benchStart = Bench::cycle_count();
+#endif
 
     assert(end < accumulators.size());
     assert(end < size);
@@ -161,12 +177,18 @@ void AccumulatorStack::backward_update_incremental(Color                     per
                                               accumulators[next], accumulators[next + 1]);
 
     assert(accumulators[end].computed[perspective]);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::AccumulatorBackwardIncremental, benchStart);
+#endif
 }
 
 void AccumulatorStack::forward_update_incremental_both(const Position&           pos,
                                                        const FeatureTransformer& featureTransformer,
                                                        usize                     white_begin,
                                                        usize black_begin) noexcept {
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    const uint32_t benchStart = Bench::cycle_count();
+#endif
 
     assert(white_begin < size);
     assert(black_begin < size);
@@ -191,6 +213,9 @@ void AccumulatorStack::forward_update_incremental_both(const Position&          
 
     assert(latest().computed[WHITE]);
     assert(latest().computed[BLACK]);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::AccumulatorForwardBoth, benchStart);
+#endif
 }
 
 namespace {
@@ -581,6 +606,9 @@ void update_accumulator_refresh_cache(Color                     perspective,
                                       const Position&           pos,
                                       AccumulatorState&         accumulator,
                                       AccumulatorCaches&        cache) {
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    const uint32_t benchStart = Bench::cycle_count();
+#endif
 
     const Square          ksq   = pos.square<KING>(perspective);
     auto&                 entry = cache[FeatureSet::refresh_bucket(ksq)][perspective];
@@ -635,6 +663,9 @@ void update_accumulator_refresh_cache(Color                     perspective,
         store_psqt(j, entry.psqtAccumulation.data(), psqt);
         store_psqt(j, accumulator.psqtAccumulation[perspective].data(), psqt);
     }
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::AccumulatorRefreshCache, benchStart);
+#endif
 }
 
 }
