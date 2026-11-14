@@ -653,6 +653,7 @@ static void stopSearch() {
 
 static void handleSearchResult(const char *bestMove) {
   if (!bestMove || !bestMove[0] || strcmp(bestMove, "0000") == 0) {
+    searchMode = SearchMode::None;
     setStatus("Game over");
     renderGame();
     return;
@@ -714,6 +715,7 @@ static void pollSearchMailbox() {
 
 static void startNewGame() {
   stopSearch();
+  engine->search_clear();
   gameMoves.clear();
   selectedSquare = -1;
   hintFrom = hintTo = -1;
@@ -835,7 +837,6 @@ static void handleBoardTouch(int x, int y) {
     return;
 
   const int panelX = BoardX + BoardSize + 6;
-  const int panelW = 320 - panelX - 4;
 
   if (x >= panelX && y >= 147 && y < 173) {
     if (sideToMove() == playerColor)
