@@ -1249,6 +1249,8 @@ static void startNewGame() {
   hasGame = true;
   setStatus("Ready");
   saveGameToNvs();
+  Serial.printf("[GAME] New game started; player %s; Stockfish level %d\n",
+                playerColor == 'w' ? "White" : "Black", skillLevel);
   renderGame();
 
   // When the human chooses Black, Stockfish makes the opening move.
@@ -1786,6 +1788,61 @@ static void executeSerialCommand() {
     processPositionCommand(line, false);
   } else if (command == "fen") {
     processPositionCommand(line, true);
+  } else if (command == "newgame") {
+    std::string argument;
+    int requestedSkill = selectedSkillLevel;
+    char requestedPlayer = playerColor;
+    bool skillSpecified = false;
+    bool playerSpecified = false;
+    bool valid = true;
+
+    // Accept either ordering: NEWGAME 12 BLACK or NEWGAME BLACK 12.
+    while (input >> argument) {
+      std::transform(argument.begin(), argument.end(), argument.begin(),
+                     [](unsigned char ch) { return char(tolower(ch)); });
+
+      if (argument == "white" || argument == "black") {
+        if (playerSpecified) {
+          valid = false;
+          break;
+        }
+        playerSpecified = true;
+        requestedPlayer = argument == "white" ? 'w' : 'b';
+        continue;
+      }
+
+      if (skillSpecified || argument.empty()) {
+        valid = false;
+        break;
+      }
+
+      int parsedSkill = 0;
+      for (unsigned char ch : argument) {
+        if (ch < '0' || ch > '9') {
+          valid = false;
+          break;
+        }
+        parsedSkill = parsedSkill * 10 + (ch - '0');
+        if (parsedSkill > 20) {
+          valid = false;
+          break;
+        }
+      }
+      if (!valid || parsedSkill < 1 || parsedSkill > 20) {
+        valid = false;
+        break;
+      }
+      skillSpecified = true;
+      requestedSkill = parsedSkill;
+    }
+
+    if (!valid) {
+      Serial.println("[SERIAL] Usage: NEWGAME [1..20] [WHITE|BLACK] (colour may also be given alone)");
+    } else {
+      selectedSkillLevel = requestedSkill;
+      playerColor = requestedPlayer;
+      startNewGame();
+    }
   } else if (command == "help") {
     Serial.println("Commands:");
     Serial.println("  position startpos [moves e2e4 ...]");
@@ -1793,6 +1850,8 @@ static void executeSerialCommand() {
     Serial.println("  fen <6 FEN fields>  (shorthand)");
     Serial.println("  moves (or uci)  print current position as a UCI command");
     Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move to the current game");
+    Serial.println("  NEWGAME [1..20] [WHITE|BLACK]  start a new game");
+    Serial.println("  NEWGAME BLACK  start as Black (or use WHITE)");
     Serial.println("FEN piece-letter case is preserved. Invalid positions leave the current game unchanged.");
   } else if (!command.empty()) {
     if (command.size() == 4 || command.size() == 5)
