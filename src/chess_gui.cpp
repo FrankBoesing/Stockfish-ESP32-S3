@@ -978,6 +978,21 @@ static void initializeEngine() {
     Serial.printf("[NNUE] %.*s\n", (int)message.size(), message.data());
   });
 
+  // The standalone Engine API requires all five search callbacks.
+  // The UCI frontend normally supplies them; this GUI does not use all events,
+  // so explicitly install no-op handlers for the events it does not display.
+  engine->set_on_start([]() {
+    // Search started. The UI already changed its state in startSearch().
+  });
+
+  engine->set_on_update_no_moves([](const Stockfish::Engine::InfoShort &) {
+    // No additional event handling is needed for a terminal position yet.
+  });
+
+  engine->set_on_iter([](const Stockfish::Engine::InfoIter &) {
+    // Per-iteration details are not currently displayed.
+  });
+
   engine->set_on_update_full([](const Stockfish::Engine::InfoFull &info) {
     portENTER_CRITICAL(&searchMux);
     searchMailbox.depth = info.depth;
