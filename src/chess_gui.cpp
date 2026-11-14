@@ -56,8 +56,8 @@ constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 // Deep midnight navy, close to the dark TeensyFish look.
-constexpr uint16_t ColorBackground = rgb(16, 19, 30);
-constexpr uint16_t ColorPanel      = rgb(25, 30, 45);
+constexpr uint16_t ColorBackground = rgb(27, 32, 48);
+constexpr uint16_t ColorPanel      = rgb(37, 45, 64);
 constexpr uint16_t ColorLight      = rgb(194, 193, 201);
 constexpr uint16_t ColorDark       = rgb(54, 99, 197);
 constexpr uint16_t ColorOrange     = rgb(255, 169, 0);
@@ -562,11 +562,11 @@ static void drawGamePanelInfo() {
                 ColorMuted, &fonts::FreeSans9pt7b);
   drawButton(x + 2, 147, w - 4, 25, "HINT", false,
              !searchInFlight && sideToMove() == playerColor,
-             &fonts::Font2, 2);
+             &fonts::FreeSansBold9pt7b, 2);
   drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty(),
-             &fonts::Font2, 2);
+             &fonts::FreeSansBold9pt7b, 2);
   drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
-             &fonts::Font2, 2);
+             &fonts::FreeSansBold9pt7b, 2);
 
   drawGamePanelSearchStats();
 }
@@ -1165,7 +1165,7 @@ void setup() {
   delay(1200);
   Serial.println();
   Serial.println("Stockfish ESP32-S3 touchscreen GUI");
-  Serial.println("[GUI] Build: ips-invert-panel-clear-v2");
+  Serial.println("[GUI] Build: ips-invert-panel-clear-v3");
   Serial.println("[GUI] ILI9341 config: IPS inversion=ON, color order=BGR");
   Serial.printf("[GUI] Palette RGB565: background=0x%04X panel=0x%04X\n",
                 ColorBackground, ColorPanel);
