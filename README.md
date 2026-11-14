@@ -2,6 +2,10 @@
 
 An experimental, native port of the official Stockfish chess engine to the Espressif ESP32-S3.
 
+## Development checkpoint
+
+The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a validated baseline. The next active phase is the touchscreen chess GUI; further engine optimization is deferred until afterward. The exact branch, commits, hardware measurements, implementation constraints, optimization backlog, and a ready-to-use handoff prompt are recorded in [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md).
+
 ## Project goals
 
 - Start from the official Stockfish source tree; do not inherit code, patches, or limitations from a Teensy port.
@@ -19,7 +23,7 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 ## Current status
 
-Stockfish 19 source is vendored under `src/stockfish/` with the Smallnet P_hm feature patch forward-ported to the pinned SF19 release. Hardware tests have verified Engine construction, embedded NNUE loading, depth-1/4/8 searches and a 5-second timed search with the ILI9341/FT6336U display driver initialized. The single search worker is now detected and pinned to Core 0 while the Arduino application runs on Core 1. The single Stockfish worker runs on Core 0 while the Arduino application runs on Core 1. The tested 30,000-node start-position and Kiwipete searches, plus a 5-second timed search, completed without a task-watchdog report. A one-tick ESP-specific yield is performed at most once per second so Core 0's IDLE task can service the task watchdog. The original 32 KiB search stack overflowed; 128 KiB completed the initial tests but left only 17.7 KiB free in the earlier middlegame position. The 192 KiB PSRAM-backed pthread stack now completes both 30,000-node tests with a measured minimum free stack of 98,320 bytes. This is a measured reserve for these positions, not a guarantee for arbitrary/deep searches. The next probe adds node-bounded max-depth-16 searches in the start position and Kiwipete, and logs the CPU core used by the search worker. This is a validation harness, not yet the final UCI application or touchscreen chess UI.
+Stockfish 19 Smallnet P_hm is running on the Freenove ESP32-S3 display board. The standard `freenove_stockfish_compile` firmware now enables the ESP32-S3 PIE accumulator kernel by default, guarded by a network-load-time int16 range proof and automatic scalar fallback. The current Smallnet network passed an on-device scalar-vs-PIE comparison across 82,976 updates (84,967,424 accumulator lanes) with zero mismatches and zero out-of-range intermediate values. The regular, uninstrumented PIE firmware completed the start-position, Kiwipete, and 5-second searches at 1,223, 1,297, and 1,561 NPS respectively, with a minimum worker-stack reserve of 98,416 bytes. Engine, NNUE, display, touch, and single-worker search initialization are validated. The project is now moving to the touchscreen chess GUI; further engine/NNUE performance optimization is deliberately deferred and will resume from this recorded baseline. See [the development checkpoint and handoff notes](docs/STATUS-2026-11-14.md) for exact commits, measurements, constraints, and the next work phase.
 
 ## Planned milestones
 
