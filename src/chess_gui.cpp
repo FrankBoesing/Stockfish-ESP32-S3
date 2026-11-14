@@ -562,11 +562,11 @@ static void drawGamePanelInfo() {
                 ColorMuted, &fonts::FreeSans9pt7b);
   drawButton(x + 2, 147, w - 4, 25, "HINT", false,
              !searchInFlight && sideToMove() == playerColor,
-             &fonts::FreeSansBold9pt7b, 3);
+             &fonts::Font2, 2);
   drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty(),
-             &fonts::FreeSansBold9pt7b, 3);
+             &fonts::Font2, 2);
   drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
-             &fonts::FreeSansBold9pt7b, 3);
+             &fonts::Font2, 2);
 
   drawGamePanelSearchStats();
 }
