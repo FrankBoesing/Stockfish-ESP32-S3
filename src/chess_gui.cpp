@@ -1114,7 +1114,8 @@ static void startSearch(SearchMode mode) {
   searchInFlight = true;
   setStatus(mode == SearchMode::Hint ? "Finding hint" : "Thinking");
   engine->go(limits);
-  drawGamePanelInfo();
+  if (screen == Screen::Game)
+    drawGamePanelInfo();
 }
 
 static void showCurrentGame() {
@@ -1192,9 +1193,11 @@ static void handleSearchResult(const char *bestMove) {
       saveGameToNvs();
     }
     searchMode = SearchMode::None;
-    drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
-                            oldHintFrom, oldHintTo, oldSelected);
-    drawGamePanelInfo();
+    if (screen == Screen::Game) {
+      drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                              oldHintFrom, oldHintTo, oldSelected);
+      drawGamePanelInfo();
+    }
   }
 }
 
@@ -1266,7 +1269,8 @@ static void undoMove() {
 
   if (gameHistory.empty()) {
     setStatus("Nothing to undo");
-    drawGamePanelInfo();
+    if (screen == Screen::Game)
+      drawGamePanelInfo();
     return;
   }
 
@@ -1285,16 +1289,19 @@ static void undoMove() {
   hintFrom = hintTo = -1;
   if (!syncEnginePosition()) {
     setStatus("Undo error");
-    renderGame();
+    if (screen == Screen::Game)
+      renderGame();
     return;
   }
 
   clearLegalDestinations();
   setStatus("Move undone");
   saveGameToNvs();
-  drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
-                          oldHintFrom, oldHintTo, oldSelected);
-  drawGamePanelInfo();
+  if (screen == Screen::Game) {
+    drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                            oldHintFrom, oldHintTo, oldSelected);
+    drawGamePanelInfo();
+  }
 
   if (sideToMove() != playerColor)
     startSearch(SearchMode::EngineMove);
@@ -1774,8 +1781,7 @@ static void printGameUciPosition() {
 }
 
 
-static void printPgnToken(const std::string &token) {
-  static size_t column = 0;
+static void printPgnToken(const std::string &token, size_t &column) {
   if (column && column + 1 + token.size() > 78) {
     Serial.println();
     column = 0;
@@ -1787,7 +1793,6 @@ static void printPgnToken(const std::string &token) {
   Serial.print(token.c_str());
   column += token.size();
 }
-
 
 static char pgnPieceLetter(Stockfish::PieceType pieceType) {
   switch (pieceType) {
@@ -1860,7 +1865,6 @@ static bool formatSanMove(Stockfish::Position &position, Stockfish::Move move,
     }
   }
 
-  // Apply the move before deciding whether its suffix is check or checkmate.
   position.do_move(move, nextState);
   if (position.checkers()) {
     const Stockfish::MoveList<Stockfish::LEGAL> replies(position);
@@ -1879,17 +1883,17 @@ static bool streamPgnMoves(bool emitOutput) {
     return false;
   }
 
-  unsigned moveNumber = 1;
+  unsigned moveNumber = 0;
   for (unsigned char ch : fullmoveField) {
     if (ch < '0' || ch > '9') {
       Serial.println("[PGN] ERROR: invalid FEN fullmove number");
       return false;
     }
-    if (moveNumber < 1000000)
+    if (moveNumber <= 1000000)
       moveNumber = moveNumber * 10 + (ch - '0');
   }
-  // Undo the initial seed digit used above, and keep malformed zero at one.
-  moveNumber = moveNumber > 1 ? moveNumber / 10 : 1;
+  if (moveNumber == 0)
+    moveNumber = 1;
 
   bool whiteToMove = sideField == "w";
   bool firstPly = true;
@@ -1903,36 +1907,36 @@ static bool streamPgnMoves(bool emitOutput) {
 
   for (size_t i = 0; i < gameHistory.size(); ++i) {
     if (!gameHistory.formatMoveAt(i, uciMove)) {
-      Serial.printf("[PGN] ERROR: cannot decode move %u\\n", unsigned(i + 1));
+      Serial.printf("[PGN] ERROR: cannot decode move %u\n", unsigned(i + 1));
       return false;
     }
 
     const auto fenError = position.set(fen, false, &currentState);
     if (fenError.has_value()) {
-      Serial.printf("[PGN] ERROR: invalid position before ply %u: %s\\n",
+      Serial.printf("[PGN] ERROR: invalid position before ply %u: %s\n",
                     unsigned(i + 1), fenError->what());
       return false;
     }
 
     const Stockfish::Move move = Stockfish::UCIEngine::to_move(position, uciMove);
     if (move == Stockfish::Move::none()) {
-      Serial.printf("[PGN] ERROR: illegal stored move at ply %u: %s\\n",
+      Serial.printf("[PGN] ERROR: illegal stored move at ply %u: %s\n",
                     unsigned(i + 1), uciMove);
       return false;
     }
 
     if (!formatSanMove(position, move, nextState, san)) {
-      Serial.printf("[PGN] ERROR: SAN conversion failed at ply %u: %s\\n",
+      Serial.printf("[PGN] ERROR: SAN conversion failed at ply %u: %s\n",
                     unsigned(i + 1), uciMove);
       return false;
     }
 
     if (emitOutput) {
       if (whiteToMove)
-        printPgnToken(std::to_string(moveNumber) + ".");
+        printPgnToken(std::to_string(moveNumber) + ".", outputColumn);
       else if (firstPly)
-        printPgnToken(std::to_string(moveNumber) + "...");
-      printPgnToken(san);
+        printPgnToken(std::to_string(moveNumber) + "...", outputColumn);
+      printPgnToken(san, outputColumn);
     }
 
     fen = position.fen();
@@ -1969,7 +1973,7 @@ static void exportPgn() {
     return;
   }
 
-  // Validate and format every stored move before writing any PGN headers.
+  // Validate the complete move list before writing any PGN headers.
   if (!streamPgnMoves(false))
     return;
 
@@ -1977,22 +1981,22 @@ static void exportPgn() {
   const char *whiteName = playerColor == 'w' ? "Player" : "Stockfish 19";
   const char *blackName = playerColor == 'b' ? "Player" : "Stockfish 19";
 
-  Serial.println("[Event \\"Stockfish ESP32-S3 Game\\"]");
-  Serial.println("[Site \\"Freenove FNK0104B\\"]");
-  Serial.println("[Date \\"????.??.??\\"]");
-  Serial.println("[Round \\"-\\"]");
+  Serial.println("[Event \"Stockfish ESP32-S3 Game\"]");
+  Serial.println("[Site \"Freenove FNK0104B\"]");
+  Serial.println("[Date \"????.??.??\"]");
+  Serial.println("[Round \"-\"]");
   if (playerColor == 'w') {
-    Serial.printf("[White \\"%s\\"]\\n", whiteName);
-    Serial.printf("[Black \\"%s (Level %d)\\"]\\n", blackName, skillLevel);
+    Serial.printf("[White \"%s\"]\n", whiteName);
+    Serial.printf("[Black \"%s (Level %d)\"]\n", blackName, skillLevel);
   } else {
-    Serial.printf("[White \\"%s (Level %d)\\"]\\n", whiteName, skillLevel);
-    Serial.printf("[Black \\"%s\\"]\\n", blackName);
+    Serial.printf("[White \"%s (Level %d)\"]\n", whiteName, skillLevel);
+    Serial.printf("[Black \"%s\"]\n", blackName);
   }
-  Serial.printf("[Result \\"%s\\"]\\n", result);
-  Serial.printf("[PlyCount \\"%u\\"]\\n", unsigned(gameHistory.size()));
+  Serial.printf("[Result \"%s\"]\n", result);
+  Serial.printf("[PlyCount \"%u\"]\n", unsigned(gameHistory.size()));
   if (gameBaseFen != StartFen) {
-    Serial.println("[SetUp \\"1\\"]");
-    Serial.printf("[FEN \\"%s\\"]\\n", gameBaseFen.c_str());
+    Serial.println("[SetUp \"1\"]");
+    Serial.printf("[FEN \"%s\"]\n", gameBaseFen.c_str());
   }
   Serial.println();
 
