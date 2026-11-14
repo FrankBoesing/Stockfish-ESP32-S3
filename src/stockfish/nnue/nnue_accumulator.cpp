@@ -422,6 +422,9 @@ void apply_features(Color                        perspective,
     Tile     acc;
     PsqtTile psqt;
 
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    uint32_t benchStart = Bench::cycle_count();
+#endif
     for (IndexType j = 0; j < Dimensions; increment_index(j))
     {
         acc = load_tile(j, fromAcc.data());
@@ -431,6 +434,10 @@ void apply_features(Color                        perspective,
 
         store_tile(j, toAcc.data(), acc);
     }
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::AccumulatorApplyMainLoop, benchStart);
+    benchStart = Bench::cycle_count();
+#endif
 
     for (IndexType j = 0; j < PSQTBuckets; increment_psqt_index(j))
     {
@@ -441,6 +448,9 @@ void apply_features(Color                        perspective,
 
         store_psqt(j, toPsqtAcc.data(), psqt);
     }
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::AccumulatorApplyPsqtLoop, benchStart);
+#endif
 }
 
 template<bool Forward>
@@ -476,6 +486,9 @@ void update_accumulator_incremental_both(const FeatureTransformer& featureTransf
                                          Square                    black_ksq,
                                          AccumulatorState&         target_state,
                                          const AccumulatorState&   computed) {
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    const uint32_t bothStart = Bench::cycle_count();
+#endif
 
     assert(computed.computed[WHITE]);
     assert(computed.computed[BLACK]);
@@ -484,10 +497,16 @@ void update_accumulator_incremental_both(const FeatureTransformer& featureTransf
 
     FeatureSet::IndexList removed[COLOR_NB], added[COLOR_NB];
 
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    uint32_t benchStart = Bench::cycle_count();
+#endif
     FeatureSet::append_changed_indices(WHITE, white_ksq, target_state.dirtyPiece, removed[WHITE],
                                        added[WHITE]);
     FeatureSet::append_changed_indices(BLACK, black_ksq, target_state.dirtyPiece, removed[BLACK],
                                        added[BLACK]);
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::AccumulatorBuildIndices, benchStart);
+#endif
 
     apply_features(WHITE, featureTransformer, computed, target_state, added[WHITE],
                    removed[WHITE]);
@@ -496,6 +515,9 @@ void update_accumulator_incremental_both(const FeatureTransformer& featureTransf
 
     target_state.computed[WHITE] = true;
     target_state.computed[BLACK] = true;
+#if defined(STOCKFISH_NNUE_BENCHMARK)
+    Bench::record(Bench::AccumulatorUpdateBoth, bothStart);
+#endif
 }
 
 Bitboard get_changed_pieces(const std::array<Piece, SQUARE_NB>& oldPieces,
