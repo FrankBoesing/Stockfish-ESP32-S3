@@ -137,6 +137,14 @@ void testLegalDestinationHighlights() {
   CHECK(!castles[squareIndex("a1")]);
   CHECK(!castles[squareIndex("h1")]);
 
+  // Mirror the castling target mapping for Black, on rank 8.
+  CHECK(p.setFen("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1"));
+  checkDestinations(p, "e8", {"c8", "g8", "d7", "e7", "f7", "d8", "f8"});
+  bool blackCastles[64] = {};
+  CHECK(ChessGuiRules::legalDestinations(p.get(), squareIndex("e8"), blackCastles));
+  CHECK(!blackCastles[squareIndex("a8")]);
+  CHECK(!blackCastles[squareIndex("h8")]);
+
   // En-passant target d6 is a legal destination from e5.
   CHECK(p.setFen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"));
   checkDestinations(p, "e5", {"e6", "d6"});
