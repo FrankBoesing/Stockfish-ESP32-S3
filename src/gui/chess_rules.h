@@ -51,6 +51,61 @@ inline bool legalDestinations(const Stockfish::Position& position, int fromSquar
   return found;
 }
 
+class PromotionRequest {
+public:
+  bool begin(int fromSquare, int toSquare) {
+    if (fromSquare < 0 || fromSquare >= 64
+        || toSquare < 0 || toSquare >= 64 || fromSquare == toSquare)
+      return false;
+    from_ = fromSquare;
+    to_ = toSquare;
+    return true;
+  }
+
+  bool pending() const { return from_ >= 0 && to_ >= 0; }
+
+  // Cancel does not alter board state or move history. It only restores the
+  // source-square selection and clears the uncommitted modal request.
+  bool cancel(int& selectedSquare) {
+    if (!pending())
+      return false;
+    selectedSquare = from_;
+    clear();
+    return true;
+  }
+
+  bool take(int& fromSquare, int& toSquare) {
+    if (!pending())
+      return false;
+    fromSquare = from_;
+    toSquare = to_;
+    clear();
+    return true;
+  }
+
+  void clear() {
+    from_ = -1;
+    to_ = -1;
+  }
+
+private:
+  int from_ = -1;
+  int to_ = -1;
+};
+
+inline bool acceptsBoardMoves(bool gameOver) {
+  return !gameOver;
+}
+
+inline bool hintEnabled(bool searchInFlight, bool gameOver,
+                        char sideToMove, char playerColor) {
+  return !searchInFlight && !gameOver && sideToMove == playerColor;
+}
+
+inline bool undoEnabled(std::size_t historySize) {
+  return historySize != 0;
+}
+
 inline bool isPawnPromotion(char movingPiece, int toSquare, char playerColor) {
   if (toSquare < 0 || toSquare >= 64)
     return false;
