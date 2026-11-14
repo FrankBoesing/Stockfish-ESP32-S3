@@ -20,6 +20,8 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 #include "stockfish/engine.h"
 #include "stockfish/misc.h"
+#include "stockfish/attacks.h"
+#include "stockfish/position.h"
 #include "gui/pieces.h"
 
 #include <algorithm>
@@ -960,6 +962,15 @@ static void initializeDisplayAndTouch() {
 }
 
 static void initializeEngine() {
+  // Stockfish's standalone Engine constructor expects the global attack and
+  // position tables to have been initialized by the application first.
+  // The diagnostic probe performs these same calls before constructing Engine.
+  Serial.println("[GUI] Initializing Stockfish attack tables...");
+  Stockfish::Attacks::init();
+  Serial.println("[GUI] Initializing Stockfish position tables...");
+  Stockfish::Position::init();
+  Serial.println("[GUI] Attack and position initialization complete.");
+
   static Stockfish::Engine stockfish;
   engine = &stockfish;
 
