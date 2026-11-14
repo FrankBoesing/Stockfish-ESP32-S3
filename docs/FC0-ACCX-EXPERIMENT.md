@@ -20,7 +20,8 @@ The experimental build keeps FC0 weights in their native output-major order.
 For each output channel, the kernel processes the 1024 input/weight pairs in
 64 groups of 16. It uses the ESP32-S3 PIE instruction
 `EE.VMULAS.S8.ACCX` to accumulate 16 signed 8-bit products into the 40-bit
-ACCX scalar accumulator.
+ACCX scalar accumulator. ACCX is cleared for each output channel, the dot
+product is extracted as a 32-bit value, and the bias is added afterward.
 
 The input values are produced by the Feature Transformer as
 `(clamp16(a, 0, 255) * clamp16(b, 0, 255)) / 512`; their maximum is 127.

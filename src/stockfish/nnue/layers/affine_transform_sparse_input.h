@@ -598,6 +598,8 @@ class AffineTransformSparseInput {
 
         constexpr IndexType Iterations = InputDimensions / 16;
         const i32 zero = 0;
+        static_assert(static_cast<int64_t>(InputDimensions) * 127 * 128
+                      < std::numeric_limits<OutputType>::max());
 
         for (IndexType j = 0; j < OutputDimensions; ++j)
         {
@@ -607,17 +609,14 @@ class AffineTransformSparseInput {
             const InputType* inputPtr = input;
             const i8* weightsPtr = weights + j * InputDimensions;
             IndexType iterations = Iterations;
-            const i32 bias = biases[j];
-            const i32 biasHigh = bias < 0 ? -1 : 0;
             i32 result;
 
             // Xtensa GCC does not accept PIE QR registers as inline-asm
             // clobbers. Keep q0/q1 and ACCX use inside this single asm block.
-            // ACCX is 40-bit; the load-time proof guarantees no 32-bit
-            // intermediate sum overflows, so SRS.ACCX with shift 0 is exact.
+            // The raw dot product fits in i32 for this layer; the separate
+            // load-time bound guarantees adding the bias also remains exact.
             asm volatile(
-              "wur.accx_0 %[bias]\n\t"
-              "wur.accx_1 %[bias_high]\n\t"
+              "ee.zero.accx\n\t"
               "1:\n\t"
               "ee.vld.128.ip q0, %[input], 16\n\t"
               "ee.vld.128.ip q1, %[weights], 16\n\t"
@@ -629,12 +628,10 @@ class AffineTransformSparseInput {
                 [weights] "+&a"(weightsPtr),
                 [iterations] "+&a"(iterations),
                 [result] "=a"(result)
-              : [bias] "a"(bias),
-                [bias_high] "a"(biasHigh),
-                [zero] "a"(zero)
+              : [zero] "a"(zero)
               : "memory");
 
-            output[j] = result;
+            output[j] = result + biases[j];
         }
     }
 
