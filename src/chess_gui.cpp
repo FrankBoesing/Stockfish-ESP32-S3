@@ -1148,7 +1148,8 @@ static void handleSearchResult(const char *bestMove) {
     searchMode = SearchMode::None;
     if (!updateGameStatusFromPosition())
       setStatus("Search ended");
-    drawGamePanelInfo();
+    if (screen == Screen::Game)
+      drawGamePanelInfo();
     return;
   }
 
@@ -1167,9 +1168,11 @@ static void handleSearchResult(const char *bestMove) {
     snprintf(text, sizeof(text), "Hint: %.5s", bestMove);
     setStatus(text);
     searchMode = SearchMode::None;
-    drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
-                            oldHintFrom, oldHintTo, oldSelected);
-    drawGamePanelInfo();
+    if (screen == Screen::Game) {
+      drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                              oldHintFrom, oldHintTo, oldSelected);
+      drawGamePanelInfo();
+    }
     return;
   }
 
@@ -2019,10 +2022,18 @@ static void executeSerialCommand() {
   if (command == "moves" || command == "uci") {
     printGameUciPosition();
   } else if (command == "undo") {
-    if (!hasGame)
+    if (!hasGame) {
       Serial.println("[SERIAL] ERROR: no active game");
-    else
+    } else {
+      const size_t previousPlies = gameHistory.size();
       undoMove();
+      const size_t removedPlies = previousPlies - gameHistory.size();
+      if (removedPlies)
+        Serial.printf("[UNDO] Removed %u plies; %u remain\n",
+                      unsigned(removedPlies), unsigned(gameHistory.size()));
+      else
+        Serial.println("[UNDO] No move was removed");
+    }
   } else if (command == "hint") {
     if (!hasGame)
       Serial.println("[SERIAL] ERROR: no active game");
