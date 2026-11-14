@@ -172,8 +172,7 @@ bool gameOver = false;
 bool searchInFlight = false;
 char statusText[48] = "Ready";
 char hintText[16] = "";
-int pendingPromotionFrom = -1;
-int pendingPromotionTo = -1;
+ChessGuiRules::PromotionRequest pendingPromotion;
 bool legalDestinations[64] = {};
 
 struct SearchMailbox {
@@ -652,10 +651,11 @@ static void drawGamePanelInfo() {
   drawPanelText(statusText, x + 1, 129, w - 2, 14,
                 ColorMuted, &fonts::FreeSans9pt7b);
   drawButton(x + 2, 147, w - 4, 25, "HINT", false,
-             !searchInFlight && !gameOver
-               && sideToMove() == playerColor,
-             &fonts::FreeSansBold9pt7b, 2);
-  drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameHistory.empty(),
+              ChessGuiRules::hintEnabled(
+                searchInFlight, gameOver, sideToMove(), playerColor),
+              &fonts::FreeSansBold9pt7b, 2);
+  drawButton(x + 2, 177, w - 4, 25, "UNDO", false,
+              ChessGuiRules::undoEnabled(gameHistory.size()),
              &fonts::FreeSansBold9pt7b, 2);
   drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
              &fonts::FreeSansBold9pt7b, 2);
@@ -1198,7 +1198,7 @@ static void startNewGame() {
   selectedSquare = -1;
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
-  pendingPromotionFrom = pendingPromotionTo = -1;
+  pendingPromotion.clear();
   searchMode = SearchMode::None;
 
   setSkillOption();
@@ -1225,7 +1225,7 @@ static void undoMove() {
   if (searchInFlight)
     stopSearch();
 
-  if (gameHistory.empty()) {
+  if (!ChessGuiRules::undoEnabled(gameHistory.size())) {
     setStatus("Nothing to undo");
     if (screen == Screen::Game)
       drawGamePanelInfo();
@@ -1351,8 +1351,7 @@ static void attemptMove(int from, int to) {
     ChessGuiRules::isPawnPromotion(movingPiece, to, playerColor);
 
   if (promotionMove) {
-    pendingPromotionFrom = from;
-    pendingPromotionTo = to;
+    pendingPromotion.begin(from, to);
     renderPromotionChooser();
     return;
   }
@@ -1361,9 +1360,7 @@ static void attemptMove(int from, int to) {
 }
 
 static void cancelPromotion() {
-  if (pendingPromotionFrom >= 0)
-    selectedSquare = pendingPromotionFrom;
-  pendingPromotionFrom = pendingPromotionTo = -1;
+  pendingPromotion.cancel(selectedSquare);
   setStatus("Promotion canceled");
   renderGame();
 }
@@ -1375,10 +1372,9 @@ static void handlePromotionTouch(int x, int y) {
   if (y >= 102 && y < 152) {
     for (int i = 0; i < 4; ++i) {
       if (x >= buttonX[i] && x < buttonX[i] + 64) {
-        const int from = pendingPromotionFrom;
-        const int to = pendingPromotionTo;
-        pendingPromotionFrom = pendingPromotionTo = -1;
-        applyMove(from, to, promotionMoves[i]);
+        int from = -1, to = -1;
+        if (pendingPromotion.take(from, to))
+          applyMove(from, to, promotionMoves[i]);
         return;
       }
     }
@@ -1414,7 +1410,7 @@ static void handleBoardTouch(int x, int y) {
     return;
   }
 
-  if (gameOver)
+  if (!ChessGuiRules::acceptsBoardMoves(gameOver))
     return;
 
   const int square = screenToSquare(x, y);
@@ -1601,7 +1597,7 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
   selectedSquare = -1;
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
-  pendingPromotionFrom = pendingPromotionTo = -1;
+  pendingPromotion.clear();
   clearLegalDestinations(false);
   updateLastMove();
   hasGame = true;
