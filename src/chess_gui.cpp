@@ -1591,7 +1591,9 @@ static void processTouch(int x, int y, uint16_t rawX, uint16_t rawY) {
   }
 }
 
-static bool applySerialPosition(const std::string &baseFen, GameHistory &candidateHistory) {
+static bool applySerialPosition(const std::string &baseFen, GameHistory &candidateHistory,
+                                const char *moveActor = nullptr, const char *uciMove = nullptr,
+                                char movingSide = '\0') {
   if (!engine)
     return false;
   if (baseFen.empty() || baseFen.size() > SavedGameMaxFenBytes) {
@@ -1646,8 +1648,14 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
   updateGameStatusFromPosition();
   saveGameToNvs();
 
-  Serial.printf("[SERIAL] Loaded position; %u moves, side to move %c\n",
-                (unsigned)gameHistory.size(), sideToMove());
+  if (moveActor && uciMove)
+    logAcceptedMove(moveActor, movingSide, uciMove);
+  if (moveActor)
+    Serial.printf("[SERIAL] Move accepted; %u plies, side to move %c\n",
+                  (unsigned)gameHistory.size(), sideToMove());
+  else
+    Serial.printf("[SERIAL] Loaded position; %u moves, side to move %c\n",
+                  (unsigned)gameHistory.size(), sideToMove());
   if (touchCalibrated)
     showCurrentGame();
   else
@@ -1710,6 +1718,38 @@ static bool processPositionCommand(const std::string &line, bool shortFenCommand
   return applySerialPosition(baseFen, candidateHistory);
 }
 
+static bool processSingleUciMove(std::string move) {
+  if (!hasGame) {
+    Serial.println("[SERIAL] ERROR: no active game; start a game or load a position first");
+    return false;
+  }
+  if (gameOver) {
+    Serial.println("[SERIAL] ERROR: game is over; start a new game or load another position");
+    return false;
+  }
+
+  // UCI square names and promotion suffixes are normalized to lowercase.
+  std::transform(move.begin(), move.end(), move.begin(),
+                 [](unsigned char ch) { return char(tolower(ch)); });
+
+  GameHistory candidateHistory;
+  if (gameHistory.size()
+      && !candidateHistory.assignPackedBytes(
+           reinterpret_cast<const uint8_t *>(gameHistory.packedData()), gameHistory.size())) {
+    Serial.println("[SERIAL] ERROR: could not copy current move history");
+    return false;
+  }
+  if (!candidateHistory.appendUci(move)) {
+    Serial.printf("[SERIAL] ERROR: expected a UCI move such as e2e4 or e7e8q, got '%s'\n",
+                  move.c_str());
+    return false;
+  }
+
+  const char movingSide = sideToMove();
+  return applySerialPosition(gameBaseFen, candidateHistory,
+                             "Serial", move.c_str(), movingSide);
+}
+
 static void printGameUciPosition() {
   if (!hasGame) { Serial.println("[GAME] No active game"); return; }
   Serial.printf("[GAME] %u plies; UCI position follows\n", (unsigned)gameHistory.size());
@@ -1752,9 +1792,13 @@ static void executeSerialCommand() {
     Serial.println("  position fen <6 FEN fields> [moves e2e4 ...]");
     Serial.println("  fen <6 FEN fields>  (shorthand)");
     Serial.println("  moves (or uci)  print current position as a UCI command");
+    Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move to the current game");
     Serial.println("FEN piece-letter case is preserved. Invalid positions leave the current game unchanged.");
   } else if (!command.empty()) {
-    Serial.printf("[SERIAL] Unknown command: %s\n", command.c_str());
+    if (command.size() == 4 || command.size() == 5)
+      processSingleUciMove(command);
+    else
+      Serial.printf("[SERIAL] Unknown command: %s\n", command.c_str());
   }
   serialCommandLength = 0;
 }

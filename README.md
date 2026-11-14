@@ -60,9 +60,12 @@ is restored independently of the next-game menu selection.
 
 The serial monitor logs each received command as [SERIAL] RX and each accepted
 move in UCI notation as [MOVE], distinguishing the player from Stockfish and
-showing the moving colour. Type moves (or uci) and press Enter to print the
-current UCI position command and FEN. Positions can be loaded through the same
-serial monitor:
+showing the moving colour. A single UCI move such as e2e4 or a promotion such
+as e7e8q can be entered directly; Stockfish validates it against the current
+position, appends it to the move history and starts searching if it is then
+Stockfish's turn. Type moves (or uci) and press Enter to print the current UCI
+position command and FEN. Positions can also be loaded through the serial
+monitor:
 ```text
 position startpos moves e2e4 e7e5
 position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
