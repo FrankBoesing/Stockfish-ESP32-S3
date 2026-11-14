@@ -34,6 +34,7 @@ enum Stage : uint8_t {
     AccumulatorApplyMainLoop,
     AccumulatorApplyPsqtLoop,
     AccumulatorUpdateBoth,
+    AccumulatorApplyPieLoop,
     StageCount
 };
 
