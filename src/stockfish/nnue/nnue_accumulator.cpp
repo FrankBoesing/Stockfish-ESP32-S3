@@ -407,7 +407,7 @@ sf_always_inline PsqtTile apply_psqt(IndexType                         j,
 }
 
 #if defined(STOCKFISH_ESP32_S3_PIE)
-void apply_features_esp32_s3_pie(Color                     perspective,
+__attribute__((noinline)) void apply_features_esp32_s3_pie(Color                     perspective,
                                  const FeatureTransformer& featureTransformer,
                                  const AccumulatorState&   from,
                                  AccumulatorState&         to,
@@ -440,29 +440,32 @@ void apply_features_esp32_s3_pie(Color                     perspective,
     assert((reinterpret_cast<uintptr_t>(added1Ptr) & 15) == 0);
 
     constexpr u32 Iterations = Dimensions / 8;
-    // Xtensa GCC does not expose PIE QR registers to its register allocator.
-    // Keep every q-register use inside this one asm block; only memory effects
-    // and the updated address registers need to be declared to the compiler.
+    u32 iterations = Iterations;
+    // Xtensa GCC does not accept PIE QR registers as inline-asm clobbers.
+    // Keep q-register use inside this single asm block. Avoid LOOPGTZ here:
+    // its loop registers are shared with compiler-generated hardware loops.
     asm volatile(
-      "loopgtz %[iterations], 1f\n\t"
-      "ee.vld.128.ip q0, %[from], 1\n\t"
-      "ee.vld.128.ip q1, %[removed0], 1\n\t"
-      "ee.vld.128.ip q2, %[removed1], 1\n\t"
-      "ee.vld.128.ip q3, %[added0], 1\n\t"
-      "ee.vld.128.ip q4, %[added1], 1\n\t"
-      "ee.vsubs.s16 q5, q0, q1\n\t"
-      "ee.vsubs.s16 q5, q5, q2\n\t"
-      "ee.vadds.s16 q5, q5, q3\n\t"
-      "ee.vadds.s16 q5, q5, q4\n\t"
-      "ee.vst.128.ip q5, %[to], 1\n\t"
-      "1:\n\t"
+      "1:\\n\\t"
+      "ee.vld.128.ip q0, %[from], 1\\n\\t"
+      "ee.vld.128.ip q1, %[removed0], 1\\n\\t"
+      "ee.vld.128.ip q2, %[removed1], 1\\n\\t"
+      "ee.vld.128.ip q3, %[added0], 1\\n\\t"
+      "ee.vld.128.ip q4, %[added1], 1\\n\\t"
+      "ee.vsubs.s16 q5, q0, q1\\n\\t"
+      "ee.vsubs.s16 q5, q5, q2\\n\\t"
+      "ee.vadds.s16 q5, q5, q3\\n\\t"
+      "ee.vadds.s16 q5, q5, q4\\n\\t"
+      "ee.vst.128.ip q5, %[to], 1\\n\\t"
+      "addi %[iterations], %[iterations], -1\\n\\t"
+      "bnez %[iterations], 1b\\n\\t"
       : [from] "+&a"(fromPtr),
         [removed0] "+&a"(removed0Ptr),
         [removed1] "+&a"(removed1Ptr),
         [added0] "+&a"(added0Ptr),
         [added1] "+&a"(added1Ptr),
-        [to] "+&a"(toPtr)
-      : [iterations] "a"(Iterations)
+        [to] "+&a"(toPtr),
+        [iterations] "+&a"(iterations)
+      :
       : "memory");
 }
 #endif
