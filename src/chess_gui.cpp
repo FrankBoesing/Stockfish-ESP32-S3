@@ -26,6 +26,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/uci.h"
 #include "gui/pieces.h"
 #include "gui/game_history.h"
+#include "gui/chess_rules.h"
 
 #include <algorithm>
 #include <cctype>
@@ -447,61 +448,19 @@ static bool syncEnginePosition() {
   return true;
 }
 
-struct PositionStatus {
-  bool valid;
-  bool inCheck;
-  bool hasLegalMoves;
-  bool drawByFiftyMove;
-  bool drawByRepetition;
-  bool insufficientMaterial;
-  int halfmoveClock;
-};
-
-// Query the live Stockfish Position so its complete StateInfo history remains
-// available to the repetition check.
-static PositionStatus inspectCurrentPosition() {
-  if (!engine)
-    return { false, false, false, false, false, false, 0 };
-  const Stockfish::Engine::GameStatus status = engine->game_status();
-  return { true, status.inCheck, status.hasLegalMoves, status.drawByFiftyMove,
-           status.drawByRepetition, status.insufficientMaterial, status.halfmoveClock };
-}
-
 static bool updateGameStatusFromPosition() {
-  const PositionStatus position = inspectCurrentPosition();
-  if (!position.valid) {
+  if (!engine) {
     gameOver = false;
     setStatus("Position error");
     return false;
   }
 
-  // Checkmate and stalemate take precedence over the draw counters.
-  if (!position.hasLegalMoves) {
-    gameOver = true;
-    if (!position.inCheck)
-      setStatus("Stalemate");
-    else
-      setStatus(sideToMove() == playerColor ? "You lose" : "You win");
-    return true;
-  }
-  if (position.drawByFiftyMove) {
-    gameOver = true;
-    setStatus("Draw: 50 moves");
-    return true;
-  }
-  if (position.drawByRepetition) {
-    gameOver = true;
-    setStatus("Draw: repetition");
-    return true;
-  }
-  if (position.insufficientMaterial) {
-    gameOver = true;
-    setStatus("Draw: material");
-    return true;
-  }
-  gameOver = false;
-  setStatus(position.inCheck ? "Check!" : "Your move");
-  return false;
+  const Stockfish::PositionStatus position = engine->game_status();
+  const ChessGuiRules::GameOutcome outcome =
+    ChessGuiRules::classifyGame(position, sideToMove(), playerColor);
+  gameOver = ChessGuiRules::isTerminal(outcome);
+  setStatus(ChessGuiRules::statusText(outcome));
+  return gameOver;
 }
 
 static int materialValue(char piece) {
@@ -625,11 +584,7 @@ static void updateLegalDestinations(int fromSquare) {
     Stockfish::StateInfo state;
     const auto error = position.set(currentFen, false, &state);
     if (!error.has_value()) {
-      Stockfish::MoveList<Stockfish::LEGAL> legalMoves(position);
-      for (const Stockfish::Move move : legalMoves) {
-        if (static_cast<int>(move.from_sq()) == fromSquare)
-          nextDestinations[static_cast<int>(move.to_sq())] = true;
-      }
+      ChessGuiRules::legalDestinations(position, fromSquare, nextDestinations);
     } else {
       Serial.printf("[GUI] Cannot generate legal move highlights: %s\n",
                     error->what());
@@ -1283,7 +1238,7 @@ static void undoMove() {
   char oldBoard[64];
   memcpy(oldBoard, board, sizeof(board));
 
-  const size_t removeCount = gameHistory.size() >= 2 ? 2 : 1;
+  const size_t removeCount = ChessGuiRules::undoPliesToRemove(gameHistory.size());
   for (size_t i = 0; i < removeCount; ++i)
     gameHistory.popBack();
 
@@ -1393,9 +1348,7 @@ static void attemptMove(int from, int to) {
 
   const char movingPiece = board[from];
   const bool promotionMove =
-    tolower((unsigned char)movingPiece) == 'p'
-    && ((playerColor == 'w' && to / 8 == 7)
-        || (playerColor == 'b' && to / 8 == 0));
+    ChessGuiRules::isPawnPromotion(movingPiece, to, playerColor);
 
   if (promotionMove) {
     pendingPromotionFrom = from;
@@ -1437,15 +1390,8 @@ static void handlePromotionTouch(int x, int y) {
 }
 
 static int screenToSquare(int x, int y) {
-  if (x < BoardX || x >= BoardX + BoardSize
-      || y < BoardY || y >= BoardY + BoardSize)
-    return -1;
-
-  const int col = (x - BoardX) / SquareSize;
-  const int row = (y - BoardY) / SquareSize;
-  const int file = playerColor == 'w' ? col : 7 - col;
-  const int rank = playerColor == 'w' ? 7 - row : row;
-  return rank * 8 + file;
+  return ChessGuiRules::screenToSquare(
+    x, y, BoardX, BoardY, BoardSize, SquareSize, playerColor);
 }
 
 static void handleBoardTouch(int x, int y) {
