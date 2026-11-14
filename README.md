@@ -61,13 +61,13 @@ is restored independently of the next-game menu selection.
 The serial monitor logs each received command as [SERIAL] RX and each accepted
 move in UCI notation as [MOVE], distinguishing the player from Stockfish and
 showing the moving colour. A single UCI move such as e2e4 or a promotion such
-as e7e8q can be entered directly; Stockfish validates it against the current
-position, appends it to the move history and starts searching if it is then
-Stockfish's turn. Start a new game with NEWGAME, optionally specifying a skill
-level and/or side, e.g. NEWGAME 12 or NEWGAME BLACK. The current side is kept
-when no side argument is given. Type moves (or uci) to print the current UCI
-position command and FEN. Positions can also be loaded through the serial
-monitor:
+as e7e8q can be entered directly. Additional commands are UNDO (takeback),
+HINT (Stockfish suggestion), STOP (cancel the current search), LEVEL [1..20]
+(set the next game's strength), PGN (export the current game in SAN/PGN form),
+and NEWGAME [Level] [WHITE|BLACK]. PGN export includes the appropriate move
+numbering, check/checkmate suffixes, result and a SetUp/FEN pair for custom
+starting positions. Type moves (or uci) to print the current UCI position
+command and FEN. Positions can also be loaded through the serial monitor:
 ```text
 position startpos moves e2e4 e7e5
 position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1

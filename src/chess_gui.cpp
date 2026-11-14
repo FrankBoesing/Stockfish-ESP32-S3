@@ -23,6 +23,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/attacks.h"
 #include "stockfish/position.h"
 #include "stockfish/movegen.h"
+#include "stockfish/uci.h"
 #include "gui/pieces.h"
 #include "gui/game_history.h"
 
@@ -1157,6 +1158,7 @@ static void handleSearchResult(const char *bestMove) {
     char oldBoard[64];
     memcpy(oldBoard, board, sizeof(board));
 
+    Serial.printf("[HINT] %s\n", bestMove);
     snprintf(hintText, sizeof(hintText), "%s", bestMove);
     hintFrom = squareFromUci(bestMove);
     hintTo = squareFromUci(bestMove + 2);
@@ -1771,6 +1773,234 @@ static void printGameUciPosition() {
   Serial.printf("[FEN] %s\n", currentFen.c_str());
 }
 
+
+static void printPgnToken(const std::string &token) {
+  static size_t column = 0;
+  if (column && column + 1 + token.size() > 78) {
+    Serial.println();
+    column = 0;
+  }
+  if (column) {
+    Serial.print(' ');
+    ++column;
+  }
+  Serial.print(token.c_str());
+  column += token.size();
+}
+
+
+static char pgnPieceLetter(Stockfish::PieceType pieceType) {
+  switch (pieceType) {
+    case Stockfish::KNIGHT: return 'N';
+    case Stockfish::BISHOP: return 'B';
+    case Stockfish::ROOK: return 'R';
+    case Stockfish::QUEEN: return 'Q';
+    case Stockfish::KING: return 'K';
+    default: return '\0';
+  }
+}
+
+static bool formatSanMove(Stockfish::Position &position, Stockfish::Move move,
+                          Stockfish::StateInfo &nextState, std::string &san) {
+  if (!move.is_ok())
+    return false;
+
+  const Stockfish::Square from = move.from_sq();
+  const Stockfish::Square to = move.to_sq();
+  const Stockfish::Piece movingPiece = position.moved_piece(move);
+  const Stockfish::PieceType movingType = Stockfish::type_of(movingPiece);
+  const bool capture = position.capture(move);
+  san.clear();
+
+  if (move.type_of() == Stockfish::CASTLING) {
+    san = Stockfish::file_of(to) > Stockfish::file_of(from) ? "O-O" : "O-O-O";
+  } else {
+    if (movingType == Stockfish::PAWN) {
+      if (capture)
+        san.push_back(char('a' + int(Stockfish::file_of(from))));
+    } else {
+      const char pieceLetter = pgnPieceLetter(movingType);
+      if (!pieceLetter)
+        return false;
+      san.push_back(pieceLetter);
+
+      bool alternativeFound = false;
+      bool alternativeOnSameFile = false;
+      bool alternativeOnSameRank = false;
+      for (const Stockfish::Move alternative : Stockfish::MoveList<Stockfish::LEGAL>(position)) {
+        if (alternative == move || alternative.to_sq() != to
+            || Stockfish::type_of(position.moved_piece(alternative)) != movingType)
+          continue;
+        alternativeFound = true;
+        if (Stockfish::file_of(alternative.from_sq()) == Stockfish::file_of(from))
+          alternativeOnSameFile = true;
+        if (Stockfish::rank_of(alternative.from_sq()) == Stockfish::rank_of(from))
+          alternativeOnSameRank = true;
+      }
+
+      if (alternativeFound) {
+        if (!alternativeOnSameFile || (alternativeOnSameFile && alternativeOnSameRank))
+          san.push_back(char('a' + int(Stockfish::file_of(from))));
+        if (alternativeOnSameFile)
+          san.push_back(char('1' + int(Stockfish::rank_of(from))));
+      }
+    }
+
+    if (capture)
+      san.push_back('x');
+
+    san += Stockfish::UCIEngine::square(to);
+
+    if (move.type_of() == Stockfish::PROMOTION) {
+      const char promotionLetter = pgnPieceLetter(move.promotion_type());
+      if (!promotionLetter)
+        return false;
+      san.push_back('=');
+      san.push_back(promotionLetter);
+    }
+  }
+
+  // Apply the move before deciding whether its suffix is check or checkmate.
+  position.do_move(move, nextState);
+  if (position.checkers()) {
+    const Stockfish::MoveList<Stockfish::LEGAL> replies(position);
+    san.push_back(replies.size() == 0 ? '#' : '+');
+  }
+  return true;
+}
+
+static bool streamPgnMoves(bool emitOutput) {
+  std::istringstream fenInput(gameBaseFen);
+  std::string placement, sideField, castlingField, epField, halfmoveField, fullmoveField;
+  if (!(fenInput >> placement >> sideField >> castlingField
+                 >> epField >> halfmoveField >> fullmoveField)
+      || (sideField != "w" && sideField != "b")) {
+    Serial.println("[PGN] ERROR: stored base FEN cannot be parsed");
+    return false;
+  }
+
+  unsigned moveNumber = 1;
+  for (unsigned char ch : fullmoveField) {
+    if (ch < '0' || ch > '9') {
+      Serial.println("[PGN] ERROR: invalid FEN fullmove number");
+      return false;
+    }
+    if (moveNumber < 1000000)
+      moveNumber = moveNumber * 10 + (ch - '0');
+  }
+  // Undo the initial seed digit used above, and keep malformed zero at one.
+  moveNumber = moveNumber > 1 ? moveNumber / 10 : 1;
+
+  bool whiteToMove = sideField == "w";
+  bool firstPly = true;
+  size_t outputColumn = 0;
+  std::string fen = gameBaseFen;
+  std::string san;
+  char uciMove[6];
+  Stockfish::Position position;
+  Stockfish::StateInfo currentState;
+  Stockfish::StateInfo nextState;
+
+  for (size_t i = 0; i < gameHistory.size(); ++i) {
+    if (!gameHistory.formatMoveAt(i, uciMove)) {
+      Serial.printf("[PGN] ERROR: cannot decode move %u\\n", unsigned(i + 1));
+      return false;
+    }
+
+    const auto fenError = position.set(fen, false, &currentState);
+    if (fenError.has_value()) {
+      Serial.printf("[PGN] ERROR: invalid position before ply %u: %s\\n",
+                    unsigned(i + 1), fenError->what());
+      return false;
+    }
+
+    const Stockfish::Move move = Stockfish::UCIEngine::to_move(position, uciMove);
+    if (move == Stockfish::Move::none()) {
+      Serial.printf("[PGN] ERROR: illegal stored move at ply %u: %s\\n",
+                    unsigned(i + 1), uciMove);
+      return false;
+    }
+
+    if (!formatSanMove(position, move, nextState, san)) {
+      Serial.printf("[PGN] ERROR: SAN conversion failed at ply %u: %s\\n",
+                    unsigned(i + 1), uciMove);
+      return false;
+    }
+
+    if (emitOutput) {
+      if (whiteToMove)
+        printPgnToken(std::to_string(moveNumber) + ".");
+      else if (firstPly)
+        printPgnToken(std::to_string(moveNumber) + "...");
+      printPgnToken(san);
+    }
+
+    fen = position.fen();
+    if (!whiteToMove)
+      ++moveNumber;
+    whiteToMove = !whiteToMove;
+    firstPly = false;
+  }
+
+  if (emitOutput)
+    Serial.println();
+  return true;
+}
+
+static const char *pgnGameResult() {
+  if (!gameOver || !engine)
+    return "*";
+
+  const Stockfish::Engine::GameStatus gameStatus = engine->game_status();
+  if (!gameStatus.hasLegalMoves) {
+    if (gameStatus.inCheck)
+      return sideToMove() == 'w' ? "0-1" : "1-0";
+    return "1/2-1/2";
+  }
+  if (gameStatus.drawByFiftyMove || gameStatus.drawByRepetition
+      || gameStatus.insufficientMaterial)
+    return "1/2-1/2";
+  return "*";
+}
+
+static void exportPgn() {
+  if (!hasGame) {
+    Serial.println("[PGN] No active game");
+    return;
+  }
+
+  // Validate and format every stored move before writing any PGN headers.
+  if (!streamPgnMoves(false))
+    return;
+
+  const char *result = pgnGameResult();
+  const char *whiteName = playerColor == 'w' ? "Player" : "Stockfish 19";
+  const char *blackName = playerColor == 'b' ? "Player" : "Stockfish 19";
+
+  Serial.println("[Event \\"Stockfish ESP32-S3 Game\\"]");
+  Serial.println("[Site \\"Freenove FNK0104B\\"]");
+  Serial.println("[Date \\"????.??.??\\"]");
+  Serial.println("[Round \\"-\\"]");
+  if (playerColor == 'w') {
+    Serial.printf("[White \\"%s\\"]\\n", whiteName);
+    Serial.printf("[Black \\"%s (Level %d)\\"]\\n", blackName, skillLevel);
+  } else {
+    Serial.printf("[White \\"%s (Level %d)\\"]\\n", whiteName, skillLevel);
+    Serial.printf("[Black \\"%s\\"]\\n", blackName);
+  }
+  Serial.printf("[Result \\"%s\\"]\\n", result);
+  Serial.printf("[PlyCount \\"%u\\"]\\n", unsigned(gameHistory.size()));
+  if (gameBaseFen != StartFen) {
+    Serial.println("[SetUp \\"1\\"]");
+    Serial.printf("[FEN \\"%s\\"]\\n", gameBaseFen.c_str());
+  }
+  Serial.println();
+
+  if (!streamPgnMoves(true))
+    return;
+  Serial.println(result);
+}
+
 static void executeSerialCommand() {
   serialCommand[serialCommandLength] = '\0';
   const std::string line(serialCommand, serialCommandLength);
@@ -1784,6 +2014,62 @@ static void executeSerialCommand() {
 
   if (command == "moves" || command == "uci") {
     printGameUciPosition();
+  } else if (command == "undo") {
+    if (!hasGame)
+      Serial.println("[SERIAL] ERROR: no active game");
+    else
+      undoMove();
+  } else if (command == "hint") {
+    if (!hasGame)
+      Serial.println("[SERIAL] ERROR: no active game");
+    else if (gameOver)
+      Serial.println("[SERIAL] ERROR: game is over");
+    else if (searchInFlight)
+      Serial.println("[SERIAL] ERROR: a search is already running");
+    else if (sideToMove() != playerColor)
+      Serial.println("[SERIAL] ERROR: it is not the player's turn");
+    else
+      startSearch(SearchMode::Hint);
+  } else if (command == "stop") {
+    if (!searchInFlight)
+      Serial.println("[SERIAL] No search is running");
+    else {
+      stopSearch();
+      setStatus("Search stopped");
+      if (screen == Screen::Game)
+        drawGamePanelInfo();
+      Serial.println("[SERIAL] Search stopped");
+    }
+  } else if (command == "level") {
+    std::string levelText;
+    std::string extra;
+    if (!(input >> levelText)) {
+      Serial.printf("[SETTINGS] Next game: Level %d; current game: Level %d\n",
+                    selectedSkillLevel, skillLevel);
+    } else {
+      int requestedLevel = 0;
+      bool validLevel = !levelText.empty();
+      for (unsigned char ch : levelText) {
+        if (ch < '0' || ch > '9') {
+          validLevel = false;
+          break;
+        }
+        requestedLevel = requestedLevel * 10 + (ch - '0');
+        if (requestedLevel > 20) {
+          validLevel = false;
+          break;
+        }
+      }
+      if (!validLevel || requestedLevel < 1 || requestedLevel > 20 || (input >> extra)) {
+        Serial.println("[SERIAL] Usage: LEVEL [1..20]");
+      } else {
+        selectedSkillLevel = requestedLevel;
+        if (saveSkillSettingToNvs())
+          Serial.printf("[SETTINGS] Next game will use Level %d\n", selectedSkillLevel);
+      }
+    }
+  } else if (command == "pgn" || command == "exportpgn") {
+    exportPgn();
   } else if (command == "position") {
     processPositionCommand(line, false);
   } else if (command == "fen") {
@@ -1850,6 +2136,11 @@ static void executeSerialCommand() {
     Serial.println("  fen <6 FEN fields>  (shorthand)");
     Serial.println("  moves (or uci)  print current position as a UCI command");
     Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move to the current game");
+    Serial.println("  UNDO  undo the last move pair (or the only move)");
+    Serial.println("  HINT  ask Stockfish for a move suggestion");
+    Serial.println("  STOP  stop the current search");
+    Serial.println("  LEVEL [1..20]  show/set skill for the next game");
+    Serial.println("  PGN  export the current game in PGN/SAN format");
     Serial.println("  NEWGAME [1..20] [WHITE|BLACK]  start a new game");
     Serial.println("  NEWGAME BLACK  start as Black (or use WHITE)");
     Serial.println("FEN piece-letter case is preserved. Invalid positions leave the current game unchanged.");
