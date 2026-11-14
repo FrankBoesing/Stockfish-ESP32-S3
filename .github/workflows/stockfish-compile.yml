@@ -28,11 +28,11 @@ jobs:
       - name: Install PlatformIO
         run: python -m pip install --upgrade platformio
 
-      - name: Compile baseline and NNUE profiler
+      - name: Compile default PIE firmware, profiler and parity validator
         shell: bash
         run: |
           set -euo pipefail
-          for env in freenove_stockfish_compile freenove_stockfish_pie freenove_stockfish_nnubench freenove_stockfish_piebench freenove_stockfish_pievalidate; do
+          for env in freenove_stockfish_compile freenove_stockfish_nnubench freenove_stockfish_pievalidate; do
             echo "===== Building $env ====="
             log="/tmp/${env}.log"
             if ! pio run -e "$env" -v > "$log" 2>&1; then
@@ -40,27 +40,36 @@ jobs:
               exit 1
             fi
             echo "Effective compile command (first C++ translation unit):"
-            grep -m 1 -E 'xtensa-esp32s3-elf-g\+\+.* -c ' "$log" || {
+            command="$(grep -m 1 -E 'xtensa-esp32s3-elf-g\+\+.* -c ' "$log")" || {
               echo "Could not find the C++ compile command in verbose output."
               tail -n 100 "$log"
               exit 1
             }
+            echo "$command"
+            if [[ "$env" == "freenove_stockfish_compile" || "$env" == "freenove_stockfish_nnubench" || "$env" == "freenove_stockfish_pievalidate" ]]; then
+              grep -q -- '-DSTOCKFISH_ESP32_S3_PIE=1' <<<"$command" || {
+                echo "PIE was not enabled in $env."
+                exit 1
+              }
+            fi
+            if [[ "$env" == "freenove_stockfish_pievalidate" ]]; then
+              grep -q -- '-DSTOCKFISH_ESP32_S3_PIE_VALIDATE=1' <<<"$command" || {
+                echo "PIE parity validation was not enabled."
+                exit 1
+              }
+            fi
           done
 
-      - name: Upload baseline and profiler artifacts
+      - name: Upload default PIE, profiler and validation artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stockfish-s3-nnue-profiler-builds
+          name: stockfish-s3-pie-builds
           path: |
             .pio/build/freenove_stockfish_compile/firmware.bin
             .pio/build/freenove_stockfish_compile/firmware.map
-            .pio/build/freenove_stockfish_pie/firmware.bin
-            .pio/build/freenove_stockfish_pie/firmware.map
             .pio/build/freenove_stockfish_nnubench/firmware.bin
             .pio/build/freenove_stockfish_nnubench/firmware.map
-            .pio/build/freenove_stockfish_piebench/firmware.bin
-            .pio/build/freenove_stockfish_piebench/firmware.map
             .pio/build/freenove_stockfish_pievalidate/firmware.bin
             .pio/build/freenove_stockfish_pievalidate/firmware.map
           if-no-files-found: warn

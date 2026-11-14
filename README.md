@@ -100,7 +100,7 @@ After each 30,000-node search and the timed search, the serial output contains `
 
 **Important:** This build adds measurement overhead to each NNUE evaluation. Do not compare its search NPS directly with the uninstrumented `freenove_stockfish_compile` build. Use the per-stage cycle distribution to identify expensive components; later optimization changes must be compared with the uninstrumented baseline and checked for identical chess results.
 
-The ordinary `freenove_stockfish_compile` environment does not define `STOCKFISH_NNUE_BENCHMARK`; the instrumentation is compiled out of the normal diagnostic firmware.
+The ordinary `freenove_stockfish_compile` environment does not define `STOCKFISH_NNUE_BENCHMARK`; the instrumentation is compiled out of the normal diagnostic firmware. It does include `STOCKFISH_ESP32_S3_PIE`, so the profiler and regular firmware measure/use the same accumulator implementation.
 
 The accumulator total is further divided into mutually exclusive update paths: lookup of the last usable accumulator, forward incremental update for one perspective, backward incremental update after a cache refresh, combined forward update for both perspectives, and Finny-cache refresh. These path timings help distinguish the cost of incremental updates from full cache refreshes. Small dispatcher and branch overhead remains included only in the enclosing accumulator total.
 The combined incremental update is additionally decomposed into:
@@ -111,23 +111,25 @@ The combined incremental update is additionally decomposed into:
 
 The main-loop and PSQT-loop counters are nested within `accum-update-both`; do not add their percentages to the enclosing counter. Their sum and the index-building time should approximately explain the helper cost.
 
-## Experimental ESP32-S3 PIE accumulator
+## ESP32-S3 PIE accumulator (default engine path)
 
-Two separate builds enable an Xtensa PIE kernel for the 1024-element int16 accumulator update:
+The regular `freenove_stockfish_compile` environment now enables the Xtensa PIE kernel for the 1024-element int16 accumulator update. This is the normal ESP32-S3 engine firmware; the kernel is no longer an opt-in experiment.
 
 ```sh
-# Uninstrumented build for real NPS measurements
-pio run -e freenove_stockfish_pie -t upload
+# Regular, uninstrumented firmware (PIE enabled)
+pio run -e freenove_stockfish_compile -t upload
 
-# Diagnostic build with NNUE cycle counters
-pio run -e freenove_stockfish_piebench -t upload
+# Diagnostic build using the same PIE kernel
+pio run -e freenove_stockfish_nnubench -t upload
 ```
 
-Both use the same PIE kernel. The `pie` environment keeps cycle instrumentation disabled so its NPS can be compared directly with `freenove_stockfish_compile`. The `piebench` environment also enables the NNUE profiler and prints an additional `accum-pie-loop` counter.
+The profiler build adds cycle counters and prints an `accum-pie-loop` counter. The old `freenove_stockfish_pie` and `freenove_stockfish_piebench` environment names remain available as compatibility aliases for existing workflows; new builds should use `compile` and `nnubench`.
 
-The PIE kernel processes eight int16 lanes per iteration with 128-bit loads, saturating subtraction/addition, and a 128-bit store. Because these PIE arithmetic operations saturate while the scalar Stockfish update has wrapping int16 semantics, the kernel is enabled only after a network-load-time range proof. For each output lane, the proof checks whether the bias plus any possible subset of up to `FeatureSet::MaxActiveDimensions` feature weights stays in the int16 range. If the proof fails, `apply_features()` uses the unchanged scalar path. The ordinary compile and `nnubench` environments do not define `STOCKFISH_ESP32_S3_PIE`.
+The PIE kernel processes eight int16 lanes per iteration with 128-bit loads, saturating subtraction/addition, and a 128-bit store. Because these PIE arithmetic operations saturate while the scalar Stockfish update has wrapping int16 semantics, the kernel is selected only after a network-load-time range proof. For each output lane, the proof checks whether the bias plus any possible subset of up to `FeatureSet::MaxActiveDimensions` feature weights stays in the int16 range. If the proof succeeds, the PIE path is used; if it fails, `apply_features()` uses the unchanged scalar path. The check is performed for the loaded network, so a different or future network can fall back automatically without changing firmware configuration. The regular compile, O2/O3, and profiler environments inherit `STOCKFISH_ESP32_S3_PIE` from the standard engine build.
 
-The `accum-pie-loop` counter is nested inside `accum-main-loop`; do not add their percentages. A successful CI build verifies assembly/compiler acceptance only. Before accepting this optimization, compare the PIE build with the scalar baseline on hardware, confirm NNUE verification and identical search results, and check the PIE-loop counter is nonzero. The experimental environment must not be treated as the default firmware until those hardware checks pass.
+The `accum-pie-loop` counter is nested inside `accum-main-loop`; do not add their percentages. Do not add their percentages together.
+
+The PIE path has passed an on-device scalar parity check using the current Smallnet P_hm network. Across the start position, Kiwipete, and a 5-second timed search, the validation build compared 82,976 incremental updates (84,967,424 individual accumulator lanes): zero mismatching updates, zero mismatching lanes, and zero out-of-range intermediate results. The validation build also completed NNUE verification and all three searches. This establishes exact parity for the exercised updates and network; the load-time range proof provides the safety gate for other loaded networks.
 
 ### Exact scalar-vs-PIE parity validation
 
@@ -139,7 +141,7 @@ pio run -e freenove_stockfish_pievalidate -t upload
 
 The reference calculation mirrors the scalar path's per-operation int16 wrapping. It also records whether any intermediate scalar result would leave the signed int16 range, because such a value would be saturated by the PIE instructions. After each search, the probe prints a `[PIE_VALIDATE]` line. A valid result requires `status=PASS`, `updates` greater than zero, and zero mismatched updates/elements and zero out-of-range updates/elements. `NOT_RUN` means the PIE path was not exercised; it is not a pass. A failure reports the first mismatching lane and its expected/actual values.
 
-This mode deliberately doubles the accumulator-update work and includes the profiler, so its NPS is not a performance result. The reference comparison runs outside the `accum-pie-loop` timing counter. It is a diagnostic build only; normal firmware, `pie`, `piebench`, and the scalar environments do not compile the reference calculation. CI compiles this environment but cannot execute the hardware parity test.
+This mode deliberately doubles the accumulator-update work and includes the profiler, so its NPS is not a performance result. The reference comparison runs outside the `accum-pie-loop` timing counter. It is a diagnostic build only; normal firmware and the profiler do not compile the reference calculation. CI compiles this environment but cannot execute the hardware parity test.
 
 ## Source provenance
 
