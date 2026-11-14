@@ -440,6 +440,9 @@ void apply_features_esp32_s3_pie(Color                     perspective,
     assert((reinterpret_cast<uintptr_t>(added1Ptr) & 15) == 0);
 
     constexpr u32 Iterations = Dimensions / 8;
+    // Xtensa GCC does not expose PIE QR registers to its register allocator.
+    // Keep every q-register use inside this one asm block; only memory effects
+    // and the updated address registers need to be declared to the compiler.
     asm volatile(
       "loopgtz %[iterations], 1f\n\t"
       "ee.vld.128.ip q0, %[from], 1\n\t"
@@ -460,7 +463,7 @@ void apply_features_esp32_s3_pie(Color                     perspective,
         [added1] "+&a"(added1Ptr),
         [to] "+&a"(toPtr)
       : [iterations] "a"(Iterations)
-      : "q0", "q1", "q2", "q3", "q4", "q5", "memory");
+      : "memory");
 }
 #endif
 
