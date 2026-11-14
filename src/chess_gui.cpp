@@ -512,16 +512,22 @@ static void drawGamePanel() {
   drawCenteredText(turnText, x + 1, 62, w - 2, 16,
                    searchInFlight ? ColorOrange : ColorText, 1);
 
+  int uiDepth;
+  uint32_t uiNps;
+  portENTER_CRITICAL(&searchMux);
+  uiDepth = searchMailbox.depth;
+  uiNps = searchMailbox.nps;
+  portEXIT_CRITICAL(&searchMux);
+
   char depthText[24];
-  snprintf(depthText, sizeof(depthText), "Depth %d", searchMailbox.depth);
+  snprintf(depthText, sizeof(depthText), "Depth %d", uiDepth);
   drawCenteredText(depthText, x, 82, w, 14, ColorMuted, 1);
 
   char npsText[24];
-  if (searchMailbox.nps >= 1000)
-    snprintf(npsText, sizeof(npsText), "%.1fk N/s", searchMailbox.nps / 1000.0f);
+  if (uiNps >= 1000)
+    snprintf(npsText, sizeof(npsText), "%.1fk N/s", uiNps / 1000.0f);
   else
-    snprintf(npsText, sizeof(npsText), "%lu N/s",
-             (unsigned long)searchMailbox.nps);
+    snprintf(npsText, sizeof(npsText), "%lu N/s", (unsigned long)uiNps);
   drawCenteredText(npsText, x, 97, w, 14, ColorMuted, 1);
 
   const int material = materialBalanceForPlayer();
