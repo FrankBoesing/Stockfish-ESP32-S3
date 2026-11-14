@@ -85,10 +85,24 @@ class AffineTransformSparseInput {
 #if (defined(USE_SSSE3) || defined(USE_LSX) || defined(USE_LASX) || (USE_NEON >= 8) \
      || defined(USE_RVV))
         return get_weight_index_scrambled(i);
+#elif defined(STOCKFISH_ESP32_S3)
+        // NNUE files store FC0 weights output-major. On ESP32-S3, keep them
+        // input-major in PSRAM so all outputs for one active input are
+        // contiguous (32 bytes) rather than 1024 bytes apart.
+        return (i % PaddedInputDimensions) * OutputDimensions + i / PaddedInputDimensions;
 #else
         return i;
 #endif
     }
+
+#if defined(STOCKFISH_ESP32_S3)
+    static_assert(PaddedInputDimensions == InputDimensions,
+                  "ESP32-S3 sparse FC0 weight transpose expects no padded input tail");
+    static_assert(get_weight_index(1) == OutputDimensions);
+    static_assert(get_weight_index(PaddedInputDimensions) == 1);
+    static_assert(get_weight_index(OutputDimensions * PaddedInputDimensions - 1)
+                  == OutputDimensions * PaddedInputDimensions - 1);
+#endif
 
     // Read network parameters
     bool read_parameters(std::istream& stream) {
@@ -425,8 +439,21 @@ class AffineTransformSparseInput {
             RVV_SPARSE_PROPAGATE(m2, m4, m8);
 
     #undef RVV_SPARSE_PROPAGATE
+#elif defined(STOCKFISH_ESP32_S3)
+        // Same sparse-input dot product as the generic fallback, but use the
+        // ESP32-S3 input-major weight layout to read each active input's
+        // output weights contiguously from PSRAM.
+        std::memcpy(output, biases, sizeof(OutputType) * OutputDimensions);
+        for (IndexType i = 0; i < InputDimensions; ++i)
+            if (input[i])
+            {
+                const i8* weightsForInput = &weights[i * OutputDimensions];
+                const int in = input[i];
+                for (IndexType j = 0; j < OutputDimensions; ++j)
+                    output[j] += weightsForInput[j] * in;
+            }
 #else
-        // Use dense implementation for the other architectures.
+        // Use the original dense implementation for other architectures.
         affine_transform_non_ssse3<InputDimensions, PaddedInputDimensions, OutputDimensions>(
           output, weights, biases, input);
 #endif
