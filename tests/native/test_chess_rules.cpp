@@ -43,6 +43,7 @@ class TestPosition {
 public:
   bool setFen(const std::string& fen) {
     states.clear();
+    moves.clear();
     states.emplace_back();
     const auto error = position.set(fen, false, &states.back());
     if (error.has_value()) {
@@ -58,8 +59,20 @@ public:
       return false;
     states.emplace_back();
     position.do_move(move, states.back());
+    moves.push_back(move);
     return true;
   }
+
+  bool undoLast() {
+    if (moves.empty())
+      return false;
+    position.undo_move(moves.back());
+    moves.pop_back();
+    states.pop_back();
+    return true;
+  }
+
+  std::size_t historySize() const { return moves.size(); }
 
   Stockfish::Position& get() { return position; }
   const Stockfish::Position& get() const { return position; }
@@ -67,6 +80,7 @@ public:
 private:
   // deque keeps StateInfo addresses stable for Position's repetition chain.
   std::deque<Stockfish::StateInfo> states;
+  std::vector<Stockfish::Move> moves;
   Stockfish::Position position;
 };
 
@@ -127,6 +141,15 @@ void testLegalDestinationHighlights() {
   CHECK(p.setFen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"));
   checkDestinations(p, "e5", {"e6", "d6"});
 
+  // Black en passant uses the mirrored rank and side-to-move.
+  CHECK(p.setFen("4k3/8/8/8/3Pp3/8/8/4K3 b - d3 0 1"));
+  checkDestinations(p, "e4", {"e3", "d3"});
+
+  // En passant that would uncover a rook check against the moving king is
+  // illegal and must not be shown as a destination.
+  CHECK(p.setFen("k3r3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"));
+  checkDestinations(p, "e5", {"e6"});
+
   bool invalid[64];
   CHECK(!ChessGuiRules::legalDestinations(p.get(), -1, invalid));
   CHECK(!ChessGuiRules::legalDestinations(p.get(), 64, invalid));
@@ -186,6 +209,40 @@ void testPromotionAndMoveValidation() {
   CHECK(canceled.get().fen() == beforeCancel);
   CHECK(canceled.get().piece_on(square("a7")) == Stockfish::W_PAWN);
   CHECK(canceled.get().piece_on(square("a8")) == Stockfish::NO_PIECE);
+}
+
+void testPromotionRequestCancel() {
+  TestPosition position;
+  const std::string fen = "7k/P7/8/8/8/8/8/7K w - - 0 1";
+  CHECK(position.setFen(fen));
+
+  GameHistory history;
+  CHECK(history.appendUci("a2a3"));
+  const auto originalMoves = history.toUciMoves();
+  const std::string originalFen = position.get().fen();
+
+  ChessGuiRules::PromotionRequest request;
+  CHECK(!request.pending());
+  CHECK(!request.begin(-1, squareIndex("a8")));
+  CHECK(request.begin(squareIndex("a7"), squareIndex("a8")));
+  CHECK(request.pending());
+
+  int selectedSquare = -1;
+  CHECK(request.cancel(selectedSquare));
+  CHECK(selectedSquare == squareIndex("a7"));
+  CHECK(!request.pending());
+  CHECK(position.get().fen() == originalFen);
+  CHECK(history.toUciMoves() == originalMoves);
+  CHECK(!request.cancel(selectedSquare));
+
+  // A chosen option consumes the pending request exactly once.
+  CHECK(request.begin(squareIndex("a7"), squareIndex("a8")));
+  int from = -1, to = -1;
+  CHECK(request.take(from, to));
+  CHECK(from == squareIndex("a7"));
+  CHECK(to == squareIndex("a8"));
+  CHECK(!request.pending());
+  CHECK(!request.take(from, to));
 }
 
 void testGameStatusAndAdjudication() {
@@ -262,6 +319,46 @@ void testRepetitionHistory() {
   CHECK(Stockfish::get_position_status(p.get()).drawByRepetition);
   CHECK(ChessGuiRules::classifyGame(Stockfish::get_position_status(p.get()), 'w', 'w')
         == ChessGuiRules::GameOutcome::DrawRepetition);
+}
+
+void testUndoAndNewAfterCheckmate() {
+  TestPosition game;
+  CHECK(game.setFen(StartFen));
+
+  // Fool's Mate gives Black checkmate after four plies.
+  CHECK(game.play("f2f3"));
+  CHECK(game.play("e7e5"));
+  CHECK(game.play("g2g4"));
+  CHECK(game.play("d8h4"));
+  CHECK(game.historySize() == 4);
+
+  const auto terminal = ChessGuiRules::classifyGame(
+    Stockfish::get_position_status(game.get()), 'w', 'w');
+  CHECK(terminal == ChessGuiRules::GameOutcome::CheckmatePlayerLoss);
+  CHECK(!ChessGuiRules::acceptsBoardMoves(ChessGuiRules::isTerminal(terminal)));
+  CHECK(!ChessGuiRules::hintEnabled(false, true, 'w', 'w'));
+  CHECK(ChessGuiRules::undoEnabled(game.historySize()));
+
+  // GUI takeback removes the final player/engine pair from a completed game.
+  const std::size_t removeCount = ChessGuiRules::undoPliesToRemove(game.historySize());
+  CHECK(removeCount == 2);
+  for (std::size_t i = 0; i < removeCount; ++i)
+    CHECK(game.undoLast());
+  CHECK(game.historySize() == 2);
+  auto restored = Stockfish::get_position_status(game.get());
+  CHECK(restored.hasLegalMoves);
+  CHECK(!ChessGuiRules::isTerminal(
+    ChessGuiRules::classifyGame(restored, 'w', 'w')));
+
+  // New Game restores the standard start position and clears move history.
+  CHECK(game.setFen(StartFen));
+  CHECK(game.historySize() == 0);
+  CHECK(game.get().fen() == StartFen);
+  const auto fresh = Stockfish::get_position_status(game.get());
+  const auto freshOutcome = ChessGuiRules::classifyGame(fresh, 'w', 'w');
+  CHECK(ChessGuiRules::acceptsBoardMoves(
+    ChessGuiRules::isTerminal(freshOutcome) == false));
+  CHECK(!ChessGuiRules::undoEnabled(game.historySize()));
 }
 
 void testBoardOrientationAndUndoPolicy() {
@@ -357,7 +454,9 @@ int main() {
 
   testLegalDestinationHighlights();
   testPromotionAndMoveValidation();
+  testPromotionRequestCancel();
   testGameStatusAndAdjudication();
+  testUndoAndNewAfterCheckmate();
   testRepetitionHistory();
   testBoardOrientationAndUndoPolicy();
   testCompactGameHistory();
