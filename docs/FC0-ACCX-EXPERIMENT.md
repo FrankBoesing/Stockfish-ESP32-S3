@@ -59,17 +59,26 @@ Expected serial marker:
 The search/profile run is diagnostic only; validation performs a second scalar
 FC0 computation and its NPS must not be used as a performance result.
 
-After a complete validation PASS, build the non-validating profiler:
+After a complete validation PASS, build the instrumented profiler:
 
 ```powershell
 pio run -e freenove_stockfish_fc0_accx_bench -t upload
 ```
 
 Compare its FC0 and `fc0-accx-kernel` cycle counters with the existing
-`freenove_stockfish_nnubench` baseline. Then compare uninstrumented NPS using
-`freenove_stockfish_compile` and the same new ACCX macro profile; do not
-interpret the instrumented NPS as final performance. The normal release
-baseline remains `freenove_stockfish_compile`.
+`freenove_stockfish_nnubench` baseline. The profiler adds cycle-counter
+instrumentation but does not compute a second scalar FC0 result.
+
+For the final NPS comparison, use the uninstrumented ACCX build:
+
+```powershell
+pio run -e freenove_stockfish_fc0_accx -t upload
+```
+
+Compare its start-position, Kiwipete and timed-search NPS against
+`freenove_stockfish_compile` with identical hash, clock, node/time limits and
+search settings. Do not use the profiler or validation NPS as the final
+performance figure.
 
 ## Important
 

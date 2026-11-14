@@ -490,7 +490,7 @@ class AffineTransformSparseInput {
 #endif
             propagate_accx(input, output);
 #if defined(STOCKFISH_NNUE_BENCHMARK)
-            Bench::record(Bench::FC0PieKernel, pieStart);
+            Bench::record(Bench::FC0AccxKernel, pieStart);
 #endif
 #if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
             auto& stats = Bench::fc0AccxValidationStats;

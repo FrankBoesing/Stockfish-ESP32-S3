@@ -21,7 +21,7 @@ enum Stage : uint8_t {
     AccumulatorUpdate,
     FeatureTransform,
     FC0,
-    FC0PieKernel,
+    FC0AccxKernel,
     SqrClippedReLU0,
     ClippedReLU0,
     FC1,

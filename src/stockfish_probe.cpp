@@ -147,10 +147,10 @@ static void resetNnueBenchCounters() {
 static void printNnueBenchCounters(const char *label) {
   using namespace Stockfish::Eval::NNUE::Bench;
   static const char *const stageNames[StageCount] = {
-    "accumulator", "feature-transform", "fc0", "sqr-relu0", "clip-relu0",
+    "accumulator", "feature-transform", "fc0", "fc0-accx-kernel", "sqr-relu0", "clip-relu0",
     "fc1", "sqr-relu1", "clip-relu1", "fc2", "evaluation-total",
     "accum-find-last", "accum-forward", "accum-backward", "accum-forward-both",
-    "fc0-accx-kernel", "accum-refresh-cache", "accum-build-indices", "accum-main-loop",
+    "accum-refresh-cache", "accum-build-indices", "accum-main-loop",
     "accum-psqt-loop", "accum-update-both", "accum-pie-loop"
   };
   const uint64_t totalCycles = counters[EvaluationTotal].cycles;
