@@ -67,6 +67,7 @@ constexpr uint16_t ColorMuted      = rgb(149, 157, 177);
 constexpr uint16_t ColorButton     = rgb(51, 77, 128);
 constexpr uint16_t ColorDisabled   = rgb(48, 54, 68);
 constexpr uint16_t ColorSelected   = rgb(235, 220, 111);
+constexpr uint16_t ColorLegal      = rgb(88, 156, 103);
 constexpr uint16_t ColorLastMove   = rgb(224, 204, 91);
 constexpr uint16_t ColorHint       = rgb(69, 190, 184);
 constexpr uint16_t ColorCheck      = rgb(217, 65, 65);
@@ -144,6 +145,7 @@ char statusText[48] = "Ready";
 char hintText[16] = "";
 int pendingPromotionFrom = -1;
 int pendingPromotionTo = -1;
+bool legalDestinations[64] = {};
 
 struct SearchMailbox {
   int depth;
@@ -533,6 +535,8 @@ static uint16_t boardSquareColor(int square, int lastFromValue, int lastToValue,
     color = ColorLastMove;
   if (square == hintFromValue || square == hintToValue)
     color = ColorHint;
+  if (legalDestinations[square])
+    color = ColorLegal;
   if (square == selectedSquareValue)
     color = ColorSelected;
   return color;
@@ -555,6 +559,43 @@ static void drawBoardSquare(int square) {
     drawPiece(board[square], x, y, color);
   else
     tft.fillRect(x, y, SquareSize, SquareSize, color);
+}
+
+static void clearLegalDestinations(bool redraw = true) {
+  for (int square = 0; square < 64; ++square) {
+    if (!legalDestinations[square])
+      continue;
+    legalDestinations[square] = false;
+    if (redraw)
+      drawBoardSquare(square);
+  }
+}
+
+static void updateLegalDestinations(int fromSquare) {
+  bool nextDestinations[64] = {};
+
+  if (fromSquare >= 0 && fromSquare < 64) {
+    Stockfish::Position position;
+    Stockfish::StateInfo state;
+    const auto error = position.set(currentFen, false, &state);
+    if (!error.has_value()) {
+      Stockfish::MoveList<Stockfish::LEGAL> legalMoves(position);
+      for (const Stockfish::Move move : legalMoves) {
+        if (static_cast<int>(move.from_sq()) == fromSquare)
+          nextDestinations[static_cast<int>(move.to_sq())] = true;
+      }
+    } else {
+      Serial.printf("[GUI] Cannot generate legal move highlights: %s\n",
+                    error->what());
+    }
+  }
+
+  for (int square = 0; square < 64; ++square) {
+    if (legalDestinations[square] == nextDestinations[square])
+      continue;
+    legalDestinations[square] = nextDestinations[square];
+    drawBoardSquare(square);
+  }
 }
 
 static void drawChangedBoardSquares(const char *oldBoard,
@@ -881,6 +922,7 @@ static void startNewGame() {
   engine->search_clear();
   gameMoves.clear();
   gameOver = false;
+  clearLegalDestinations(false);
   selectedSquare = -1;
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
@@ -932,6 +974,7 @@ static void undoMove() {
     return;
   }
 
+  clearLegalDestinations();
   setStatus("Move undone");
   drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
                           oldHintFrom, oldHintTo, oldSelected);
@@ -975,7 +1018,7 @@ static void applyMove(int from, int to, char promotion) {
   if (error.has_value()) {
     gameMoves.pop_back();
     engine->set_position(StartFen, gameMoves);
-    selectedSquare = wasPromotion ? from : -1;
+    selectedSquare = from;
     setStatus("Illegal move");
     if (wasPromotion) {
       screen = Screen::Game;
@@ -995,6 +1038,7 @@ static void applyMove(int from, int to, char promotion) {
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
   const bool terminalPosition = updateGameStatusFromPosition();
+  clearLegalDestinations(!wasPromotion);
   if (!terminalPosition && sideToMove() != playerColor)
     setStatus("Thinking");
 
@@ -1105,6 +1149,7 @@ static void handleBoardTouch(int x, int y) {
                   || (playerColor == 'b' && islower((unsigned char)piece)))) {
       const int previousSelection = selectedSquare;
       selectedSquare = square;
+      updateLegalDestinations(square);
       setStatus("Select destination");
       drawBoardSquare(previousSelection);
       drawBoardSquare(selectedSquare);
@@ -1116,6 +1161,7 @@ static void handleBoardTouch(int x, int y) {
   if (square == selectedSquare) {
     const int previousSelection = selectedSquare;
     selectedSquare = -1;
+    clearLegalDestinations();
     setStatus("Your move");
     drawBoardSquare(previousSelection);
     drawGamePanelInfo();
@@ -1130,6 +1176,7 @@ static void handleBoardTouch(int x, int y) {
   if (ownTarget) {
     const int previousSelection = selectedSquare;
     selectedSquare = square;
+    updateLegalDestinations(square);
     setStatus("Select destination");
     drawBoardSquare(previousSelection);
     drawBoardSquare(selectedSquare);
