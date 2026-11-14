@@ -47,8 +47,9 @@ constexpr char StartFen[] =
   "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 constexpr uint32_t SavedGameMagic = 0x53464731; // "SFG1"
-constexpr uint16_t SavedGameVersion = 1;
-struct SavedGameHeader {
+constexpr uint16_t SavedGameVersion = 2;
+constexpr size_t SavedGameMaxFenBytes = 192;
+struct SavedGameHeaderV1 {
   uint32_t magic;
   uint16_t version;
   uint8_t playerColor;
@@ -56,7 +57,18 @@ struct SavedGameHeader {
   uint32_t moveCount;
   uint32_t checksum;
 };
-static_assert(sizeof(SavedGameHeader) == 16, "Unexpected saved-game header layout");
+struct SavedGameHeader {
+  uint32_t magic;
+  uint16_t version;
+  uint8_t playerColor;
+  uint8_t skillLevel;
+  uint32_t moveCount;
+  uint16_t baseFenLength;
+  uint16_t reserved;
+  uint32_t checksum;
+};
+static_assert(sizeof(SavedGameHeaderV1) == 16, "Unexpected v1 saved-game header layout");
+static_assert(sizeof(SavedGameHeader) == 20, "Unexpected v2 saved-game header layout");
 
 constexpr int BoardX = 4;
 constexpr int BoardY = 16;  // Center the 208px board vertically on the 240px display.
@@ -142,6 +154,7 @@ Screen screen = Screen::Menu;
 SearchMode searchMode = SearchMode::None;
 
 GameHistory gameHistory;
+std::string gameBaseFen = StartFen;
 std::string currentFen = StartFen;
 char board[64] = {};
 char playerColor = 'w';
@@ -197,7 +210,8 @@ constexpr int16_t CalibrationTargets[3][2] = {
 int calibrationStep = 0;
 
 uint32_t lastPanelRefresh = 0;
-static char serialCommand[24] = {};
+static constexpr size_t SerialCommandCapacity = 2048;
+static char serialCommand[SerialCommandCapacity] = {};
 static size_t serialCommandLength = 0;
 
 static void setStatus(const char *message) {
@@ -417,7 +431,7 @@ static bool syncEnginePosition() {
   if (!engine)
     return false;
   const std::vector<std::string> moves = gameHistory.toUciMoves();
-  const auto error = engine->set_position(StartFen, moves);
+  const auto error = engine->set_position(gameBaseFen, moves);
   if (error.has_value()) {
     Serial.printf("[GUI] Position rejected: %s\n", error->what());
     return false;
@@ -809,10 +823,21 @@ static bool setSkillOption() {
   return true;
 }
 
-static uint32_t savedGameChecksum(const uint8_t *blob, size_t bytes) {
+static uint32_t savedGameChecksum(const uint8_t *blob, size_t bytes,
+                                  size_t headerBytes, size_t checksumOffset) {
   uint32_t hash = 2166136261u;
-  for (size_t i = 0; i < 12; ++i) { hash ^= blob[i]; hash *= 16777619u; }
-  for (size_t i = sizeof(SavedGameHeader); i < bytes; ++i) { hash ^= blob[i]; hash *= 16777619u; }
+  for (size_t i = 0; i < checksumOffset; ++i) {
+    hash ^= blob[i];
+    hash *= 16777619u;
+  }
+  for (size_t i = checksumOffset + sizeof(uint32_t); i < headerBytes; ++i) {
+    hash ^= blob[i];
+    hash *= 16777619u;
+  }
+  for (size_t i = headerBytes; i < bytes; ++i) {
+    hash ^= blob[i];
+    hash *= 16777619u;
+  }
   return hash;
 }
 
@@ -828,11 +853,17 @@ static void discardSavedGame() {
 }
 
 static bool saveGameToNvs() {
-  if (!hasGame) return false;
+  if (!hasGame || gameBaseFen.empty() || gameBaseFen.size() > SavedGameMaxFenBytes)
+    return false;
+
   const size_t moveCount = gameHistory.size();
-  const size_t totalBytes = sizeof(SavedGameHeader) + moveCount * sizeof(uint16_t);
+  const size_t totalBytes = sizeof(SavedGameHeader) + gameBaseFen.size()
+                          + moveCount * sizeof(uint16_t);
   uint8_t *blob = allocateSavedGameBlob(totalBytes);
-  if (!blob) { Serial.println("[GAME] ERROR: no memory for NVS save buffer"); return false; }
+  if (!blob) {
+    Serial.println("[GAME] ERROR: no memory for NVS save buffer");
+    return false;
+  }
 
   SavedGameHeader header{};
   header.magic = SavedGameMagic;
@@ -840,9 +871,14 @@ static bool saveGameToNvs() {
   header.playerColor = uint8_t(playerColor);
   header.skillLevel = uint8_t(skillLevel);
   header.moveCount = uint32_t(moveCount);
+  header.baseFenLength = uint16_t(gameBaseFen.size());
   memcpy(blob, &header, sizeof(header));
-  if (moveCount) memcpy(blob + sizeof(header), gameHistory.packedData(), moveCount * sizeof(uint16_t));
-  header.checksum = savedGameChecksum(blob, totalBytes);
+  memcpy(blob + sizeof(header), gameBaseFen.data(), gameBaseFen.size());
+  if (moveCount)
+    memcpy(blob + sizeof(header) + gameBaseFen.size(),
+           gameHistory.packedData(), moveCount * sizeof(uint16_t));
+
+  header.checksum = savedGameChecksum(blob, totalBytes, sizeof(header), 16);
   memcpy(blob, &header, sizeof(header));
 
   Preferences preferences;
@@ -854,11 +890,14 @@ static bool saveGameToNvs() {
   const size_t written = preferences.putBytes("game", blob, totalBytes);
   preferences.end();
   heap_caps_free(blob);
+
   const bool saved = written == totalBytes;
   if (!saved)
-    Serial.printf("[GAME] ERROR: NVS save incomplete (%u/%u bytes)\n", (unsigned)written, (unsigned)totalBytes);
+    Serial.printf("[GAME] ERROR: NVS save incomplete (%u/%u bytes)\n",
+                  (unsigned)written, (unsigned)totalBytes);
   else
-    Serial.printf("[GAME] Saved %u plies to NVS (%u bytes)\n", (unsigned)moveCount, (unsigned)totalBytes);
+    Serial.printf("[GAME] Saved %u plies and %u FEN bytes to NVS (%u bytes)\n",
+                  (unsigned)moveCount, (unsigned)gameBaseFen.size(), (unsigned)totalBytes);
   return saved;
 }
 
@@ -869,55 +908,122 @@ static bool loadSavedGameFromNvs() {
     return false;
   }
   const size_t bytes = preferences.getBytesLength("game");
-  const size_t maxBytes = sizeof(SavedGameHeader) + GameHistory::MaxMoves * sizeof(uint16_t);
-  if (!bytes) { preferences.end(); Serial.println("[GAME] No saved game found"); return false; }
-  if (bytes < sizeof(SavedGameHeader) || bytes > maxBytes) {
-    preferences.end(); discardSavedGame();
+  const size_t maxBytes = sizeof(SavedGameHeader) + SavedGameMaxFenBytes
+                        + GameHistory::MaxMoves * sizeof(uint16_t);
+  if (!bytes) {
+    preferences.end();
+    Serial.println("[GAME] No saved game found");
+    return false;
+  }
+  if (bytes < sizeof(SavedGameHeaderV1) || bytes > maxBytes) {
+    preferences.end();
+    discardSavedGame();
     Serial.println("[GAME] Saved game has invalid size; discarded");
     return false;
   }
+
   uint8_t *blob = allocateSavedGameBlob(bytes);
-  if (!blob) { preferences.end(); Serial.println("[GAME] ERROR: no memory to load saved game"); return false; }
+  if (!blob) {
+    preferences.end();
+    Serial.println("[GAME] ERROR: no memory to load saved game");
+    return false;
+  }
   const size_t read = preferences.getBytes("game", blob, bytes);
   preferences.end();
   if (read != bytes) {
-    heap_caps_free(blob); discardSavedGame();
+    heap_caps_free(blob);
+    discardSavedGame();
     Serial.println("[GAME] Saved game read failed; discarded");
     return false;
   }
 
+  uint32_t magic = 0;
+  uint16_t version = 0;
+  memcpy(&magic, blob, sizeof(magic));
+  memcpy(&version, blob + sizeof(magic), sizeof(version));
+
+  SavedGameHeaderV1 headerV1{};
   SavedGameHeader header{};
-  memcpy(&header, blob, sizeof(header));
-  const size_t expectedBytes = sizeof(SavedGameHeader) + size_t(header.moveCount) * sizeof(uint16_t);
-  const bool headerValid = header.magic == SavedGameMagic && header.version == SavedGameVersion
-                        && (header.playerColor == 'w' || header.playerColor == 'b')
-                        && header.skillLevel >= 1 && header.skillLevel <= 20
-                        && header.moveCount <= GameHistory::MaxMoves && expectedBytes == bytes;
-  const bool checksumValid = headerValid && savedGameChecksum(blob, bytes) == header.checksum;
-  const uint16_t *packed = reinterpret_cast<const uint16_t *>(blob + sizeof(SavedGameHeader));
-  const bool historyValid = checksumValid && gameHistory.assignPacked(packed, header.moveCount);
+  std::string candidateFen = StartFen;
+  const uint16_t *packed = nullptr;
+  uint32_t moveCount = 0;
+  bool legacyV1 = false;
+  bool valid = magic == SavedGameMagic;
+
+  if (valid && version == 1) {
+    legacyV1 = true;
+    memcpy(&headerV1, blob, sizeof(headerV1));
+    const size_t expected = sizeof(headerV1) + size_t(headerV1.moveCount) * sizeof(uint16_t);
+    valid = (headerV1.playerColor == 'w' || headerV1.playerColor == 'b')
+         && headerV1.skillLevel >= 1 && headerV1.skillLevel <= 20
+         && headerV1.moveCount <= GameHistory::MaxMoves && expected == bytes
+         && savedGameChecksum(blob, bytes, sizeof(headerV1), 12) == headerV1.checksum;
+    moveCount = headerV1.moveCount;
+    packed = reinterpret_cast<const uint16_t *>(blob + sizeof(headerV1));
+  } else if (valid && version == SavedGameVersion && bytes >= sizeof(header)) {
+    memcpy(&header, blob, sizeof(header));
+    const size_t expected = sizeof(header) + size_t(header.baseFenLength)
+                          + size_t(header.moveCount) * sizeof(uint16_t);
+    valid = (header.playerColor == 'w' || header.playerColor == 'b')
+         && header.skillLevel >= 1 && header.skillLevel <= 20
+         && header.moveCount <= GameHistory::MaxMoves
+         && header.baseFenLength > 0 && header.baseFenLength <= SavedGameMaxFenBytes
+         && expected == bytes
+         && savedGameChecksum(blob, bytes, sizeof(header), 16) == header.checksum;
+    if (valid) {
+      const char *fenData = reinterpret_cast<const char *>(blob + sizeof(header));
+      valid = memchr(fenData, '\0', header.baseFenLength) == nullptr;
+      if (valid)
+        candidateFen.assign(fenData, header.baseFenLength);
+      moveCount = header.moveCount;
+      packed = reinterpret_cast<const uint16_t *>(blob + sizeof(header) + header.baseFenLength);
+    }
+  } else {
+    valid = false;
+  }
+
+  const uint8_t savedPlayer = legacyV1 ? headerV1.playerColor : header.playerColor;
+  const uint8_t savedSkill = legacyV1 ? headerV1.skillLevel : header.skillLevel;
+  GameHistory candidateHistory;
+  if (valid)
+    valid = candidateHistory.assignPacked(packed, moveCount);
   heap_caps_free(blob);
-  if (!historyValid) {
-    gameHistory.clear(); discardSavedGame();
+
+  if (valid) {
+    const std::vector<std::string> moves = candidateHistory.toUciMoves();
+    const auto error = engine->set_position(candidateFen, moves);
+    if (error.has_value()) {
+      Serial.printf("[GAME] Saved position rejected: %s\n", error->what());
+      valid = false;
+    }
+  }
+
+  if (!valid) {
+    gameHistory.clear();
+    gameBaseFen = StartFen;
+    const std::vector<std::string> noMoves;
+    engine->set_position(StartFen, noMoves);
+    syncEnginePosition();
+    discardSavedGame();
     Serial.println("[GAME] Saved game validation failed; discarded");
     return false;
   }
 
-  playerColor = char(header.playerColor);
-  skillLevel = header.skillLevel;
+  gameHistory.swap(candidateHistory);
+  gameBaseFen = candidateFen;
+  playerColor = char(savedPlayer);
+  skillLevel = savedSkill;
   setSkillOption();
-  if (!syncEnginePosition()) {
-    gameHistory.clear(); playerColor = 'w'; skillLevel = 10; setSkillOption();
-    const std::vector<std::string> noMoves;
-    engine->set_position(StartFen, noMoves);
-    syncEnginePosition(); discardSavedGame();
-    Serial.println("[GAME] Saved move sequence is illegal; discarded");
-    return false;
-  }
+  currentFen = engine->fen();
+  loadFenBoard(currentFen);
+  updateLastMove();
   hasGame = true;
   updateGameStatusFromPosition();
-  Serial.printf("[GAME] Restored %u plies (%s history storage)\n",
-                (unsigned)gameHistory.size(), gameHistory.usesPsram() ? "PSRAM" : "internal RAM");
+  Serial.printf("[GAME] Restored %u plies from %s FEN (%s history storage)\n",
+                (unsigned)gameHistory.size(), legacyV1 ? "legacy startpos" : "saved",
+                gameHistory.usesPsram() ? "PSRAM" : "internal RAM");
+  if (legacyV1)
+    saveGameToNvs();
   return true;
 }
 
@@ -1071,6 +1177,7 @@ static void startNewGame() {
   stopSearch();
   engine->search_clear();
   gameHistory.clear();
+  gameBaseFen = StartFen;
   gameOver = false;
   clearLegalDestinations(false);
   selectedSquare = -1;
@@ -1427,10 +1534,129 @@ static void processTouch(int x, int y, uint16_t rawX, uint16_t rawY) {
   }
 }
 
+static bool applySerialPosition(const std::string &baseFen, GameHistory &candidateHistory) {
+  if (!engine)
+    return false;
+
+  const std::vector<std::string> candidateMoves = candidateHistory.toUciMoves();
+  const std::string previousBaseFen = gameBaseFen;
+  const std::vector<std::string> previousMoves = gameHistory.toUciMoves();
+  const bool previousHadGame = hasGame;
+
+  stopSearch();
+  const auto error = engine->set_position(baseFen, candidateMoves);
+  if (error.has_value()) {
+    Serial.printf("[SERIAL] Position rejected: %s\n", error->what());
+    const auto restoreError = engine->set_position(previousBaseFen, previousMoves);
+    if (restoreError.has_value()) {
+      Serial.printf("[SERIAL] CRITICAL: cannot restore previous position: %s\n",
+                    restoreError->what());
+      hasGame = false;
+      renderMenu();
+      return false;
+    }
+    currentFen = engine->fen();
+    loadFenBoard(currentFen);
+    updateLastMove();
+    updateGameStatusFromPosition();
+    if (previousHadGame) {
+      if (touchCalibrated) showCurrentGame();
+      else beginTouchCalibration();
+    }
+    return false;
+  }
+
+  gameBaseFen = baseFen;
+  gameHistory.swap(candidateHistory);
+  currentFen = engine->fen();
+  if (!loadFenBoard(currentFen)) {
+    Serial.println("[SERIAL] ERROR: Stockfish returned an invalid board FEN");
+    return false;
+  }
+
+  selectedSquare = -1;
+  hintFrom = hintTo = -1;
+  hintText[0] = '\0';
+  pendingPromotionFrom = pendingPromotionTo = -1;
+  clearLegalDestinations(false);
+  updateLastMove();
+  hasGame = true;
+  updateGameStatusFromPosition();
+  saveGameToNvs();
+
+  Serial.printf("[SERIAL] Loaded position; %u moves, side to move %c\n",
+                (unsigned)gameHistory.size(), sideToMove());
+  if (touchCalibrated)
+    showCurrentGame();
+  else
+    beginTouchCalibration();
+  return true;
+}
+
+static bool processPositionCommand(const std::string &line, bool shortFenCommand) {
+  std::istringstream input(line);
+  std::string keyword;
+  input >> keyword;
+  std::string form;
+  if (shortFenCommand) {
+    form = "fen";
+  } else if (!(input >> form)) {
+    Serial.println("[SERIAL] Usage: position startpos [moves ...] OR position fen <6 FEN fields> [moves ...]");
+    return false;
+  }
+
+  std::transform(form.begin(), form.end(), form.begin(),
+                 [](unsigned char ch) { return char(tolower(ch)); });
+  std::string baseFen;
+  if (form == "startpos") {
+    baseFen = StartFen;
+  } else if (form == "fen") {
+    std::string fields[6];
+    for (unsigned i = 0; i < 6; ++i) {
+      if (!(input >> fields[i])) {
+        Serial.println("[SERIAL] ERROR: FEN requires all six fields");
+        return false;
+      }
+    }
+    for (unsigned i = 0; i < 6; ++i) {
+      if (i)
+        baseFen += ' ';
+      baseFen += fields[i];
+    }
+  } else {
+    Serial.printf("[SERIAL] ERROR: unknown position format '%s'\n", form.c_str());
+    return false;
+  }
+
+  GameHistory candidateHistory;
+  std::string token;
+  if (input >> token) {
+    std::transform(token.begin(), token.end(), token.begin(),
+                   [](unsigned char ch) { return char(tolower(ch)); });
+    if (token != "moves") {
+      Serial.printf("[SERIAL] ERROR: expected 'moves', got '%s'\n", token.c_str());
+      return false;
+    }
+    while (input >> token) {
+      if (!candidateHistory.appendUci(token)) {
+        Serial.printf("[SERIAL] ERROR: invalid UCI syntax or too many moves: '%s'\n",
+                      token.c_str());
+        return false;
+      }
+    }
+  }
+  return applySerialPosition(baseFen, candidateHistory);
+}
+
 static void printGameUciPosition() {
   if (!hasGame) { Serial.println("[GAME] No active game"); return; }
   Serial.printf("[GAME] %u plies; UCI position follows\n", (unsigned)gameHistory.size());
-  Serial.print("position startpos");
+  if (gameBaseFen == StartFen) {
+    Serial.print("position startpos");
+  } else {
+    Serial.print("position fen ");
+    Serial.print(gameBaseFen.c_str());
+  }
   if (!gameHistory.empty()) {
     Serial.print(" moves");
     char move[6];
@@ -1442,15 +1668,30 @@ static void printGameUciPosition() {
 }
 
 static void executeSerialCommand() {
-  for (size_t i = 0; i < serialCommandLength; ++i)
-    serialCommand[i] = char(tolower((unsigned char)serialCommand[i]));
   serialCommand[serialCommandLength] = '\0';
-  if (!strcmp(serialCommand, "moves") || !strcmp(serialCommand, "uci"))
+  const std::string line(serialCommand, serialCommandLength);
+  std::istringstream input(line);
+  std::string command;
+  input >> command;
+  std::transform(command.begin(), command.end(), command.begin(),
+                 [](unsigned char ch) { return char(tolower(ch)); });
+
+  if (command == "moves" || command == "uci") {
     printGameUciPosition();
-  else if (!strcmp(serialCommand, "help"))
-    Serial.println("Commands: moves (or uci) = print current game as UCI position; help");
-  else if (serialCommandLength)
-    Serial.printf("[SERIAL] Unknown command: %s\n", serialCommand);
+  } else if (command == "position") {
+    processPositionCommand(line, false);
+  } else if (command == "fen") {
+    processPositionCommand(line, true);
+  } else if (command == "help") {
+    Serial.println("Commands:");
+    Serial.println("  position startpos [moves e2e4 ...]");
+    Serial.println("  position fen <6 FEN fields> [moves e2e4 ...]");
+    Serial.println("  fen <6 FEN fields>  (shorthand)");
+    Serial.println("  moves (or uci)  print current position as a UCI command");
+    Serial.println("FEN piece-letter case is preserved. Invalid positions leave the current game unchanged.");
+  } else if (!command.empty()) {
+    Serial.printf("[SERIAL] Unknown command: %s\n", command.c_str());
+  }
   serialCommandLength = 0;
 }
 

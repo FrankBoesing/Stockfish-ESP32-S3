@@ -29,6 +29,12 @@ public:
   void clear() { size_ = 0; }
   bool empty() const { return size_ == 0; }
   size_t size() const { return size_; }
+  void swap(GameHistory &other) {
+    uint16_t *moves = moves_; moves_ = other.moves_; other.moves_ = moves;
+    size_t size = size_; size_ = other.size_; other.size_ = size;
+    size_t capacity = capacity_; capacity_ = other.capacity_; other.capacity_ = capacity;
+    uint32_t caps = memoryCaps_; memoryCaps_ = other.memoryCaps_; other.memoryCaps_ = caps;
+  }
   const uint16_t *packedData() const { return moves_; }
   bool usesPsram() const { return (memoryCaps_ & MALLOC_CAP_SPIRAM) != 0; }
 

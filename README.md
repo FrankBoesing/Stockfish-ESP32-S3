@@ -56,9 +56,20 @@ in a versioned, checksummed NVS blob after each accepted human move, engine
 move, undo and new-game initialization. A valid saved game is reconstructed
 through `Engine::set_position()` on startup, including Stockfish's repetition
 history; if the engine is to move after reset, its search is restarted. Type
-`moves` (or `uci`) in the serial monitor and press Enter to print a UCI
-`position startpos moves ...` command and the current FEN. PGN export is a
-separate planned feature.
+`moves` (or `uci`) in the serial monitor and press Enter to print the current UCI position
+command and FEN. Positions can be loaded through the same serial monitor:
+
+```text
+position startpos moves e2e4 e7e5
+position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
+```
+
+The UCI form accepts an optional `moves` sequence after either starting
+position. The original FEN and move list are persisted, so a custom test
+position also survives a reset. FEN piece-letter case is preserved. Invalid
+FENs or move sequences are rejected without replacing the current game.
+PGN export is a separate planned feature.
 
 Search callbacks only publish compact status/best-move data; drawing and
 position updates remain in the Arduino loop task. The GUI deliberately avoids
