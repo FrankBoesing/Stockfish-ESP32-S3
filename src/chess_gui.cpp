@@ -55,9 +55,9 @@ constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
   return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-// Deep navy background, closer to the TeensyFish reference palette.
-constexpr uint16_t ColorBackground = rgb(16, 18, 28);
-constexpr uint16_t ColorPanel      = rgb(22, 26, 39);
+// Deep midnight navy, close to the dark TeensyFish look.
+constexpr uint16_t ColorBackground = rgb(8, 10, 18);
+constexpr uint16_t ColorPanel      = rgb(17, 21, 34);
 constexpr uint16_t ColorLight      = rgb(194, 193, 201);
 constexpr uint16_t ColorDark       = rgb(54, 99, 197);
 constexpr uint16_t ColorOrange     = rgb(255, 169, 0);
@@ -470,29 +470,111 @@ static void drawPiece(char piece, int x, int y, uint16_t squareColor) {
   tft.pushImage(x, y, SquareSize, SquareSize, pieceTile);
 }
 
-static void drawBoard() {
-  for (int row = 0; row < 8; ++row) {
-    for (int col = 0; col < 8; ++col) {
-      const int file = playerColor == 'w' ? col : 7 - col;
-      const int rank = playerColor == 'w' ? 7 - row : row;
-      const int square = rank * 8 + file;
-      const int x = BoardX + col * SquareSize;
-      const int y = BoardY + row * SquareSize;
+static uint16_t boardSquareColor(int square, int lastFromValue, int lastToValue,
+                                     int hintFromValue, int hintToValue,
+                                     int selectedSquareValue) {
+  const int file = square % 8;
+  const int rank = square / 8;
+  uint16_t color = ((file + rank) & 1) ? ColorLight : ColorDark;
 
-      uint16_t squareColor = ((file + rank) & 1) ? ColorLight : ColorDark;
-      if (square == lastFrom || square == lastTo)
-        squareColor = ColorLastMove;
-      if (square == hintFrom || square == hintTo)
-        squareColor = ColorHint;
-      if (square == selectedSquare)
-        squareColor = ColorSelected;
+  if (square == lastFromValue || square == lastToValue)
+    color = ColorLastMove;
+  if (square == hintFromValue || square == hintToValue)
+    color = ColorHint;
+  if (square == selectedSquareValue)
+    color = ColorSelected;
+  return color;
+}
 
-      if (board[square])
-        drawPiece(board[square], x, y, squareColor);
-      else
-        tft.fillRect(x, y, SquareSize, SquareSize, squareColor);
-    }
+static void drawBoardSquare(int square) {
+  if (square < 0 || square >= 64)
+    return;
+
+  const int file = square % 8;
+  const int rank = square / 8;
+  const int col = playerColor == 'w' ? file : 7 - file;
+  const int row = playerColor == 'w' ? 7 - rank : rank;
+  const int x = BoardX + col * SquareSize;
+  const int y = BoardY + row * SquareSize;
+  const uint16_t color = boardSquareColor(square, lastFrom, lastTo,
+                                          hintFrom, hintTo, selectedSquare);
+
+  if (board[square])
+    drawPiece(board[square], x, y, color);
+  else
+    tft.fillRect(x, y, SquareSize, SquareSize, color);
+}
+
+static void drawChangedBoardSquares(const char *oldBoard,
+                                    int oldLastFrom, int oldLastTo,
+                                    int oldHintFrom, int oldHintTo,
+                                    int oldSelectedSquare) {
+  for (int square = 0; square < 64; ++square) {
+    const uint16_t oldColor = boardSquareColor(
+      square, oldLastFrom, oldLastTo, oldHintFrom, oldHintTo, oldSelectedSquare);
+    const uint16_t newColor = boardSquareColor(
+      square, lastFrom, lastTo, hintFrom, hintTo, selectedSquare);
+
+    if (oldBoard[square] != board[square] || oldColor != newColor)
+      drawBoardSquare(square);
   }
+}
+
+static void drawBoard() {
+  for (int square = 0; square < 64; ++square)
+    drawBoardSquare(square);
+}
+
+static void drawPanelText(const char *text, int x, int y, int w, int h,
+                           uint16_t color, const lgfx::IFont *font) {
+  tft.fillRect(x, y, w, h, ColorPanel);
+  drawCenteredText(text, x, y, w, h, color, font);
+}
+
+static void drawGamePanelInfo() {
+  const int x = BoardX + BoardSize + 6;
+  const int w = 320 - x - 4;
+
+  const char *turnText = searchInFlight ? "Thinking"
+                       : sideToMove() == playerColor ? "Your move" : "Engine";
+  drawPanelText(turnText, x + 1, 62, w - 2, 16,
+                searchInFlight ? ColorOrange : ColorText,
+                &fonts::FreeSansBold9pt7b);
+
+  int uiDepth;
+  uint32_t uiNps;
+  portENTER_CRITICAL(&searchMux);
+  uiDepth = searchMailbox.depth;
+  uiNps = searchMailbox.nps;
+  portEXIT_CRITICAL(&searchMux);
+
+  char depthText[24];
+  snprintf(depthText, sizeof(depthText), "Depth %d", uiDepth);
+  drawPanelText(depthText, x, 82, w, 14, ColorMuted, &fonts::FreeSans9pt7b);
+
+  char npsText[24];
+  if (uiNps >= 1000)
+    snprintf(npsText, sizeof(npsText), "%.1fk N/s", uiNps / 1000.0f);
+  else
+    snprintf(npsText, sizeof(npsText), "%lu N/s", (unsigned long)uiNps);
+  drawPanelText(npsText, x, 97, w, 14, ColorMuted, &fonts::FreeSans9pt7b);
+
+  const int material = materialBalanceForPlayer();
+  char materialText[20];
+  snprintf(materialText, sizeof(materialText), "Material %+d", material);
+  drawPanelText(materialText, x, 113, w, 14,
+                material > 0 ? ColorOrange : ColorText,
+                &fonts::FreeSansBold9pt7b);
+
+  drawPanelText(statusText, x + 1, 129, w - 2, 14,
+                ColorMuted, &fonts::FreeSans9pt7b);
+  drawButton(x + 2, 147, w - 4, 25, "HINT", false,
+             !searchInFlight && sideToMove() == playerColor,
+             &fonts::FreeSansBold9pt7b);
+  drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty(),
+             &fonts::FreeSansBold9pt7b);
+  drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
+             &fonts::FreeSansBold9pt7b);
 }
 
 static void drawGamePanel() {
@@ -506,49 +588,7 @@ static void drawGamePanel() {
   snprintf(levelText, sizeof(levelText), "Level %d", skillLevel);
   drawCenteredText(levelText, x, 44, w, 14,
                    ColorOrange, &fonts::FreeSansBold9pt7b);
-
-  const char *turnText = searchInFlight ? "Thinking"
-                       : sideToMove() == playerColor ? "Your move" : "Engine";
-  drawCenteredText(turnText, x + 1, 62, w - 2, 16,
-                   searchInFlight ? ColorOrange : ColorText,
-                   &fonts::FreeSansBold9pt7b);
-
-  int uiDepth;
-  uint32_t uiNps;
-  portENTER_CRITICAL(&searchMux);
-  uiDepth = searchMailbox.depth;
-  uiNps = searchMailbox.nps;
-  portEXIT_CRITICAL(&searchMux);
-
-  char depthText[24];
-  snprintf(depthText, sizeof(depthText), "Depth %d", uiDepth);
-  drawCenteredText(depthText, x, 82, w, 14,
-                   ColorMuted, &fonts::FreeSans9pt7b);
-
-  char npsText[24];
-  if (uiNps >= 1000)
-    snprintf(npsText, sizeof(npsText), "%.1fk N/s", uiNps / 1000.0f);
-  else
-    snprintf(npsText, sizeof(npsText), "%lu N/s", (unsigned long)uiNps);
-  drawCenteredText(npsText, x, 97, w, 14,
-                   ColorMuted, &fonts::FreeSans9pt7b);
-
-  const int material = materialBalanceForPlayer();
-  char materialText[20];
-  snprintf(materialText, sizeof(materialText), "Material %+d", material);
-  drawCenteredText(materialText, x, 113, w, 14,
-                   material > 0 ? ColorOrange : ColorText,
-                   &fonts::FreeSansBold9pt7b);
-
-  drawCenteredText(statusText, x + 1, 129, w - 2, 14,
-                   ColorMuted, &fonts::FreeSans9pt7b);
-  drawButton(x + 2, 147, w - 4, 25, "HINT", false,
-             !searchInFlight && sideToMove() == playerColor,
-             &fonts::FreeSansBold9pt7b);
-  drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty(),
-             &fonts::FreeSansBold9pt7b);
-  drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
-             &fonts::FreeSansBold9pt7b);
+  drawGamePanelInfo();
 }
 
 static void renderGame() {
@@ -637,7 +677,7 @@ static void startSearch(SearchMode mode) {
   searchInFlight = true;
   setStatus(mode == SearchMode::Hint ? "Finding hint" : "Thinking");
   engine->go(limits);
-  drawGamePanel();
+  drawGamePanelInfo();
 }
 
 static void stopSearch() {
@@ -658,11 +698,17 @@ static void handleSearchResult(const char *bestMove) {
   if (!bestMove || !bestMove[0] || strcmp(bestMove, "0000") == 0) {
     searchMode = SearchMode::None;
     setStatus("Game over");
-    renderGame();
+    drawGamePanelInfo();
     return;
   }
 
   if (searchMode == SearchMode::Hint) {
+    const int oldLastFrom = lastFrom, oldLastTo = lastTo;
+    const int oldHintFrom = hintFrom, oldHintTo = hintTo;
+    const int oldSelected = selectedSquare;
+    char oldBoard[64];
+    memcpy(oldBoard, board, sizeof(board));
+
     snprintf(hintText, sizeof(hintText), "%s", bestMove);
     hintFrom = squareFromUci(bestMove);
     hintTo = squareFromUci(bestMove + 2);
@@ -670,11 +716,19 @@ static void handleSearchResult(const char *bestMove) {
     snprintf(text, sizeof(text), "Hint: %.5s", bestMove);
     setStatus(text);
     searchMode = SearchMode::None;
-    renderGame();
+    drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                            oldHintFrom, oldHintTo, oldSelected);
+    drawGamePanelInfo();
     return;
   }
 
   if (searchMode == SearchMode::EngineMove) {
+    const int oldLastFrom = lastFrom, oldLastTo = lastTo;
+    const int oldHintFrom = hintFrom, oldHintTo = hintTo;
+    const int oldSelected = selectedSquare;
+    char oldBoard[64];
+    memcpy(oldBoard, board, sizeof(board));
+
     gameMoves.emplace_back(bestMove);
     if (!syncEnginePosition()) {
       gameMoves.pop_back();
@@ -684,7 +738,9 @@ static void handleSearchResult(const char *bestMove) {
       setStatus("Your move");
     }
     searchMode = SearchMode::None;
-    renderGame();
+    drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                            oldHintFrom, oldHintTo, oldSelected);
+    drawGamePanelInfo();
   }
 }
 
@@ -706,7 +762,7 @@ static void pollSearchMailbox() {
   portEXIT_CRITICAL(&searchMux);
 
   if (infoDirty && screen == Screen::Game) {
-    drawGamePanel();
+    drawGamePanelInfo();
   }
 
   if (bestMoveReady) {
@@ -747,9 +803,15 @@ static void undoMove() {
 
   if (gameMoves.empty()) {
     setStatus("Nothing to undo");
-    drawGamePanel();
+    drawGamePanelInfo();
     return;
   }
+
+  const int oldLastFrom = lastFrom, oldLastTo = lastTo;
+  const int oldHintFrom = hintFrom, oldHintTo = hintTo;
+  const int oldSelected = selectedSquare;
+  char oldBoard[64];
+  memcpy(oldBoard, board, sizeof(board));
 
   const size_t removeCount = gameMoves.size() >= 2 ? 2 : 1;
   for (size_t i = 0; i < removeCount; ++i)
@@ -764,7 +826,9 @@ static void undoMove() {
   }
 
   setStatus("Move undone");
-  renderGame();
+  drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                          oldHintFrom, oldHintTo, oldSelected);
+  drawGamePanelInfo();
 
   if (sideToMove() != playerColor)
     startSearch(SearchMode::EngineMove);
@@ -783,6 +847,12 @@ static void uciSquareName(int square, char *out) {
 static void attemptMove(int from, int to) {
   if (from < 0 || to < 0 || from == to)
     return;
+
+  const int oldLastFrom = lastFrom, oldLastTo = lastTo;
+  const int oldHintFrom = hintFrom, oldHintTo = hintTo;
+  const int oldSelected = selectedSquare;
+  char oldBoard[64];
+  memcpy(oldBoard, board, sizeof(board));
 
   char move[8];
   uciSquareName(from, move);
@@ -806,7 +876,9 @@ static void attemptMove(int from, int to) {
     engine->set_position(StartFen, gameMoves);
     selectedSquare = -1;
     setStatus("Illegal move");
-    renderGame();
+    drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                            oldHintFrom, oldHintTo, oldSelected);
+    drawGamePanelInfo();
     return;
   }
 
@@ -817,7 +889,9 @@ static void attemptMove(int from, int to) {
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
   setStatus("Thinking");
-  renderGame();
+  drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                          oldHintFrom, oldHintTo, oldSelected);
+  drawGamePanelInfo();
 
   if (sideToMove() != playerColor)
     startSearch(SearchMode::EngineMove);
@@ -863,17 +937,22 @@ static void handleBoardTouch(int x, int y) {
     const char piece = board[square];
     if (piece && ((playerColor == 'w' && isupper((unsigned char)piece))
                   || (playerColor == 'b' && islower((unsigned char)piece)))) {
+      const int previousSelection = selectedSquare;
       selectedSquare = square;
       setStatus("Select destination");
-      renderGame();
+      drawBoardSquare(previousSelection);
+      drawBoardSquare(selectedSquare);
+      drawGamePanelInfo();
     }
     return;
   }
 
   if (square == selectedSquare) {
+    const int previousSelection = selectedSquare;
     selectedSquare = -1;
     setStatus("Your move");
-    renderGame();
+    drawBoardSquare(previousSelection);
+    drawGamePanelInfo();
     return;
   }
 
@@ -883,9 +962,12 @@ static void handleBoardTouch(int x, int y) {
         || (playerColor == 'b' && islower((unsigned char)targetPiece)));
 
   if (ownTarget) {
+    const int previousSelection = selectedSquare;
     selectedSquare = square;
     setStatus("Select destination");
-    renderGame();
+    drawBoardSquare(previousSelection);
+    drawBoardSquare(selectedSquare);
+    drawGamePanelInfo();
     return;
   }
 
@@ -1056,6 +1138,8 @@ void setup() {
   delay(1200);
   Serial.println();
   Serial.println("Stockfish ESP32-S3 touchscreen GUI");
+  Serial.println("[GUI] Build: partial-redraw-dark-navy-v1");
+  Serial.println("[GUI] Palette RGB565: background=0x0842 panel=0x1104");
 
   initializeDisplayAndTouch();
   renderLoading();
