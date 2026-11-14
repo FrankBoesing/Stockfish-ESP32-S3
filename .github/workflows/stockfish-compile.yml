@@ -7,6 +7,7 @@ on:
     paths:
       - "platformio.ini"
       - "src/**"
+      - "tests/**"
       - ".github/workflows/stockfish-compile.yml"
   workflow_dispatch:
 
@@ -27,6 +28,9 @@ jobs:
 
       - name: Install PlatformIO
         run: python -m pip install --upgrade platformio
+
+      - name: Run native Stockfish GUI rule regression tests
+        run: bash tests/native/run_tests.sh
 
       - name: Compile default PIE firmware, profiler and parity validator
         shell: bash
