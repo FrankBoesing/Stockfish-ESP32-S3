@@ -111,6 +111,18 @@ The combined incremental update is additionally decomposed into:
 
 The main-loop and PSQT-loop counters are nested within `accum-update-both`; do not add their percentages to the enclosing counter. Their sum and the index-building time should approximately explain the helper cost.
 
+## Experimental ESP32-S3 PIE accumulator
+
+A separate experimental build enables an Xtensa PIE kernel for the 1024-element int16 accumulator update:
+
+```sh
+pio run -e freenove_stockfish_piebench -t upload
+```
+
+This environment also enables the NNUE cycle profiler and prints an additional `accum-pie-loop` counter. The PIE kernel processes eight int16 lanes per iteration with 128-bit loads, saturating subtraction/addition, and a 128-bit store. Because these PIE arithmetic operations saturate while the scalar Stockfish update has wrapping int16 semantics, the kernel is enabled only after a network-load-time range proof. For each output lane, the proof checks whether the bias plus any possible subset of up to `FeatureSet::MaxActiveDimensions` feature weights stays in the int16 range. If the proof fails, `apply_features()` uses the unchanged scalar path. The ordinary compile and `nnubench` environments do not define `STOCKFISH_ESP32_S3_PIE`.
+
+The `accum-pie-loop` counter is nested inside `accum-main-loop`; do not add their percentages. A successful CI build verifies assembly/compiler acceptance only. Before accepting this optimization, compare the PIE build with the scalar baseline on hardware, confirm NNUE verification and identical search results, and check the PIE-loop counter is nonzero. The experimental environment must not be treated as the default firmware until those hardware checks pass.
+
 ## Source provenance
 
 The engine source will be obtained from the official upstream repository:
