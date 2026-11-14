@@ -22,6 +22,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/misc.h"
 #include "stockfish/attacks.h"
 #include "stockfish/position.h"
+#include "stockfish/movegen.h"
 #include "gui/pieces.h"
 
 #include <algorithm>
@@ -137,6 +138,7 @@ int lastTo = -1;
 int hintFrom = -1;
 int hintTo = -1;
 bool hasGame = false;
+bool gameOver = false;
 bool searchInFlight = false;
 char statusText[48] = "Ready";
 char hintText[16] = "";
@@ -410,6 +412,50 @@ static bool syncEnginePosition() {
   return true;
 }
 
+struct PositionStatus {
+  bool valid;
+  bool inCheck;
+  bool hasLegalMoves;
+};
+
+// Reuse Stockfish's Position and legal move generator for terminal-state
+// detection. No second chess-rules implementation is introduced.
+static PositionStatus inspectCurrentPosition() {
+  Stockfish::Position position;
+  Stockfish::StateInfo state;
+  const auto error = position.set(currentFen, false, &state);
+  if (error.has_value()) {
+    Serial.printf("[GUI] Cannot inspect current FEN: %s\n", error->what());
+    return { false, false, false };
+  }
+
+  const bool inCheck = position.checkers() != 0;
+  Stockfish::MoveList<Stockfish::LEGAL> legalMoves(position);
+  return { true, inCheck, legalMoves.size() != 0 };
+}
+
+static bool updateGameStatusFromPosition() {
+  const PositionStatus position = inspectCurrentPosition();
+  if (!position.valid) {
+    gameOver = false;
+    setStatus("Position error");
+    return false;
+  }
+
+  if (!position.hasLegalMoves) {
+    gameOver = true;
+    if (!position.inCheck)
+      setStatus("Stalemate");
+    else
+      setStatus(sideToMove() == playerColor ? "You lose" : "You win");
+    return true;
+  }
+
+  gameOver = false;
+  setStatus(position.inCheck ? "Check!" : "Your move");
+  return false;
+}
+
 static int materialValue(char piece) {
   switch (tolower((unsigned char)piece)) {
     case 'p': return 1;
@@ -547,7 +593,8 @@ static void drawGamePanelInfo() {
   // The depth/NPS strip is redrawn separately immediately afterwards.
   tft.fillRect(x, 60, w, 85, ColorPanel);
 
-  const char *turnText = searchInFlight ? "Thinking"
+  const char *turnText = gameOver ? "Game over"
+                       : searchInFlight ? "Thinking"
                        : sideToMove() == playerColor ? "Your move" : "Engine";
   drawPanelText(turnText, x + 1, 62, w - 2, 16,
                 searchInFlight ? ColorOrange : ColorText,
@@ -563,7 +610,8 @@ static void drawGamePanelInfo() {
   drawPanelText(statusText, x + 1, 129, w - 2, 14,
                 ColorMuted, &fonts::FreeSans9pt7b);
   drawButton(x + 2, 147, w - 4, 25, "HINT", false,
-             !searchInFlight && sideToMove() == playerColor,
+             !searchInFlight && !gameOver
+               && sideToMove() == playerColor,
              &fonts::FreeSansBold9pt7b, 2);
   drawButton(x + 2, 177, w - 4, 25, "UNDO", false, !gameMoves.empty(),
              &fonts::FreeSansBold9pt7b, 2);
@@ -700,7 +748,7 @@ static void renderCalibrationComplete(bool saved) {
 }
 
 static void startSearch(SearchMode mode) {
-  if (!engine || searchInFlight)
+  if (!engine || searchInFlight || gameOver)
     return;
 
   if (mode == SearchMode::Hint && sideToMove() != playerColor)
@@ -752,7 +800,8 @@ static void stopSearch() {
 static void handleSearchResult(const char *bestMove) {
   if (!bestMove || !bestMove[0] || strcmp(bestMove, "0000") == 0) {
     searchMode = SearchMode::None;
-    setStatus("Game over");
+    if (!updateGameStatusFromPosition())
+      setStatus("Search ended");
     drawGamePanelInfo();
     return;
   }
@@ -790,7 +839,7 @@ static void handleSearchResult(const char *bestMove) {
       syncEnginePosition();
       setStatus("Engine move error");
     } else {
-      setStatus("Your move");
+      updateGameStatusFromPosition();
     }
     searchMode = SearchMode::None;
     drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
@@ -831,6 +880,7 @@ static void startNewGame() {
   stopSearch();
   engine->search_clear();
   gameMoves.clear();
+  gameOver = false;
   selectedSquare = -1;
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
@@ -873,6 +923,7 @@ static void undoMove() {
   for (size_t i = 0; i < removeCount; ++i)
     gameMoves.pop_back();
 
+  gameOver = false;
   selectedSquare = -1;
   hintFrom = hintTo = -1;
   if (!syncEnginePosition()) {
@@ -943,7 +994,9 @@ static void applyMove(int from, int to, char promotion) {
   selectedSquare = -1;
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
-  setStatus("Thinking");
+  const bool terminalPosition = updateGameStatusFromPosition();
+  if (!terminalPosition && sideToMove() != playerColor)
+    setStatus("Thinking");
 
   if (wasPromotion) {
     screen = Screen::Game;
@@ -954,7 +1007,7 @@ static void applyMove(int from, int to, char promotion) {
     drawGamePanelInfo();
   }
 
-  if (sideToMove() != playerColor)
+  if (!gameOver && sideToMove() != playerColor)
     startSearch(SearchMode::EngineMove);
 }
 
@@ -1038,6 +1091,9 @@ static void handleBoardTouch(int x, int y) {
     renderMenu();
     return;
   }
+
+  if (gameOver)
+    return;
 
   const int square = screenToSquare(x, y);
   if (square < 0 || sideToMove() != playerColor)
