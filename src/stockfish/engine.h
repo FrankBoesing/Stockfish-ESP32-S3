@@ -36,6 +36,7 @@
 #include "nnue/nnue_misc.h"
 #include "numa.h"
 #include "position.h"
+#include "position_status.h"
 #include "search.h"
 #include "syzygy/tbprobe.h"  // for Stockfish::Depth
 #include "thread.h"
@@ -68,14 +69,7 @@ class Engine {
 
     ~Engine() { wait_for_search_finished(); }
 
-    struct GameStatus {
-        bool inCheck = false;
-        bool hasLegalMoves = false;
-        bool drawByFiftyMove = false;
-        bool drawByRepetition = false;
-        bool insufficientMaterial = false;
-        int halfmoveClock = 0;
-    };
+    using GameStatus = PositionStatus;
 
     GameStatus game_status() const;
 
