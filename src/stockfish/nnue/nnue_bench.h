@@ -25,6 +25,11 @@ enum Stage : uint8_t {
     ClippedReLU1,
     FC2,
     EvaluationTotal,
+    AccumulatorFindLast,
+    AccumulatorForwardIncremental,
+    AccumulatorBackwardIncremental,
+    AccumulatorForwardBoth,
+    AccumulatorRefreshCache,
     StageCount
 };
 
