@@ -120,7 +120,7 @@ public:
 BoardDisplay tft;
 Stockfish::Engine *engine = nullptr;
 
-enum class Screen : uint8_t { Calibration, Menu, Game };
+enum class Screen : uint8_t { Calibration, Menu, Game, Promotion };
 enum class SearchMode : uint8_t { None, EngineMove, Hint };
 
 Screen screen = Screen::Menu;
@@ -140,6 +140,8 @@ bool hasGame = false;
 bool searchInFlight = false;
 char statusText[48] = "Ready";
 char hintText[16] = "";
+int pendingPromotionFrom = -1;
+int pendingPromotionTo = -1;
 
 struct SearchMailbox {
   int depth;
@@ -619,6 +621,32 @@ static void renderGame() {
   drawGamePanel();
 }
 
+static void renderPromotionChooser() {
+  screen = Screen::Promotion;
+
+  // Modal dialog over the current board. The board is fully redrawn after a
+  // choice or cancellation, so no framebuffer or partial overlay bookkeeping
+  // is required.
+  constexpr int DialogX = 14;
+  constexpr int DialogY = 66;
+  constexpr int DialogW = 292;
+  constexpr int DialogH = 112;
+  tft.fillRoundRect(DialogX, DialogY, DialogW, DialogH, 10, ColorPanel);
+  tft.drawRoundRect(DialogX, DialogY, DialogW, DialogH, 10, ColorOrange);
+  drawCenteredText("Promote pawn", DialogX + 6, DialogY + 5,
+                   DialogW - 12, 25, ColorOrange,
+                   &fonts::FreeSansBold9pt7b);
+
+  static const char *labels[] = { "QUEEN", "ROOK", "BISHOP", "KNIGHT" };
+  static constexpr int buttonX[] = { 22, 91, 160, 229 };
+  for (int i = 0; i < 4; ++i)
+    drawButton(buttonX[i], 102, 64, 50, labels[i], false, true,
+               &fonts::FreeSansBold9pt7b);
+
+  drawButton(112, 157, 96, 18, "CANCEL", false, true,
+             &fonts::FreeSans9pt7b);
+}
+
 static void renderMenu() {
   screen = Screen::Menu;
   tft.fillScreen(ColorBackground);
@@ -806,6 +834,7 @@ static void startNewGame() {
   selectedSquare = -1;
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
+  pendingPromotionFrom = pendingPromotionTo = -1;
   searchMode = SearchMode::None;
 
   setSkillOption();
@@ -871,10 +900,11 @@ static void uciSquareName(int square, char *out) {
   out[2] = '\0';
 }
 
-static void attemptMove(int from, int to) {
+static void applyMove(int from, int to, char promotion) {
   if (from < 0 || to < 0 || from == to)
     return;
 
+  const bool wasPromotion = promotion != '\0';
   const int oldLastFrom = lastFrom, oldLastTo = lastTo;
   const int oldHintFrom = hintFrom, oldHintTo = hintTo;
   const int oldSelected = selectedSquare;
@@ -885,15 +915,8 @@ static void attemptMove(int from, int to) {
   uciSquareName(from, move);
   uciSquareName(to, move + 2);
   int length = 4;
-
-  // First GUI milestone: promotion defaults to Queen. A dedicated chooser
-  // can be added without changing the underlying Stockfish move validation.
-  const char movingPiece = board[from];
-  if (tolower((unsigned char)movingPiece) == 'p'
-      && ((playerColor == 'w' && to / 8 == 7)
-          || (playerColor == 'b' && to / 8 == 0))) {
-    move[length++] = 'q';
-  }
+  if (wasPromotion)
+    move[length++] = promotion;
   move[length] = '\0';
 
   gameMoves.emplace_back(move);
@@ -901,11 +924,16 @@ static void attemptMove(int from, int to) {
   if (error.has_value()) {
     gameMoves.pop_back();
     engine->set_position(StartFen, gameMoves);
-    selectedSquare = -1;
+    selectedSquare = wasPromotion ? from : -1;
     setStatus("Illegal move");
-    drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
-                            oldHintFrom, oldHintTo, oldSelected);
-    drawGamePanelInfo();
+    if (wasPromotion) {
+      screen = Screen::Game;
+      renderGame();
+    } else {
+      drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                              oldHintFrom, oldHintTo, oldSelected);
+      drawGamePanelInfo();
+    }
     return;
   }
 
@@ -916,12 +944,67 @@ static void attemptMove(int from, int to) {
   hintFrom = hintTo = -1;
   hintText[0] = '\0';
   setStatus("Thinking");
-  drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
-                          oldHintFrom, oldHintTo, oldSelected);
-  drawGamePanelInfo();
+
+  if (wasPromotion) {
+    screen = Screen::Game;
+    renderGame();
+  } else {
+    drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
+                            oldHintFrom, oldHintTo, oldSelected);
+    drawGamePanelInfo();
+  }
 
   if (sideToMove() != playerColor)
     startSearch(SearchMode::EngineMove);
+}
+
+static void attemptMove(int from, int to) {
+  if (from < 0 || to < 0 || from == to)
+    return;
+
+  const char movingPiece = board[from];
+  const bool promotionMove =
+    tolower((unsigned char)movingPiece) == 'p'
+    && ((playerColor == 'w' && to / 8 == 7)
+        || (playerColor == 'b' && to / 8 == 0));
+
+  if (promotionMove) {
+    pendingPromotionFrom = from;
+    pendingPromotionTo = to;
+    renderPromotionChooser();
+    return;
+  }
+
+  applyMove(from, to, '\0');
+}
+
+static void cancelPromotion() {
+  if (pendingPromotionFrom >= 0)
+    selectedSquare = pendingPromotionFrom;
+  pendingPromotionFrom = pendingPromotionTo = -1;
+  setStatus("Promotion canceled");
+  renderGame();
+}
+
+static void handlePromotionTouch(int x, int y) {
+  static constexpr int buttonX[] = { 22, 91, 160, 229 };
+  static constexpr char promotionMoves[] = { 'q', 'r', 'b', 'n' };
+
+  if (y >= 102 && y < 152) {
+    for (int i = 0; i < 4; ++i) {
+      if (x >= buttonX[i] && x < buttonX[i] + 64) {
+        const int from = pendingPromotionFrom;
+        const int to = pendingPromotionTo;
+        pendingPromotionFrom = pendingPromotionTo = -1;
+        applyMove(from, to, promotionMoves[i]);
+        return;
+      }
+    }
+  }
+
+  // The explicit Cancel button and any tap outside the four choices cancel
+  // the modal without modifying the move list or the Stockfish position.
+  cancelPromotion();
 }
 
 static int screenToSquare(int x, int y) {
@@ -1077,6 +1160,9 @@ static void processTouch(int x, int y, uint16_t rawX, uint16_t rawY) {
       break;
     case Screen::Game:
       handleBoardTouch(x, y);
+      break;
+    case Screen::Promotion:
+      handlePromotionTouch(x, y);
       break;
   }
 }
