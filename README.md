@@ -25,6 +25,31 @@ The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a valida
 
 Stockfish 19 Smallnet P_hm is running on the Freenove ESP32-S3 display board. The standard `freenove_stockfish_compile` firmware now enables the ESP32-S3 PIE accumulator kernel by default, guarded by a network-load-time int16 range proof and automatic scalar fallback. The current Smallnet network passed an on-device scalar-vs-PIE comparison across 82,976 updates (84,967,424 accumulator lanes) with zero mismatches and zero out-of-range intermediate values. The regular, uninstrumented PIE firmware completed the start-position, Kiwipete, and 5-second searches at 1,223, 1,297, and 1,561 NPS respectively, with a minimum worker-stack reserve of 98,416 bytes. Engine, NNUE, display, touch, and single-worker search initialization are validated. The project is now moving to the touchscreen chess GUI; further engine/NNUE performance optimization is deliberately deferred and will resume from this recorded baseline. See [the development checkpoint and handoff notes](docs/STATUS-2026-11-14.md) for exact commits, measurements, constraints, and the next work phase.
 
+## Touchscreen GUI prototype
+
+The interactive GUI is built separately from the diagnostic engine probe:
+
+```sh
+pio run -e freenove_stockfish_gui -t upload
+```
+
+The `freenove_stockfish_compile` environment remains the known-good engine/NNUE
+probe and is not replaced by the GUI target. The first GUI implementation uses
+the established ILI9341/FT6336U hardware configuration, a dark navy / blue /
+orange TeensyFish-inspired theme, a three-point affine touch calibration saved
+in NVS, a new-game screen, and a directly rendered 8x8 board. The board rotates
+180 degrees for a Black player so the human side is always at the bottom.
+
+Moves are submitted as UCI moves through Stockfish's existing
+`Engine::set_position()` API. Stockfish remains the source of truth for move
+legality and position state; this GUI does not implement a second chess-rules
+engine. The first prototype defaults pawn promotion to Queen. Search callbacks
+only publish compact status/best-move data; drawing and position updates remain
+in the Arduino loop task. The GUI deliberately avoids a full-screen framebuffer.
+
+This is an initial implementation milestone. Touch mapping, rendering, search
+responsiveness and move handling still require a hardware test on the FNK0104B.
+
 ## Planned milestones
 
 1. Inspect upstream Stockfish build system, architecture-specific code, NNUE network loading, threading, and memory allocation.
