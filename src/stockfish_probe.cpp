@@ -138,7 +138,7 @@ static void printNnueBenchCounters(const char *label) {
     "fc1", "sqr-relu1", "clip-relu1", "fc2", "evaluation-total",
     "accum-find-last", "accum-forward", "accum-backward", "accum-forward-both",
     "accum-refresh-cache", "accum-build-indices", "accum-main-loop",
-    "accum-psqt-loop", "accum-update-both"
+    "accum-psqt-loop", "accum-update-both", "accum-pie-loop"
   };
   const uint64_t totalCycles = counters[EvaluationTotal].cycles;
   Serial.printf("[NNUEBENCH] %s evals=%u total=%llu cycles avg=%llu cycles/eval\n",
