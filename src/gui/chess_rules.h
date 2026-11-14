@@ -52,12 +52,15 @@ inline bool legalDestinations(const Stockfish::Position& position, int fromSquar
 }
 
 inline bool isPawnPromotion(char movingPiece, int toSquare, char playerColor) {
-  if (toSquare < 0 || toSquare >= 64
-      || (movingPiece != 'p' && movingPiece != 'P'))
+  if (toSquare < 0 || toSquare >= 64)
     return false;
 
-  return (playerColor == 'w' && toSquare / 8 == 7)
-      || (playerColor == 'b' && toSquare / 8 == 0);
+  // The character case is also the piece colour in the GUI board array.
+  if (playerColor == 'w')
+    return movingPiece == 'P' && toSquare / 8 == 7;
+  if (playerColor == 'b')
+    return movingPiece == 'p' && toSquare / 8 == 0;
+  return false;
 }
 
 // The GUI's established takeback policy removes a human/engine pair, or the
