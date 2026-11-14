@@ -346,21 +346,6 @@ static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
   print_heap("After 5-second search");
 }
 
-void stockfish_esp_trace(const char* format, ...) {
-  char buffer[256];
-  va_list args;
-  va_start(args, format);
-  vsnprintf(buffer, sizeof(buffer), format, args);
-  va_end(args);
-  const char* taskName = pcTaskGetName(nullptr);
-  const UBaseType_t stackFree = uxTaskGetStackHighWaterMark(nullptr);
-  Serial.printf("[SFTRACE][%s stack-free~%u] %s\n",
-                taskName ? taskName : "?",
-                (unsigned)stackFree,
-                buffer);
-  Serial.flush();
-}
-
 static void print_panic_configuration() {
 #if CONFIG_ESP_SYSTEM_PANIC_SILENT_REBOOT
   Serial.println("Panic mode = SILENT_REBOOT");
