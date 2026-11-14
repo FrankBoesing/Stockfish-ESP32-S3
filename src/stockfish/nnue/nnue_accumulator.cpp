@@ -406,6 +406,64 @@ sf_always_inline PsqtTile apply_psqt(IndexType                         j,
     return acc;
 }
 
+#if defined(STOCKFISH_ESP32_S3_PIE)
+void apply_features_esp32_s3_pie(Color                     perspective,
+                                 const FeatureTransformer& featureTransformer,
+                                 const AccumulatorState&   from,
+                                 AccumulatorState&         to,
+                                 const FeatureSet::IndexList& added,
+                                 const FeatureSet::IndexList& removed) {
+    static_assert(Dimensions % 8 == 0);
+    static_assert((Dimensions * sizeof(i16)) % 16 == 0);
+
+    // An absent second feature is represented by an aligned zero row.
+    alignas(CacheLineSize) static constexpr std::array<i16, Dimensions> zeroWeights{};
+
+    const i16* fromPtr = from.accumulation[perspective].data();
+    i16*       toPtr   = to.accumulation[perspective].data();
+    const i16* removed0Ptr = featureTransformer.weights.data() + removed[0] * Dimensions;
+    const i16* removed1Ptr = removed.ssize() > 1
+                               ? featureTransformer.weights.data() + removed[1] * Dimensions
+                               : zeroWeights.data();
+    const i16* added0Ptr = featureTransformer.weights.data() + added[0] * Dimensions;
+    const i16* added1Ptr = added.ssize() > 1
+                             ? featureTransformer.weights.data() + added[1] * Dimensions
+                             : zeroWeights.data();
+
+    // Accumulator and feature rows are 16-byte aligned:
+    // Accumulator is cache-line aligned, and each feature row is 1024 int16s.
+    assert((reinterpret_cast<uintptr_t>(fromPtr) & 15) == 0);
+    assert((reinterpret_cast<uintptr_t>(toPtr) & 15) == 0);
+    assert((reinterpret_cast<uintptr_t>(removed0Ptr) & 15) == 0);
+    assert((reinterpret_cast<uintptr_t>(removed1Ptr) & 15) == 0);
+    assert((reinterpret_cast<uintptr_t>(added0Ptr) & 15) == 0);
+    assert((reinterpret_cast<uintptr_t>(added1Ptr) & 15) == 0);
+
+    constexpr u32 Iterations = Dimensions / 8;
+    asm volatile(
+      "loopgtz %[iterations], 1f\n\t"
+      "ee.vld.128.ip q0, %[from], 16\n\t"
+      "ee.vld.128.ip q1, %[removed0], 16\n\t"
+      "ee.vld.128.ip q2, %[removed1], 16\n\t"
+      "ee.vld.128.ip q3, %[added0], 16\n\t"
+      "ee.vld.128.ip q4, %[added1], 16\n\t"
+      "ee.vsubs.s16 q5, q0, q1\n\t"
+      "ee.vsubs.s16 q5, q5, q2\n\t"
+      "ee.vadds.s16 q5, q5, q3\n\t"
+      "ee.vadds.s16 q5, q5, q4\n\t"
+      "ee.vst.128.ip q5, %[to], 16\n\t"
+      "1:\n\t"
+      : [from] "+&a"(fromPtr),
+        [removed0] "+&a"(removed0Ptr),
+        [removed1] "+&a"(removed1Ptr),
+        [added0] "+&a"(added0Ptr),
+        [added1] "+&a"(added1Ptr),
+        [to] "+&a"(toPtr)
+      : [iterations] "a"(Iterations)
+      : "q0", "q1", "q2", "q3", "q4", "q5", "memory");
+}
+#endif
+
 void apply_features(Color                        perspective,
                     const FeatureTransformer&    featureTransformer,
                     const AccumulatorState&      from,
@@ -425,14 +483,27 @@ void apply_features(Color                        perspective,
 #if defined(STOCKFISH_NNUE_BENCHMARK)
     uint32_t benchStart = Bench::cycle_count();
 #endif
-    for (IndexType j = 0; j < Dimensions; increment_index(j))
+#if defined(STOCKFISH_ESP32_S3_PIE)
+    if (featureTransformer.accumulator_range_safe()) {
+    #if defined(STOCKFISH_NNUE_BENCHMARK)
+        const uint32_t pieBenchStart = Bench::cycle_count();
+    #endif
+        apply_features_esp32_s3_pie(perspective, featureTransformer, from, to, added, removed);
+    #if defined(STOCKFISH_NNUE_BENCHMARK)
+        Bench::record(Bench::AccumulatorApplyPieLoop, pieBenchStart);
+    #endif
+    } else
+#endif
     {
-        acc = load_tile(j, fromAcc.data());
+        for (IndexType j = 0; j < Dimensions; increment_index(j))
+        {
+            acc = load_tile(j, fromAcc.data());
 
-        acc = apply_psq_features<-1, true>(j, acc, removed, featureTransformer);
-        acc = apply_psq_features<+1, true>(j, acc, added, featureTransformer);
+            acc = apply_psq_features<-1, true>(j, acc, removed, featureTransformer);
+            acc = apply_psq_features<+1, true>(j, acc, added, featureTransformer);
 
-        store_tile(j, toAcc.data(), acc);
+            store_tile(j, toAcc.data(), acc);
+        }
     }
 #if defined(STOCKFISH_NNUE_BENCHMARK)
     Bench::record(Bench::AccumulatorApplyMainLoop, benchStart);
