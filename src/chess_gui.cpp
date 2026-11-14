@@ -594,6 +594,7 @@ static void drawGamePanel() {
   drawCenteredText(levelText, x, 44, w, 14,
                    ColorOrange, &fonts::FreeSansBold9pt7b);
   drawGamePanelInfo();
+  drawGamePanelSearchStats();
 }
 
 static void renderGame() {
@@ -689,6 +690,7 @@ static void startSearch(SearchMode mode) {
   setStatus(mode == SearchMode::Hint ? "Finding hint" : "Thinking");
   engine->go(limits);
   drawGamePanelInfo();
+  drawGamePanelSearchStats();
 }
 
 static void stopSearch() {
@@ -1150,7 +1152,7 @@ void setup() {
   Serial.println();
   Serial.println("Stockfish ESP32-S3 touchscreen GUI");
   Serial.println("[GUI] Build: partial-redraw-dark-navy-v2");
-  Serial.printf("[GUI] Palette RGB565: background=0x%04X panel=0x%04X\\n",
+  Serial.printf("[GUI] Palette RGB565: background=0x%04X panel=0x%04X\n",
                 ColorBackground, ColorPanel);
 
   initializeDisplayAndTouch();
