@@ -442,16 +442,16 @@ void apply_features_esp32_s3_pie(Color                     perspective,
     constexpr u32 Iterations = Dimensions / 8;
     asm volatile(
       "loopgtz %[iterations], 1f\n\t"
-      "ee.vld.128.ip q0, %[from], 16\n\t"
-      "ee.vld.128.ip q1, %[removed0], 16\n\t"
-      "ee.vld.128.ip q2, %[removed1], 16\n\t"
-      "ee.vld.128.ip q3, %[added0], 16\n\t"
-      "ee.vld.128.ip q4, %[added1], 16\n\t"
+      "ee.vld.128.ip q0, %[from], 1\n\t"
+      "ee.vld.128.ip q1, %[removed0], 1\n\t"
+      "ee.vld.128.ip q2, %[removed1], 1\n\t"
+      "ee.vld.128.ip q3, %[added0], 1\n\t"
+      "ee.vld.128.ip q4, %[added1], 1\n\t"
       "ee.vsubs.s16 q5, q0, q1\n\t"
       "ee.vsubs.s16 q5, q5, q2\n\t"
       "ee.vadds.s16 q5, q5, q3\n\t"
       "ee.vadds.s16 q5, q5, q4\n\t"
-      "ee.vst.128.ip q5, %[to], 16\n\t"
+      "ee.vst.128.ip q5, %[to], 1\n\t"
       "1:\n\t"
       : [from] "+&a"(fromPtr),
         [removed0] "+&a"(removed0Ptr),
