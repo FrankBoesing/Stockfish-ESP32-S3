@@ -27,7 +27,6 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
-#include <limits>
 
 #include "../../bitboard.h"
 #include "../../memory.h"
@@ -70,10 +69,6 @@ class AffineTransformSparseInput {
 
     using OutputBuffer = OutputType[PaddedOutputDimensions];
 
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX)
-    bool accx_range_safe() const noexcept { return fc0AccxRangeSafe; }
-#endif
-
     // Hash value embedded in the evaluation file
     static constexpr u32 get_hash_value(u32 prevHash) {
         u32 hashValue = 0xCC03DAE4u;
@@ -92,10 +87,6 @@ class AffineTransformSparseInput {
 #if (defined(USE_SSSE3) || defined(USE_LSX) || defined(USE_LASX) || (USE_NEON >= 8) \
      || defined(USE_RVV))
         return get_weight_index_scrambled(i);
-#elif defined(STOCKFISH_ESP32_S3_FC0_ACCX)
-        // The experimental ACCX kernel computes one output dot product at a
-        // time, so retain the network's native output-major weight order.
-        return i;
 #elif defined(STOCKFISH_ESP32_S3)
         // The scalar ESP32-S3 kernel keeps weights input-major so all outputs
         // for one active input are contiguous (32 bytes) in PSRAM.
@@ -105,14 +96,7 @@ class AffineTransformSparseInput {
 #endif
     }
 
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX)
-    static_assert(PaddedInputDimensions == InputDimensions,
-                  "ESP32-S3 FC0 ACCX expects no padded input tail");
-    static_assert(get_weight_index(1) == 1);
-    static_assert(get_weight_index(PaddedInputDimensions) == PaddedInputDimensions);
-    static_assert(get_weight_index(OutputDimensions * PaddedInputDimensions - 1)
-                  == OutputDimensions * PaddedInputDimensions - 1);
-#elif defined(STOCKFISH_ESP32_S3)
+#if defined(STOCKFISH_ESP32_S3)
     static_assert(PaddedInputDimensions == InputDimensions,
                   "ESP32-S3 sparse FC0 weight transpose expects no padded input tail");
     static_assert(get_weight_index(1) == OutputDimensions);
@@ -126,12 +110,6 @@ class AffineTransformSparseInput {
         read_little_endian<BiasType>(stream, biases, OutputDimensions);
         for (IndexType i = 0; i < OutputDimensions * PaddedInputDimensions; ++i)
             weights[get_weight_index(i)] = read_little_endian<WeightType>(stream);
-
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX)
-        // FC0 ACCX is exact only when every possible partial sum (bias plus
-        // any subset of non-negative-input terms) remains in signed 32-bit.
-        fc0AccxRangeSafe = !stream.fail() && calculate_accx_range_safe();
-#endif
 
         return !stream.fail();
     }
@@ -462,111 +440,6 @@ class AffineTransformSparseInput {
             RVV_SPARSE_PROPAGATE(m2, m4, m8);
 
     #undef RVV_SPARSE_PROPAGATE
-#elif defined(STOCKFISH_ESP32_S3_FC0_ACCX)
-        static_assert(InputDimensions == 1024 && OutputDimensions == 32,
-                      "The ESP32-S3 FC0 ACCX kernel is specialized for 1024x32.");
-        static_assert(InputDimensions % 16 == 0);
-        static_assert((FtMaxVal * FtMaxVal) / 512 == 127,
-                      "FC0 ACCX requires transformed inputs in [0, 127].");
-
-        bool inputRangeSafe = true;
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
-        uint64_t outOfRangeElements = 0;
-        uint32_t nonzeroElements = 0;
-        uint32_t nonzeroBlocks = 0;
-        auto& stats = Bench::fc0AccxValidationStats;
-
-        // Measure the input sparsity at the granularity used by ACCX:
-        // one block contains 16 input bytes and is one vector iteration.
-        // This diagnostic scan is compiled only into the validation build.
-        for (IndexType block = 0; block < InputDimensions / 16; ++block)
-        {
-            uint32_t blockNonzero = 0;
-            const InputType* blockInput = input + block * 16;
-            for (IndexType lane = 0; lane < 16; ++lane)
-            {
-                const InputType value = blockInput[lane];
-                if (value > 127)
-                    ++outOfRangeElements;
-                if (value != 0)
-                {
-                    ++blockNonzero;
-                    ++nonzeroElements;
-                }
-            }
-
-            ++stats.blockOccupancy16[blockNonzero];
-            if (blockNonzero != 0)
-                ++nonzeroBlocks;
-        }
-
-        ++stats.inputCalls;
-        stats.nonzeroInputElements += nonzeroElements;
-        stats.nonzeroBlocks16 += nonzeroBlocks;
-        inputRangeSafe = outOfRangeElements == 0;
-        if (!inputRangeSafe)
-        {
-            ++stats.inputOutOfRangeCalls;
-            stats.inputOutOfRangeElements += outOfRangeElements;
-        }
-#endif
-
-        if (fc0AccxRangeSafe && inputRangeSafe)
-        {
-#if defined(STOCKFISH_NNUE_BENCHMARK)
-            const uint32_t pieStart = Bench::cycle_count();
-#endif
-            propagate_accx(input, output);
-#if defined(STOCKFISH_NNUE_BENCHMARK)
-            Bench::record(Bench::FC0AccxKernel, pieStart);
-#endif
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
-            auto& stats = Bench::fc0AccxValidationStats;
-            ++stats.acceleratedCalls;
-            uint64_t mismatches = 0;
-
-            // Independent scalar reference: same input order and exact i32
-            // accumulation as the original input-major implementation.
-            for (IndexType j = 0; j < OutputDimensions; ++j)
-            {
-                OutputType expected = biases[j];
-                const i8* weightsForOutput = weights + j * InputDimensions;
-                for (IndexType i = 0; i < InputDimensions; ++i)
-                    expected += static_cast<OutputType>(weightsForOutput[i]) * input[i];
-
-                if (output[j] != expected)
-                {
-                    if (!stats.hasMismatch)
-                    {
-                        stats.hasMismatch = true;
-                        stats.firstMismatchIndex = j;
-                        stats.firstExpected = expected;
-                        stats.firstActual = output[j];
-                    }
-                    ++mismatches;
-                }
-            }
-
-            if (mismatches)
-                ++stats.mismatchedCalls;
-            stats.mismatchedElements += mismatches;
-#endif
-            return;
-        }
-
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
-        ++Bench::fc0AccxValidationStats.scalarFallbackCalls;
-#endif
-        // Exact scalar fallback in output-major layout. It preserves the
-        // original per-output input order when the load-time range proof
-        // rejects ACCX or the validator finds an input outside [0, 127].
-        std::memcpy(output, biases, sizeof(OutputType) * OutputDimensions);
-        for (IndexType j = 0; j < OutputDimensions; ++j)
-        {
-            const i8* weightsForOutput = weights + j * InputDimensions;
-            for (IndexType i = 0; i < InputDimensions; ++i)
-                output[j] += static_cast<OutputType>(weightsForOutput[i]) * input[i];
-        }
 #elif defined(STOCKFISH_ESP32_S3)
         // Same sparse-input dot product as the generic fallback, but use the
         // ESP32-S3 input-major weight layout to read each active input's
@@ -591,80 +464,6 @@ class AffineTransformSparseInput {
     using BiasType   = OutputType;
     using WeightType = i8;
 
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX)
-    bool calculate_accx_range_safe() const {
-        static_assert(InputDimensions == 1024 && OutputDimensions == 32);
-        constexpr int64_t MaxInput = 127;
-        const int64_t minOutput = std::numeric_limits<OutputType>::min();
-        const int64_t maxOutput = std::numeric_limits<OutputType>::max();
-
-        for (IndexType j = 0; j < OutputDimensions; ++j)
-        {
-            int64_t lowerBound = biases[j];
-            int64_t upperBound = biases[j];
-            const i8* weightsForOutput = weights + j * InputDimensions;
-
-            for (IndexType i = 0; i < InputDimensions; ++i)
-            {
-                const int64_t contribution =
-                  static_cast<int64_t>(weightsForOutput[i]) * MaxInput;
-                if (contribution > 0)
-                    upperBound += contribution;
-                else
-                    lowerBound += contribution;
-            }
-
-            if (lowerBound < minOutput || upperBound > maxOutput)
-                return false;
-        }
-        return true;
-    }
-
-    void propagate_accx(const InputType* input, OutputType* output) const {
-        static_assert(InputDimensions % 16 == 0);
-        static_assert((InputDimensions * sizeof(WeightType)) % 16 == 0);
-
-        constexpr IndexType Iterations = InputDimensions / 16;
-        const i32 zero = 0;
-        static_assert(static_cast<int64_t>(InputDimensions) * 127 * 128
-                      < std::numeric_limits<OutputType>::max());
-
-        for (IndexType j = 0; j < OutputDimensions; ++j)
-        {
-            // Input and weight rows are 16-byte aligned:
-            // transformedFeatures is cache-line aligned, and each FC0 row
-            // occupies 1024 bytes in this experimental output-major layout.
-            const InputType* inputPtr = input;
-            const i8* weightsPtr = weights + j * InputDimensions;
-            IndexType iterations = Iterations;
-            i32 result;
-
-            // Xtensa GCC does not accept PIE QR registers as inline-asm
-            // clobbers. Keep q0/q1 and ACCX use inside this single asm block.
-            // The raw dot product fits in i32 for this layer; the separate
-            // load-time bound guarantees adding the bias also remains exact.
-            asm volatile(
-              "ee.zero.accx\n\t"
-              "1:\n\t"
-              "ee.vld.128.ip q0, %[input], 16\n\t"
-              "ee.vld.128.ip q1, %[weights], 16\n\t"
-              "ee.vmulas.s8.accx q0, q1\n\t"
-              "addi %[iterations], %[iterations], -1\n\t"
-              "bnez %[iterations], 1b\n\t"
-              "ee.srs.accx %[result], %[zero], 0\n\t"
-              : [input] "+&a"(inputPtr),
-                [weights] "+&a"(weightsPtr),
-                [iterations] "+&a"(iterations),
-                [result] "=a"(result)
-              : [zero] "a"(zero)
-              : "memory");
-
-            output[j] = result + biases[j];
-        }
-    }
-
-    bool fc0AccxRangeSafe = false;
-#endif
 
     alignas(CacheLineSize) BiasType biases[OutputDimensions];
     alignas(CacheLineSize) WeightType weights[OutputDimensions * PaddedInputDimensions];

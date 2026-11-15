@@ -23,7 +23,6 @@ This list tracks planned features and verification work that is not part of the 
 
 ## Engine optimization
 
-- [ ] Retain the FC0 ACCX experiment as a reference only; its uninstrumented NPS and kernel-cycle measurements were slower than the normal scalar baseline.
 
 ## Current flash configuration reference
 

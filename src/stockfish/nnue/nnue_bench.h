@@ -21,7 +21,6 @@ enum Stage : uint8_t {
     AccumulatorUpdate,
     FeatureTransform,
     FC0,
-    FC0AccxKernel,
     SqrClippedReLU0,
     ClippedReLU0,
     FC1,
@@ -78,28 +77,6 @@ struct PieValidationStats {
 extern PieValidationStats pieValidationStats;
 
 #endif  // STOCKFISH_ESP32_S3_PIE_VALIDATE
-
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
-struct FC0AccxValidationStats {
-    uint64_t acceleratedCalls;
-    uint64_t scalarFallbackCalls;
-    uint64_t inputCalls;
-    uint64_t nonzeroInputElements;
-    uint64_t nonzeroBlocks16;
-    uint64_t blockOccupancy16[17];
-    uint64_t inputOutOfRangeCalls;
-    uint64_t inputOutOfRangeElements;
-    uint64_t mismatchedCalls;
-    uint64_t mismatchedElements;
-    uint32_t firstMismatchIndex;
-    int32_t firstExpected;
-    int32_t firstActual;
-    bool hasMismatch;
-};
-
-extern FC0AccxValidationStats fc0AccxValidationStats;
-#endif
-
 
 }  // namespace Stockfish::Eval::NNUE::Bench
 

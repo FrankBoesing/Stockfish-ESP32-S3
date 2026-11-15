@@ -31,8 +31,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/misc.h"
 #include "stockfish/nnue/network.h"
 #include "stockfish/nnue/nnue_accumulator.h"
-#if defined(STOCKFISH_NNUE_BENCHMARK) || defined(STOCKFISH_ESP32_S3_PIE_VALIDATE) \
-    || defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
+#if defined(STOCKFISH_NNUE_BENCHMARK) || defined(STOCKFISH_ESP32_S3_PIE_VALIDATE)
 #include "stockfish/nnue/nnue_bench.h"
 #endif
 #if defined(STOCKFISH_NNUE_BENCHMARK)
@@ -45,21 +44,12 @@ namespace Stockfish::Eval::NNUE::Bench {
 PieValidationStats pieValidationStats{};
 }
 #endif
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
-namespace Stockfish::Eval::NNUE::Bench {
-FC0AccxValidationStats fc0AccxValidationStats{};
-}
-#endif
 #include "stockfish/history.h"
 #include "stockfish/search.h"
 
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
-
-#ifndef STOCKFISH_OPT_LEVEL
-  #define STOCKFISH_OPT_LEVEL 1
-#endif
 
 // Declared here because the search helpers are above the heap-report definition.
 static void print_heap(const char* stage);
@@ -147,7 +137,7 @@ static void resetNnueBenchCounters() {
 static void printNnueBenchCounters(const char *label) {
   using namespace Stockfish::Eval::NNUE::Bench;
   static const char *const stageNames[StageCount] = {
-    "accumulator", "feature-transform", "fc0", "fc0-accx-kernel", "sqr-relu0", "clip-relu0",
+    "accumulator", "feature-transform", "fc0", "sqr-relu0", "clip-relu0",
     "fc1", "sqr-relu1", "clip-relu1", "fc2", "evaluation-total",
     "accum-find-last", "accum-forward", "accum-backward", "accum-forward-both",
     "accum-refresh-cache", "accum-build-indices", "accum-main-loop",
@@ -205,60 +195,6 @@ static void resetPieValidationStats() {}
 static void printPieValidationStats(const char *) {}
 #endif
 
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
-static void resetFc0AccxValidationStats() {
-  Stockfish::Eval::NNUE::Bench::fc0AccxValidationStats = {};
-}
-
-static void printFc0AccxValidationStats(const char *label) {
-  using Stockfish::Eval::NNUE::Bench::fc0AccxValidationStats;
-  const auto &stats = fc0AccxValidationStats;
-  const char *status = stats.acceleratedCalls == 0
-    ? (stats.scalarFallbackCalls ? "NO_ACCEL" : "NOT_RUN")
-    : ((stats.mismatchedCalls == 0 && stats.inputOutOfRangeCalls == 0)
-        ? (stats.scalarFallbackCalls == 0 ? "PASS" : "PARTIAL")
-        : "FAIL");
-  Serial.printf("[FC0_ACCX_VALIDATE] %s status=%s accelerated_calls=%llu scalar_fallback_calls=%llu mismatched_calls=%llu mismatched_elements=%llu input_out_of_range_calls=%llu input_out_of_range_elements=%llu",
-                label, status,
-                (unsigned long long)stats.acceleratedCalls,
-                (unsigned long long)stats.scalarFallbackCalls,
-                (unsigned long long)stats.mismatchedCalls,
-                (unsigned long long)stats.mismatchedElements,
-                (unsigned long long)stats.inputOutOfRangeCalls,
-                (unsigned long long)stats.inputOutOfRangeElements);
-  if (stats.hasMismatch)
-    Serial.printf(" first_mismatch_index=%u expected=%ld actual=%ld",
-                  (unsigned)stats.firstMismatchIndex,
-                  (long)stats.firstExpected, (long)stats.firstActual);
-  Serial.println();
-
-  if (stats.inputCalls != 0) {
-    const uint64_t avgNnzTenths =
-      (stats.nonzeroInputElements * 10ULL + stats.inputCalls / 2) / stats.inputCalls;
-    const uint64_t avgBlocksTenths =
-      (stats.nonzeroBlocks16 * 10ULL + stats.inputCalls / 2) / stats.inputCalls;
-    Serial.printf("[FC0_ACCX_DENSITY] %s avg_nonzero_inputs=%llu.%llu/1024 "
-                  "avg_active_blocks16=%llu.%llu/64 input_calls=%llu",
-                  label,
-                  (unsigned long long)(avgNnzTenths / 10),
-                  (unsigned long long)(avgNnzTenths % 10),
-                  (unsigned long long)(avgBlocksTenths / 10),
-                  (unsigned long long)(avgBlocksTenths % 10),
-                  (unsigned long long)stats.inputCalls);
-
-    Serial.printf("\n[FC0_ACCX_OCCUPANCY] %s block_occupancy_histogram:",
-                  label);
-    for (unsigned i = 0; i <= 16; ++i)
-      if (stats.blockOccupancy16[i] != 0)
-        Serial.printf(" %u:%llu", i,
-                      (unsigned long long)stats.blockOccupancy16[i]);
-    Serial.println();
-  }
-}
-#else
-static void resetFc0AccxValidationStats() {}
-static void printFc0AccxValidationStats(const char *) {}
-#endif
 
 
 static void copySearchText(char *destination, size_t capacity, std::string_view source) {
@@ -367,7 +303,6 @@ static void runBoundedSearch(Stockfish::Engine& engine,
   resetSearchProbeStats();
   resetNnueBenchCounters();
   resetPieValidationStats();
-  resetFc0AccxValidationStats();
   Stockfish::Search::LimitsType limits;
   limits.depth = maxDepth;
   limits.nodes = nodeLimit;
@@ -383,7 +318,6 @@ static void runBoundedSearch(Stockfish::Engine& engine,
   printSearchProbeStats(label);
   printNnueBenchCounters(label);
   printPieValidationStats(label);
-  printFc0AccxValidationStats(label);
   char heapLabel[64];
   snprintf(heapLabel, sizeof(heapLabel), "After %.48s", label);
   print_heap(heapLabel);
@@ -393,7 +327,6 @@ static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
   resetSearchProbeStats();
   resetNnueBenchCounters();
   resetPieValidationStats();
-  resetFc0AccxValidationStats();
   Stockfish::Search::LimitsType limits;
   limits.movetime = milliseconds;
   limits.startTime = Stockfish::now();
@@ -408,7 +341,6 @@ static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
   printSearchProbeStats("timed search");
   printNnueBenchCounters("timed search");
   printPieValidationStats("timed search");
-  printFc0AccxValidationStats("timed search");
   print_heap("After 5-second search");
 }
 
@@ -463,13 +395,7 @@ void setup() {
 
   Serial.println();
   Serial.println("Stockfish 19 Smallnet ESP32-S3 engine memory probe");
-#if STOCKFISH_OPT_LEVEL == 2
-  Serial.println("Compiler optimization = -O2");
-#elif STOCKFISH_OPT_LEVEL == 3
-  Serial.println("Compiler optimization = -O3");
-#else
   Serial.println("Compiler optimization = -Os");
-#endif
   Serial.printf("ESP reset reason = %d\n", (int) esp_reset_reason());
   Serial.printf("Arduino loop task stack = %u bytes; current free stack ~= %u bytes\n",
                 (unsigned)getArduinoLoopTaskStackSize(),

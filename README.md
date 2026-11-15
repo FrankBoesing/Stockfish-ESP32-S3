@@ -124,30 +124,6 @@ Interpretation:
 - Compare the two `DISPLAYCLOCK` 40 MHz lines with the 80 MHz line. Visually inspect the screen during each 1.5-second pattern display.
 - Repeat the complete test after reset at least three times. Use the median, not the best run. If 80 MHz shows any visual corruption, use the 40 MHz baseline.
 
-## Compiler optimization comparison
-
-The Stockfish probe can be built with three compiler optimization levels while keeping the source, board settings, CPU clock, NNUE network, hash size, and search tests unchanged:
-
-| PlatformIO environment | Optimization |
-| --- | --- |
-| `freenove_stockfish_compile` | `-Os` (baseline) |
-| `freenove_stockfish_o2` | `-O2` |
-| `freenove_stockfish_o3` | `-O3` |
-
-The baseline explicitly pins `-Os`, which is the Arduino-ESP32 3.3.12 release default. The `-O2` and `-O3` environments remove that default before applying the requested level. They also use separate PlatformIO output directories and linker maps. No `-Ofast` or fast-math options are used.
-
-Build and upload one variant at a time:
-
-```sh
-pio run -e freenove_stockfish_compile -t upload
-pio run -e freenove_stockfish_o2 -t upload
-pio run -e freenove_stockfish_o3 -t upload
-```
-
-The serial startup message identifies the optimization level. Each variant runs the same 30,000-node start-position search, 30,000-node Kiwipete search, and 5-second timed search. For useful hardware results, repeat each variant after three independent resets and compare the median `nps` values from the three `[SEARCH]` summaries. Keep the board, display state, power supply, monitor connection, and other running tasks unchanged. Also compare the reported firmware size and check for successful completion, watchdog reports, and stack warnings. A CI compile confirms buildability only; it does not establish which optimization is fastest on the ESP32-S3.
-
-GitHub Actions compiles all three variants and retains the firmware binaries and linker maps as a single artifact.
-
 ## NNUE cycle profiler
 
 A diagnostic-only build enables cycle counters inside the real Stockfish NNUE evaluation path:
@@ -192,9 +168,9 @@ pio run -e freenove_stockfish_compile -t upload
 pio run -e freenove_stockfish_nnubench -t upload
 ```
 
-The profiler build adds cycle counters and prints an `accum-pie-loop` counter. The old `freenove_stockfish_pie` and `freenove_stockfish_piebench` environment names remain available as compatibility aliases for existing workflows; new builds should use `compile` and `nnubench`.
+The profiler build adds cycle counters and prints an `accum-pie-loop` counter. Use `freenove_stockfish_compile` for normal firmware and `freenove_stockfish_nnubench` for instrumented measurements.
 
-The PIE kernel processes eight int16 lanes per iteration with 128-bit loads, saturating subtraction/addition, and a 128-bit store. Because these PIE arithmetic operations saturate while the scalar Stockfish update has wrapping int16 semantics, the kernel is selected only after a network-load-time range proof. For each output lane, the proof checks whether the bias plus any possible subset of up to `FeatureSet::MaxActiveDimensions` feature weights stays in the int16 range. If the proof succeeds, the PIE path is used; if it fails, `apply_features()` uses the unchanged scalar path. The check is performed for the loaded network, so a different or future network can fall back automatically without changing firmware configuration. The regular compile, O2/O3, and profiler environments inherit `STOCKFISH_ESP32_S3_PIE` from the standard engine build.
+The PIE kernel processes eight int16 lanes per iteration with 128-bit loads, saturating subtraction/addition, and a 128-bit store. Because these PIE arithmetic operations saturate while the scalar Stockfish update has wrapping int16 semantics, the kernel is selected only after a network-load-time range proof. For each output lane, the proof checks whether the bias plus any possible subset of up to `FeatureSet::MaxActiveDimensions` feature weights stays in the int16 range. If the proof succeeds, the PIE path is used; if it fails, `apply_features()` uses the unchanged scalar path. The check is performed for the loaded network, so a different or future network can fall back automatically without changing firmware configuration. The regular compile, GUI, and profiler environments inherit `STOCKFISH_ESP32_S3_PIE` from the standard engine build.
 
 The `accum-pie-loop` counter is nested inside `accum-main-loop`; do not add their percentages. Do not add their percentages together.
 
