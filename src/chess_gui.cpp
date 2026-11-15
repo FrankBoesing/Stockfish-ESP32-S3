@@ -2204,7 +2204,6 @@ static void initializeEngine() {
 void setup() {
   Serial.begin(115200);
   delay(1200);
-  SF_ESP_TASK_INFO("Arduino setup/loop", -1);
   Serial.println();
   Serial.println("Stockfish ESP32-S3 touchscreen GUI");
   Serial.println("[GUI] Build: ips-invert-panel-clear-v3");

@@ -32,7 +32,6 @@
     #include <utility>
 
     #include "misc.h"
-    #include "esp_trace.h"
     #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
         #include <esp_heap_caps.h>
         #include <esp_pthread.h>
@@ -114,7 +113,6 @@ class NativeThread {
         pthread_attr_t attr_storage, *attr = &attr_storage;
         const int attrInitRc = pthread_attr_init(attr);
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        SF_ESP_TRACE("pthread_attr_init rc=%d", attrInitRc);
 #endif
         int stackSizeRc = 0;
         if (options.largeStack)
@@ -123,8 +121,6 @@ class NativeThread {
                             ? pthread_attr_setstacksize(attr, TH_STACK_SIZE)
                             : EINVAL;
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-            SF_ESP_TRACE("pthread_attr_setstacksize(%u) rc=%d",
-                         (unsigned) TH_STACK_SIZE, stackSizeRc);
 #endif
         }
 
@@ -155,14 +151,6 @@ class NativeThread {
         workerCfg.inherit_cfg = false;
         const esp_err_t setCfgRc = esp_pthread_set_cfg(&workerCfg);
 
-        SF_ESP_TRACE("pthread stack config: size=%u caps=PSRAM|8BIT pin_to_core=%d get_rc=%d set_rc=%d",
-                     (unsigned)TH_STACK_SIZE, (int)workerCfg.pin_to_core,
-                     (int)getCfgRc, (int)setCfgRc);
-        SF_ESP_TRACE("pthread_create begin; internal free=%u largest=%u; PSRAM free=%u largest=%u",
-                     (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                     (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
-                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
 
         const int rc = (attrInitRc == 0 && stackSizeRc == 0 && setCfgRc == ESP_OK)
                          ? pthread_create(&thread, attr, start_routine, func)
@@ -174,18 +162,12 @@ class NativeThread {
                                          ? previousCfg
                                          : esp_pthread_get_default_config();
         const esp_err_t restoreRc = esp_pthread_set_cfg(&restoreCfg);
-        SF_ESP_TRACE("pthread_create rc=%d restore_cfg_rc=%d", rc, (int)restoreRc);
 #else
         const int rc = pthread_create(&thread, attr, start_routine, func);
 #endif
         if (attrInitRc == 0)
             pthread_attr_destroy(attr);
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-        SF_ESP_TRACE("pthread after create: internal free=%u largest=%u; PSRAM free=%u largest=%u",
-                     (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-                     (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT),
-                     (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
 #endif
 
         if (rc != 0)

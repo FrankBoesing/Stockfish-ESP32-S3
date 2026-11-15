@@ -1,2 +1,0 @@
-# Enable FreeRTOS task enumeration and per-task core affinity reporting
-CONFIG_FREERTOS_USE_TRACE_FACILITY=y

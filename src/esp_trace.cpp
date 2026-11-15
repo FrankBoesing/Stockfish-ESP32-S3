@@ -49,13 +49,3 @@ void stockfish_esp_trace(const char *format, ...) {
 #endif
 }
 
-void stockfish_esp_task_info(const char *role, int id) {
-  const char *taskName = pcTaskGetName(nullptr);
-  const UBaseType_t stackFree = uxTaskGetStackHighWaterMark(nullptr);
-  ESP_LOGI(Tag, "TASK role=%s id=%d task=%s core=%d stack-free~%u",
-           role ? role : "?",
-           id,
-           taskName ? taskName : "?",
-           (int)xPortGetCoreID(),
-           (unsigned)stackFree);
-}
