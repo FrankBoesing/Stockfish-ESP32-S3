@@ -86,7 +86,7 @@ pio run -e freenove_stockfish_gui
 # Upload it to the connected Freenove board
 pio run -e freenove_stockfish_gui -t upload
 
-# Run the host-side chess/GUI regression tests (Linux, WSL or Git Bash)
+# Run the host-side chess/GUI regression tests (Linux or WSL)
 bash tests/native/run_tests.sh
 ```
 
