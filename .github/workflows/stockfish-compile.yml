@@ -3,13 +3,24 @@ name: ESP32-S3 Stockfish Smallnet QIO compile
 on:
   push:
     branches:
-      - stockfish-port-analysis
+      - main
     paths:
       - "platformio.ini"
+      - "partitions_stockfish_16MB.csv"
       - "src/**"
       - "tests/**"
       - "scripts/**"
-      - ".github/workflows/stockfish-compile.yml"
+      - ".github/workflows/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "platformio.ini"
+      - "partitions_stockfish_16MB.csv"
+      - "src/**"
+      - "tests/**"
+      - "scripts/**"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 permissions:
