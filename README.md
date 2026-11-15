@@ -4,6 +4,8 @@ A touchscreen chess computer powered by **Stockfish 19 Smallnet**, built for the
 
 The project combines a complete chess game interface with the Stockfish engine on a compact ESP32-S3 device. It is an experimental hardware project and is currently tailored to one specific display board.
 
+![Stockfish ESP32-S3 touchscreen chess computer](docs/images/stockfish-esp32-s3-readme-clean.png)
+
 ## Features
 
 - Play against Stockfish on the integrated touchscreen.
