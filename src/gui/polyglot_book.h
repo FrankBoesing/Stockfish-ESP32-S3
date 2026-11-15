@@ -57,8 +57,7 @@ inline uint64_t hashPosition(const Stockfish::Position& position) {
         const int sourceRank = int(rank_of(ep))
                             + (position.side_to_move() == WHITE ? -1 : 1);
         if (sourceRank >= 0 && sourceRank < 8) {
-            for (int deltaFile : {-1, 1}) {
-                const int sourceFile = epFile + deltaFile;
+            for (int sourceFile = epFile - 1; sourceFile <= epFile + 1; sourceFile += 2) {
                 if (sourceFile < 0 || sourceFile >= 8)
                     continue;
                 const Square source = make_square(File(sourceFile), Rank(sourceRank));
