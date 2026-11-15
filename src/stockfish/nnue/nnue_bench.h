@@ -83,6 +83,10 @@ extern PieValidationStats pieValidationStats;
 struct FC0AccxValidationStats {
     uint64_t acceleratedCalls;
     uint64_t scalarFallbackCalls;
+    uint64_t inputCalls;
+    uint64_t nonzeroInputElements;
+    uint64_t nonzeroBlocks16;
+    uint64_t blockOccupancy16[17];
     uint64_t inputOutOfRangeCalls;
     uint64_t inputOutOfRangeElements;
     uint64_t mismatchedCalls;

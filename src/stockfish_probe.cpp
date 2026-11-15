@@ -199,6 +199,29 @@ static void printPieValidationStats(const char *label) {
                   (unsigned)stats.firstMismatchIndex,
                   (long)stats.firstExpected, (long)stats.firstActual);
   Serial.println();
+
+  if (stats.inputCalls != 0) {
+    const uint64_t avgNnzTenths =
+      (stats.nonzeroInputElements * 10ULL + stats.inputCalls / 2) / stats.inputCalls;
+    const uint64_t avgBlocksTenths =
+      (stats.nonzeroBlocks16 * 10ULL + stats.inputCalls / 2) / stats.inputCalls;
+    Serial.printf("[FC0_ACCX_DENSITY] %s avg_nonzero_inputs=%llu.%llu/1024 "
+                  "avg_active_blocks16=%llu.%llu/64 input_calls=%llu",
+                  label,
+                  (unsigned long long)(avgNnzTenths / 10),
+                  (unsigned long long)(avgNnzTenths % 10),
+                  (unsigned long long)(avgBlocksTenths / 10),
+                  (unsigned long long)(avgBlocksTenths % 10),
+                  (unsigned long long)stats.inputCalls);
+
+    Serial.printf("\\n[FC0_ACCX_OCCUPANCY] %s blocks_per_eval_histogram:",
+                  label);
+    for (unsigned i = 0; i <= 16; ++i)
+      if (stats.blockOccupancy16[i] != 0)
+        Serial.printf(" %u:%llu", i,
+                      (unsigned long long)stats.blockOccupancy16[i]);
+    Serial.println();
+  }
 }
 #else
 static void resetPieValidationStats() {}

@@ -471,13 +471,40 @@ class AffineTransformSparseInput {
         bool inputRangeSafe = true;
 #if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
         uint64_t outOfRangeElements = 0;
-        for (IndexType i = 0; i < InputDimensions; ++i)
-            if (input[i] > 127)
-                ++outOfRangeElements;
+        uint32_t nonzeroElements = 0;
+        uint32_t nonzeroBlocks = 0;
+        auto& stats = Bench::fc0AccxValidationStats;
+
+        // Measure the input sparsity at the granularity used by ACCX:
+        // one block contains 16 input bytes and is one vector iteration.
+        // This diagnostic scan is compiled only into the validation build.
+        for (IndexType block = 0; block < InputDimensions / 16; ++block)
+        {
+            uint32_t blockNonzero = 0;
+            const InputType* blockInput = input + block * 16;
+            for (IndexType lane = 0; lane < 16; ++lane)
+            {
+                const InputType value = blockInput[lane];
+                if (value > 127)
+                    ++outOfRangeElements;
+                if (value != 0)
+                {
+                    ++blockNonzero;
+                    ++nonzeroElements;
+                }
+            }
+
+            ++stats.blockOccupancy16[blockNonzero];
+            if (blockNonzero != 0)
+                ++nonzeroBlocks;
+        }
+
+        ++stats.inputCalls;
+        stats.nonzeroInputElements += nonzeroElements;
+        stats.nonzeroBlocks16 += nonzeroBlocks;
         inputRangeSafe = outOfRangeElements == 0;
         if (!inputRangeSafe)
         {
-            auto& stats = Bench::fc0AccxValidationStats;
             ++stats.inputOutOfRangeCalls;
             stats.inputOutOfRangeElements += outOfRangeElements;
         }
