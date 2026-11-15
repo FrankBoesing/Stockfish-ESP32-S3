@@ -21,7 +21,6 @@
 #ifndef NNUE_LAYERS_AFFINE_TRANSFORM_SPARSE_INPUT_H_INCLUDED
 #define NNUE_LAYERS_AFFINE_TRANSFORM_SPARSE_INPUT_H_INCLUDED
 
-
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -33,7 +32,6 @@
 #include "../simd.h"
 #include "../nnue_common.h"
 #include "../nnz_helper.h"
-#include "../nnue_bench.h"
 
 /*
   This file contains the definition for a fully connected layer (aka affine transform) with block sparse input.
