@@ -185,7 +185,7 @@ inline bool chooseMove(const Stockfish::Position& position,
         if (!weight)
             continue;
 
-        Move candidate;
+        Stockfish::Move candidate;
         if (!decodeLegalMove(position, readBigEndian16(entry + 8), candidate))
             continue;
 
@@ -210,7 +210,7 @@ inline bool chooseMove(const Stockfish::Position& position,
         if (!weight)
             continue;
 
-        Move candidate;
+        Stockfish::Move candidate;
         if (!decodeLegalMove(position, readBigEndian16(entry + 8), candidate))
             continue;
 
