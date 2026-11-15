@@ -4,7 +4,7 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 ## Development checkpoint
 
-The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a validated baseline. QIO is now the default flash mode. The touchscreen GUI now has a first Polyglot opening-book integration: it maps only the used data bytes from a separate flash partition, validates the image and chooses a legal weighted book move before falling back to Stockfish. Native tests cover the hash and move-decoding logic; hardware validation is still pending. The exact branch, commits, measurements and implementation constraints are recorded in [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md). See [the book flashing guide](docs/FLASHING-OPENING-BOOK.md) and [the project TODO](docs/TODO.md).
+The Stockfish 19 Smallnet engine, ESP32-S3 PIE accumulator path and touchscreen chess application are implemented on the Freenove FNK0104B target. QIO is the configured flash mode. The Polyglot reader and native regression tests are also integrated; the remaining book-specific step is to package and flash the `SFBK` image and verify the mapped book on the physical board. This file contains detailed implementation and benchmark notes; [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md) is a chronological development log, not a statement that GUI work is still pending. See [the book flashing guide](docs/FLASHING-OPENING-BOOK.md) and [the project TODO](docs/TODO.md).
 
 ## Project goals
 
@@ -24,7 +24,7 @@ The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a valida
 
 ## Current status
 
-Stockfish 19 Smallnet P_hm is running on the Freenove ESP32-S3 display board. The standard `freenove_stockfish_compile` firmware now enables the ESP32-S3 PIE accumulator kernel by default, guarded by a network-load-time int16 range proof and automatic scalar fallback. The current Smallnet network passed an on-device scalar-vs-PIE comparison across 82,976 updates (84,967,424 accumulator lanes) with zero mismatches and zero out-of-range intermediate values. The regular, uninstrumented PIE firmware completed the start-position, Kiwipete, and 5-second searches at 1,223, 1,297, and 1,561 NPS respectively, with a minimum worker-stack reserve of 98,416 bytes. Engine, NNUE, display, touch, and single-worker search initialization are validated. The project is now moving to the touchscreen chess GUI; further engine/NNUE performance optimization is deliberately deferred and will resume from this recorded baseline. See [the development checkpoint and handoff notes](docs/STATUS-2026-11-14.md) for exact commits, measurements, constraints, and the next work phase.
+Stockfish 19 Smallnet P_hm is running on the Freenove ESP32-S3 display board. The regular `freenove_stockfish_compile` build enables the ESP32-S3 PIE accumulator kernel, guarded by a network-load-time int16 range proof and automatic scalar fallback. The current network passed an on-device scalar-vs-PIE comparison across 82,976 updates (84,967,424 accumulator lanes) with no mismatches or out-of-range intermediate values. The latest documented QIO hardware run measured 1,552 NPS in the start position, 1,600 NPS in Kiwipete and 2,075 NPS in the 5-second search; these are results from one run, not a statistically controlled benchmark. The GUI, game persistence, serial controls and native rule/Polyglot regression tests are implemented. Actual opening-book mmap/CRC and book-move operation on the physical board remain to be verified. See [the development log](docs/STATUS-2026-11-14.md) for measurements and constraints.
 
 ## Touchscreen GUI prototype
 
@@ -80,14 +80,13 @@ The UCI form accepts an optional `moves` sequence after either starting
 position. The original FEN and move list are persisted, so a custom test
 position also survives a reset. FEN piece-letter case is preserved. Invalid
 FENs or move sequences are rejected without replacing the current game.
-PGN export is a separate planned feature.
+PGN export is implemented for serial output, including SAN movetext, move numbering, check/checkmate suffixes, game result and SetUp/FEN tags for custom starting positions.
 
 Search callbacks only publish compact status/best-move data; drawing and
 position updates remain in the Arduino loop task. The GUI deliberately avoids
 a full-screen framebuffer.
 
-This is an initial implementation milestone. Touch mapping, rendering, search
-responsiveness and move handling still require a hardware test on the FNK0104B.
+The touchscreen application is now the project's interactive target. It has been exercised on the FNK0104B; remaining limitations and the separate opening-book hardware validation are recorded in the development log and flashing guide.
 
 ## Opening book
 
@@ -115,15 +114,13 @@ Then flash the resulting `.sfbook` at `0x410000`. See
 Native regression tests and the QIO firmware CI build pass; mmap/header and
 book-move behavior still require verification on the physical FNK0104B board.
 
-## Planned milestones
+## Remaining work
 
-1. Inspect upstream Stockfish build system, architecture-specific code, NNUE network loading, threading, and memory allocation.
-2. Establish a reproducible PlatformIO environment for the exact Freenove board.
-3. Validate Engine construction, embedded NNUE loading, and single-threaded search on hardware.
-4. Measure search scaling, internal RAM/PSRAM use, and the combined engine-plus-display memory budget.
-5. Build a minimal UCI-capable firmware and validate protocol behavior against a desktop build of the same upstream revision.
-6. Add the touchscreen chess UI as a separate layer, avoiding a full-screen double framebuffer unless measurements justify it.
-7. Add PGN export (SAN notation, tags and game result) from the established UCI move history.
+- Package the selected Polyglot opening book with the `SFBK` header, flash it to the dedicated read-only partition and validate mmap, CRC, legal book-move selection and Stockfish fallback on the physical board.
+- Continue targeted GUI hardware checks for saved-game recovery, game-end rules, promotion, touch responsiveness and serial command interaction.
+- Resume engine/NNUE performance optimization from the validated PIE baseline when the GUI and opening-book checks are complete.
+
+The original engine bring-up, NNUE validation, single-worker search integration, native GUI rule tests and serial PGN export are completed; they are not outstanding milestones.
 
 ## Memory access benchmark
 
@@ -216,15 +213,15 @@ This mode deliberately doubles the accumulator-update work and includes the prof
 
 ## Source provenance
 
-The engine source will be obtained from the official upstream repository:
+The Stockfish source snapshot is included in `src/stockfish/` and is based on the official upstream project:
 
 https://github.com/official-stockfish/Stockfish
 
-The upstream revision used for each port milestone will be pinned and recorded. Local changes will be kept separate and documented.
+The upstream author list and source-file copyright/license headers are retained. ESP32-specific changes and build integration are maintained in this repository. The exact upstream Git revision is not separately recorded as a dedicated submodule or pinned source reference; consult the repository history when tracing individual changes.
 
 ## Licensing
 
-Stockfish is distributed under GNU GPL v3. See the upstream repository and its Copying.txt for license terms. Any distributed firmware containing Stockfish must comply with the applicable GPL requirements.
+The project and integrated Stockfish-derived firmware are distributed under GNU GPL version 3 (GPLv3). The complete license is provided in the repository-root `LICENSE` file; Stockfish's original `src/stockfish/Copying.txt`, `AUTHORS` list and source notices are retained. Third-party assets preserve their own license and attribution notices. Firmware distribution must comply with GPLv3 requirements for the corresponding source and modifications.
 
 ## Engine and display memory probe
 
