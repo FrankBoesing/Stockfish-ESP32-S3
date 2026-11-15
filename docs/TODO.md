@@ -21,8 +21,6 @@ This list tracks planned features and verification work that is not part of the 
   - Record application binary size separately from physical flash size and partition size. A roughly 1.4 MiB firmware image does not establish that the chip itself is only 1.4 MiB or that the remaining address space is already available to a data partition.
   - Decide whether to preserve dual-slot OTA. Keeping two OTA slots constrains each app partition; a single-app layout could trade OTA rollback for more book storage.
 
-## Engine optimization
-
 
 ## Current flash configuration reference
 
