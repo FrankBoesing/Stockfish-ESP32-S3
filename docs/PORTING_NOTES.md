@@ -33,7 +33,8 @@ FNK0104B configuration.
 ## Initial investigation checklist
 
 - [ ] Read the module marking and determine exact flash/PSRAM configuration.
-- [ ] Confirm flash size/mode and PSRAM size/mode using esptool and runtime probes.
+- [ ] Confirm physical flash size and mode using `esptool flash_id` and a runtime flash-size probe; current PlatformIO settings assume 16 MiB.
+- [x] Confirm PSRAM capacity with runtime heap diagnostics: 8 MiB OPI PSRAM is present.
 - [ ] Record the exact Stockfish upstream commit and network filenames.
 - [ ] Inspect Stockfish's current C++ language requirements and compiler assumptions.
 - [ ] Inspect SIMD use in NNUE and determine whether a scalar fallback is available.

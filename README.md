@@ -4,7 +4,7 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 ## Development checkpoint
 
-The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a validated baseline. The next active phase is the touchscreen chess GUI; further engine optimization is deferred until afterward. The exact branch, commits, hardware measurements, implementation constraints, optimization backlog, and a ready-to-use handoff prompt are recorded in [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md).
+The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a validated baseline. The current work is focused on the touchscreen chess GUI and measured FC0 experiments. The exact branch, commits, hardware measurements and implementation constraints are recorded in [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md). Planned feature and hardware follow-ups are tracked in [docs/TODO.md](docs/TODO.md).
 
 ## Project goals
 
@@ -18,7 +18,8 @@ The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a valida
 
 - Freenove ESP32-S3 Display, 2.8-inch 320x240 capacitive-touch variant
 - ESP32-S3, dual-core Xtensa LX7
-- 16 MiB flash and 8 MiB OPI PSRAM, both confirmed by the user's runtime diagnostics.
+- OPI PSRAM: 8 MiB, confirmed by runtime heap diagnostics.
+- Flash: PlatformIO is currently configured for 16 MiB with `default_16MB.csv`. The physical flash capacity has not yet been independently verified by a flash-ID read or module marking. If the fitted module is an N16R8, that suffix means 16 MiB flash plus 8 MiB PSRAM; it does not mean 32 MiB flash.
 - ILI9341 SPI display, native 240x320 portrait resolution; diagnostic firmware rotates it to 320x240 landscape.
 
 ## Current status
