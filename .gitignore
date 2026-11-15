@@ -66,3 +66,16 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+.pio
+.vscode
+
+# Stockfish NNUE model downloaded by PlatformIO pre-build hook
+nn-*.nnue
+nn-*.nnue.download
+
+#Book
+lichess_2100_rapid_2026-05.bin
+
+# Packaged raw opening-book image (metadata header + Polyglot entries)
+*.sfbook

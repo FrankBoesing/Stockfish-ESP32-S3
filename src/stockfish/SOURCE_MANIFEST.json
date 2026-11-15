@@ -1,0 +1,9 @@
+{
+  "upstream": "https://github.com/official-stockfish/Stockfish",
+  "release": "sf_19",
+  "commit": "edb0d9db6731067ec50ce619ff372b463bc4dd5d",
+  "nnueFeaturePatch": "https://github.com/lichess-org/stockfish-web/tree/main/patches/sf_19_smallnet",
+  "patchBase": "3f6f417b87c0e80ee30914b6b539b4ab7d3b2a5b",
+  "patchFile": "0001-simple-mirrored-piece-square-features.patch",
+  "webAssemblyPatchApplied": false
+}

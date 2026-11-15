@@ -1,0 +1,8 @@
+# Name,      Type, SubType, Offset,     Size,      Flags
+# Single factory application, no OTA, raw read-only Polyglot book, coredump.
+# Keep the existing NVS offset and size so saved GUI settings survive the
+# partition-table change without reinterpreting the old otadata sectors.
+nvs,         data, nvs,      0x9000,    0x5000,
+factory,     app,  factory,  0x10000,   0x400000,
+book,        data, 0x06,     0x410000,  0xBE0000,  readonly
+coredump,    data, coredump, 0xFF0000,  0x10000,

@@ -1,0 +1,471 @@
+/*
+  Stockfish, a UCI chess playing engine derived from Glaurung 2.1
+  Copyright (C) 2004-2026 The Stockfish developers (see AUTHORS file)
+
+  Stockfish is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  Stockfish is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+#include "engine.h"
+
+#include "esp_trace.h"
+
+#include <algorithm>
+#include <cassert>
+#include <filesystem>
+#include <deque>
+#include <iosfwd>
+#include <memory>
+#include <ostream>
+#include <sstream>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include "evaluate.h"
+#include "misc.h"
+#include "nnue/network.h"
+#include "nnue/nnue_common.h"
+#include "numa.h"
+#include "perft.h"
+#include "position.h"
+#include "movegen.h"
+#include "search.h"
+#include "shm.h"
+#include "syzygy/tbprobe.h"
+#include "types.h"
+#include "uci.h"
+#include "ucioption.h"
+
+namespace Stockfish {
+
+namespace NN = Eval::NNUE;
+
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+int MaxThreads = 1;  // Start with one search worker on the constrained ESP32 target.
+constexpr int DefaultHashMB = 1;
+#else
+int MaxThreads = std::max(1024, 4 * int(get_hardware_concurrency()));
+constexpr int DefaultHashMB = 16;
+#endif
+
+// The default configuration will attempt to group L3 domains up to 32 threads.
+// This size was found to be a good balance between the Elo gain of increased
+// history sharing and the speed loss from more cross-cache accesses (see
+// PR#6526). The user can always explicitly override this behavior.
+constexpr NumaAutoPolicy DefaultNumaPolicy = BundledL3Policy{32};
+
+Engine::Engine(std::optional<std::filesystem::path> path) :
+    binaryDirectory(path ? CommandLine::get_binary_directory(*path) : std::filesystem::path{}),
+    numaContext(NumaConfig::from_system(DefaultNumaPolicy)),
+    states(new std::deque<StateInfo>(1)),
+    threads(),
+    networkFile{std::nullopt, ""},
+    network(numaContext, get_default_network()) {
+
+    pos.set(StartFEN, false, &states->back());
+
+    options.add(  //
+      "Debug Log File", Option("", [](const Option& o) {
+          start_logger(path_from_utf8(std::string(o)));
+          return std::nullopt;
+      }));
+
+    options.add(  //
+      "NumaPolicy", Option("auto", [this](const Option& o) {
+          if (!set_numa_config_from_option(o))
+              return "NumaPolicy: invalid value '" + std::string(o) + "', keeping previous config.";
+          return numa_config_information_as_string() + "\n"
+               + thread_allocation_information_as_string();
+      }));
+
+    options.add(  //
+      "Threads", Option(1, 1, MaxThreads, [this](const Option&) {
+          resize_threads();
+          return thread_allocation_information_as_string();
+      }));
+
+    options.add(  //
+      "Hash", Option(DefaultHashMB, 1, MaxHashMB, [this](const Option& o) {
+          set_tt_size(o);
+          return std::nullopt;
+      }));
+
+    options.add(  //
+      "Clear Hash", Option([this](const Option&) {
+          search_clear();
+          return std::nullopt;
+      }));
+
+    options.add(  //
+      "Ponder", Option(false));
+
+    options.add(  //
+      "MultiPV", Option(1, 1, MAX_MOVES));
+
+    options.add("Skill Level", Option(20, 0, 20));
+
+    options.add("Move Overhead", Option(10, 0, 5000));
+
+    options.add("nodestime", Option(0, 0, 10000));
+
+    options.add("UCI_Chess960", Option(false));
+
+    options.add("UCI_LimitStrength", Option(false));
+
+    options.add("UCI_Elo",
+                Option(Stockfish::Search::Skill::LowestElo, Stockfish::Search::Skill::LowestElo,
+                       Stockfish::Search::Skill::HighestElo));
+
+    options.add("UCI_ShowWDL", Option(false));
+
+    options.add(  //
+      "SyzygyPath", Option("", [](const Option& o) {
+          Tablebases::init(o);
+          return std::nullopt;
+      }));
+
+    options.add("SyzygyProbeDepth", Option(1, 1, 100));
+
+    options.add("Syzygy50MoveRule", Option(true));
+
+    options.add("SyzygyProbeLimit", Option(7, 0, 7));
+
+    options.add(  //
+      "EvalFile", Option(EvalFileDefaultName, [this](const Option& o) {
+          load_network(path_from_utf8(std::string(o)));
+          return std::nullopt;
+      }));
+
+    SF_ESP_TRACE("Engine ctor body entered; member initializers completed");
+    threads.clear();
+    SF_ESP_TRACE("Engine: threads.clear complete");
+    threads.ensure_network_replicated();
+    SF_ESP_TRACE("Engine: initial network replication complete");
+    resize_threads();
+    SF_ESP_TRACE("Engine ctor complete");
+}
+
+Engine::GameStatus Engine::game_status() const {
+    return get_position_status(pos);
+}
+
+std::variant<u64, PositionSetError>
+Engine::perft(const std::string& fen, Depth depth, bool isChess960) {
+    verify_network();
+
+    return Benchmark::perft(fen, depth, isChess960);
+}
+
+void Engine::go(Search::LimitsType& limits) {
+    assert(limits.perft == 0);
+    verify_network();
+
+    threads.start_thinking(options, pos, states, limits);
+}
+void Engine::stop() { threads.stop = true; }
+
+void Engine::search_clear() {
+    wait_for_search_finished();
+
+    tt.clear(threads);
+    threads.clear();
+
+    // TODO: does not work with multiple instances
+    Tablebases::init(options["SyzygyPath"]);  // Free mapped files
+}
+
+void Engine::set_on_update_no_moves(std::function<void(const Engine::InfoShort&)>&& f) {
+    updateContext.onUpdateNoMoves = std::move(f);
+}
+
+void Engine::set_on_update_full(std::function<void(const Engine::InfoFull&)>&& f) {
+    updateContext.onUpdateFull = std::move(f);
+}
+
+void Engine::set_on_iter(std::function<void(const Engine::InfoIter&)>&& f) {
+    updateContext.onIter = std::move(f);
+}
+
+void Engine::set_on_bestmove(std::function<void(std::string_view, std::string_view)>&& f) {
+    updateContext.onBestmove = std::move(f);
+}
+
+void Engine::set_on_start(std::function<void()>&& f) { updateContext.onStart = std::move(f); }
+
+void Engine::set_on_verify_network(std::function<void(std::string_view)>&& f) {
+    onVerifyNetwork = std::move(f);
+    networkVerificationReported = false;
+}
+
+void Engine::wait_for_search_finished() {
+    if (threads.has_main_thread())
+        threads.main_thread()->wait_for_search_finished();
+}
+
+std::optional<PositionSetError> Engine::set_position(const std::string&              fen,
+                                                     const std::vector<std::string>& moves) {
+    // Drop the old state and create a new one
+    states   = StateListPtr(new std::deque<StateInfo>(1));
+    auto err = pos.set(fen, options["UCI_Chess960"], &states->back());
+    if (err.has_value())
+        return err;
+
+    for (const auto& move : moves)
+    {
+        auto m = UCIEngine::to_move(pos, move);
+
+        if (m == Move::none())
+            return PositionSetError("Illegal move: " + move);
+
+        states->emplace_back();
+        pos.do_move(m, states->back());
+    }
+
+    return std::nullopt;
+}
+
+// modifiers
+
+bool Engine::set_numa_config_from_option(const std::string& o) {
+    if (o == "auto" || o == "system")
+    {
+        numaContext.set_numa_config(NumaConfig::from_system(DefaultNumaPolicy));
+    }
+    else if (o == "hardware")
+    {
+        // Don't respect affinity set in the system.
+        numaContext.set_numa_config(NumaConfig::from_system(DefaultNumaPolicy, false));
+    }
+    else if (o == "none")
+    {
+        numaContext.set_numa_config(NumaConfig{});
+    }
+    else
+    {
+        auto parsed = NumaConfig::from_string(o);
+        if (!parsed.has_value())
+            return false;
+        numaContext.set_numa_config(std::move(*parsed));
+    }
+
+    // Force reallocation of threads in case affinities need to change.
+    resize_threads();
+    threads.ensure_network_replicated();
+    return true;
+}
+
+void Engine::resize_threads() {
+    SF_ESP_TRACE("Engine::resize_threads begin");
+    threads.wait_for_search_finished();
+
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // Reserve the large, contiguous hash table before Search::Worker and
+    // history allocations fragment PSRAM. TranspositionTable::resize()
+    // initializes it directly when the thread pool is still empty.
+    SF_ESP_TRACE("Engine::resize_threads before TT resize");
+    if (threads.has_main_thread())
+        set_tt_size(options["Hash"]);
+    else
+        tt.resize(options["Hash"], threads);
+    SF_ESP_TRACE("Engine::resize_threads after TT resize");
+#endif
+
+    SF_ESP_TRACE("Engine::resize_threads before ThreadPool::set");
+    threads.set(numaContext.get_numa_config(), {options, threads, tt, sharedHists, network},
+                updateContext);
+    SF_ESP_TRACE("Engine::resize_threads after ThreadPool::set");
+
+#if !defined(ESP_PLATFORM) && !defined(ARDUINO_ARCH_ESP32)
+    // On desktop platforms keep the usual ordering: the thread pool is ready
+    // before the hash table is initialized.
+    SF_ESP_TRACE("Engine::resize_threads before TT resize");
+    set_tt_size(options["Hash"]);
+    SF_ESP_TRACE("Engine::resize_threads after TT resize");
+#endif
+
+    threads.ensure_network_replicated();
+    SF_ESP_TRACE("Engine::resize_threads complete");
+}
+
+void Engine::set_tt_size(usize mb) {
+    // Only wait when a valid main search thread exists. Thread-count metadata
+    // alone is not sufficient during initial or partial ThreadPool setup.
+    if (threads.has_main_thread())
+        wait_for_search_finished();
+    tt.resize(mb, threads);
+}
+
+void Engine::set_ponderhit(bool b) { threads.main_manager()->ponder = b; }
+
+// network related
+
+void Engine::verify_network() const {
+    const auto file = path_from_utf8(std::string(options["EvalFile"]));
+
+    // Keep the validation on every search, but report network details only once
+    // per loaded network. The callback is restored by set_on_verify_network()
+    // and a new report is enabled whenever load_network() changes the net.
+    if (networkVerificationReported)
+        network->verify(std::function<void(std::string_view)>{}, networkFile, file);
+    else
+        network->verify(onVerifyNetwork, networkFile, file);
+
+    if (networkVerificationReported || !onVerifyNetwork)
+        return;
+
+    auto statuses = network.get_status_and_errors();
+    for (usize i = 0; i < statuses.size(); ++i)
+    {
+        const auto [status, error] = statuses[i];
+        std::string message        = "Network replica " + std::to_string(i + 1) + ": ";
+        if (status == SystemWideSharedConstantAllocationStatus::NoAllocation)
+        {
+            message += "No allocation.";
+        }
+        else if (status == SystemWideSharedConstantAllocationStatus::LocalMemory)
+        {
+            message += "Local memory.";
+        }
+        else if (status == SystemWideSharedConstantAllocationStatus::SharedMemory)
+        {
+            message += "Shared memory.";
+        }
+        else
+        {
+            message += "Unknown status.";
+        }
+
+        if (error.has_value())
+        {
+            message += " " + *error;
+        }
+
+        // The verification callback is optional. Network::verify() already
+        // accepts an empty callback, so replica status reporting must do the same.
+        if (onVerifyNetwork)
+            onVerifyNetwork(message);
+    }
+
+    networkVerificationReported = true;
+}
+
+std::unique_ptr<Eval::NNUE::Network> Engine::get_default_network() {
+
+    SF_ESP_TRACE("Engine::get_default_network begin");
+    auto network_ = std::make_unique<NN::Network>();
+    SF_ESP_TRACE("Engine::get_default_network Network allocated");
+
+    network_->load(binaryDirectory, std::filesystem::path{}, networkFile);
+    SF_ESP_TRACE("Engine::get_default_network load returned");
+
+    return network_;
+}
+
+void Engine::load_network(const std::filesystem::path& file) {
+    network.modify_and_replicate(
+      [this, &file](NN::Network& network_) { network_.load(binaryDirectory, file, networkFile); });
+    threads.clear();
+    threads.ensure_network_replicated();
+    networkVerificationReported = false;
+}
+
+void Engine::save_network(const std::optional<std::filesystem::path>& file) {
+    network.modify_and_replicate(
+      [&file, this](NN::Network& network_) { network_.save(networkFile, file); });
+}
+
+// utility functions
+
+void Engine::trace_eval() const {
+    StateListPtr trace_states(new std::deque<StateInfo>(1));
+    Position     p;
+    p.set(pos.fen(), options["UCI_Chess960"], &trace_states->back());
+
+    verify_network();
+
+    sync_cout << "\n" << Eval::trace(p, *network) << sync_endl;
+}
+
+const OptionsMap& Engine::get_options() const { return options; }
+OptionsMap&       Engine::get_options() { return options; }
+
+std::string Engine::fen() const { return pos.fen(); }
+
+std::optional<PositionSetError> Engine::flip() { return pos.flip(); }
+
+std::string Engine::visualize() const {
+    std::stringstream ss;
+    ss << pos;
+    return ss.str();
+}
+
+int Engine::get_hashfull(int maxAge) const { return tt.hashfull(maxAge); }
+
+std::vector<std::pair<usize, usize>> Engine::get_bound_thread_count_by_numa_node() const {
+    auto                                 counts = threads.get_bound_thread_count_by_numa_node();
+    const NumaConfig&                    cfg    = numaContext.get_numa_config();
+    std::vector<std::pair<usize, usize>> ratios;
+    NumaIndex                            n = 0;
+    for (; n < counts.size(); ++n)
+        ratios.emplace_back(counts[n], cfg.num_cpus_in_numa_node(n));
+    if (!counts.empty())
+        for (; n < cfg.num_numa_nodes(); ++n)
+            ratios.emplace_back(0, cfg.num_cpus_in_numa_node(n));
+    return ratios;
+}
+
+std::string Engine::get_numa_config_as_string() const {
+    return numaContext.get_numa_config().to_string();
+}
+
+std::string Engine::numa_config_information_as_string() const {
+    auto cfgStr = get_numa_config_as_string();
+    return "Available processors: " + cfgStr;
+}
+
+std::string Engine::thread_binding_information_as_string() const {
+    auto              boundThreadsByNode = get_bound_thread_count_by_numa_node();
+    std::stringstream ss;
+    if (boundThreadsByNode.empty())
+        return ss.str();
+
+    bool isFirst = true;
+
+    for (auto&& [current, total] : boundThreadsByNode)
+    {
+        if (!isFirst)
+            ss << ":";
+        ss << current << "/" << total;
+        isFirst = false;
+    }
+
+    return ss.str();
+}
+
+std::string Engine::thread_allocation_information_as_string() const {
+    std::stringstream ss;
+
+    usize threadsSize = threads.size();
+    ss << "Using " << threadsSize << (threadsSize > 1 ? " threads" : " thread");
+
+    auto boundThreadsByNodeStr = thread_binding_information_as_string();
+    if (boundThreadsByNodeStr.empty())
+        return ss.str();
+
+    ss << " with NUMA node thread binding: ";
+    ss << boundThreadsByNodeStr;
+
+    return ss.str();
+}
+}
