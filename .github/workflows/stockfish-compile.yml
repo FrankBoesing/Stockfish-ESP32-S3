@@ -36,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for env in freenove_stockfish_gui freenove_stockfish_compile freenove_stockfish_nnubench freenove_stockfish_pievalidate freenove_stockfish_fc0_accx_validate freenove_stockfish_fc0_accx_bench freenove_stockfish_fc0_accx; do
+          for env in freenove_stockfish_gui freenove_stockfish_compile freenove_stockfish_nnubench freenove_stockfish_pievalidate freenove_stockfish_fc0_accx_validate freenove_stockfish_fc0_accx_bench freenove_stockfish_fc0_accx freenove_stockfish_fc0_tile8_validate freenove_stockfish_fc0_tile8_bench freenove_stockfish_fc0_tile8; do
             echo "===== Building $env ====="
             log="/tmp/${env}.log"
             if ! pio run -e "$env" -v > "$log" 2>&1; then
@@ -74,6 +74,18 @@ jobs:
                 exit 1
               }
             fi
+            if [[ "$env" == "freenove_stockfish_fc0_tile8_validate" || "$env" == "freenove_stockfish_fc0_tile8_bench" || "$env" == "freenove_stockfish_fc0_tile8" ]]; then
+              grep -q -- '-DSTOCKFISH_ESP32_S3_FC0_TILE8=1' <<<"$command" || {
+                echo "FC0 TILE8 was not enabled in $env."
+                exit 1
+              }
+            fi
+            if [[ "$env" == "freenove_stockfish_fc0_tile8_validate" ]]; then
+              grep -q -- '-DSTOCKFISH_ESP32_S3_FC0_TILE8_VALIDATE=1' <<<"$command" || {
+                echo "FC0 TILE8 parity validation was not enabled."
+                exit 1
+              }
+            fi
           done
 
       - name: Upload default PIE, profiler and validation artifacts
@@ -96,5 +108,11 @@ jobs:
             .pio/build/freenove_stockfish_fc0_accx_bench/firmware.map
             .pio/build/freenove_stockfish_fc0_accx/firmware.bin
             .pio/build/freenove_stockfish_fc0_accx/firmware.map
+            .pio/build/freenove_stockfish_fc0_tile8_validate/firmware.bin
+            .pio/build/freenove_stockfish_fc0_tile8_validate/firmware.map
+            .pio/build/freenove_stockfish_fc0_tile8_bench/firmware.bin
+            .pio/build/freenove_stockfish_fc0_tile8_bench/firmware.map
+            .pio/build/freenove_stockfish_fc0_tile8/firmware.bin
+            .pio/build/freenove_stockfish_fc0_tile8/firmware.map
           if-no-files-found: warn
           retention-days: 7
