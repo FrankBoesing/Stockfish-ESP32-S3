@@ -1,4 +1,4 @@
-name: ESP32-S3 Stockfish Smallnet compile
+name: ESP32-S3 Stockfish Smallnet QIO compile
 
 on:
   push:
@@ -32,11 +32,11 @@ jobs:
       - name: Run native Stockfish GUI rule regression tests
         run: bash tests/native/run_tests.sh
 
-      - name: Compile default PIE firmware, profiler and parity validator
+      - name: Compile QIO firmware, profiler and parity validator
         shell: bash
         run: |
           set -euo pipefail
-          for env in freenove_stockfish_gui freenove_stockfish_compile freenove_stockfish_core1 freenove_stockfish_qio freenove_stockfish_nnubench freenove_stockfish_pievalidate; do
+          for env in freenove_stockfish_gui freenove_stockfish_compile freenove_stockfish_core1 freenove_stockfish_nnubench freenove_stockfish_pievalidate; do
             echo "===== Building $env ====="
             log="/tmp/${env}.log"
             if ! pio run -e "$env" -v > "$log" 2>&1; then
@@ -56,11 +56,13 @@ jobs:
                 exit 1
               }
             fi
-            if [[ "$env" == "freenove_stockfish_qio" ]]; then
-              grep -q 'qio_opi' <<<"$command" || {
-                echo "QIO flash / OPI PSRAM SDK variant was not selected."
-                exit 1
-              }
+            grep -q '/qio_opi/include' <<<"$command" || {
+              echo "QIO flash / OPI PSRAM SDK variant was not selected in $env."
+              exit 1
+            }
+            if grep -q '/dio_opi/include' <<<"$command"; then
+              echo "DIO flash / OPI PSRAM SDK variant unexpectedly selected in $env."
+              exit 1
             fi
             if [[ "$env" == "freenove_stockfish_core1" ]]; then
               grep -q -- '-DSTOCKFISH_SEARCH_CORE=1' <<<"$command" || {
@@ -88,8 +90,6 @@ jobs:
             .pio/build/freenove_stockfish_compile/firmware.map
             .pio/build/freenove_stockfish_core1/firmware.bin
             .pio/build/freenove_stockfish_core1/firmware.map
-            .pio/build/freenove_stockfish_qio/firmware.bin
-            .pio/build/freenove_stockfish_qio/firmware.map
             .pio/build/freenove_stockfish_nnubench/firmware.bin
             .pio/build/freenove_stockfish_nnubench/firmware.map
             .pio/build/freenove_stockfish_pievalidate/firmware.bin
