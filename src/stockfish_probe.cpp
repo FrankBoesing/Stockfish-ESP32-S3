@@ -246,7 +246,7 @@ static void printFc0AccxValidationStats(const char *label) {
                   (unsigned long long)(avgBlocksTenths % 10),
                   (unsigned long long)stats.inputCalls);
 
-    Serial.printf("\n[FC0_ACCX_OCCUPANCY] %s blocks_per_eval_histogram:",
+    Serial.printf("\n[FC0_ACCX_OCCUPANCY] %s block_occupancy_histogram:",
                   label);
     for (unsigned i = 0; i <= 16; ++i)
       if (stats.blockOccupancy16[i] != 0)
