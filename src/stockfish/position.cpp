@@ -209,6 +209,7 @@ Position::set(const string& fenStr, bool isChess960, StateInfo* si) {
     std::memset(reinterpret_cast<char*>(this), 0, sizeof(Position));
     std::memset(si, 0, sizeof(StateInfo));
     st = si;
+    st->polyglotEpSquare = SQ_NONE;
 
     ss >> std::noskipws;
 
@@ -404,6 +405,11 @@ Position::set(const string& fenStr, bool isChess960, StateInfo* si) {
             // c) there is no piece on epSquare or behind epSquare
             enpassant = pawns && target
                      && !(pieces() & (st->epSquare | (st->epSquare + pawn_push(sideToMove))));
+
+            // Polyglot includes the EP file when a pawn can pseudo-legally
+            // capture, even if every such capture leaves its king in check.
+            if (enpassant)
+                st->polyglotEpSquare = st->epSquare;
 
             // If no pawn can execute the en passant capture without leaving the king in check, don't record the epSquare
             while (pawns)
@@ -922,6 +928,7 @@ void Position::do_move(Move                      m,
         k ^= Zobrist::enpassant[file_of(st->epSquare)];
         st->epSquare = SQ_NONE;
     }
+    st->polyglotEpSquare = SQ_NONE;
 
     // Update castling rights.
     k ^= Zobrist::castling[st->castlingRights];
@@ -941,6 +948,8 @@ void Position::do_move(Move                      m,
             // If there are no pawns attacking the ep square, ep is not possible.
             if (pawns)
             {
+                st->polyglotEpSquare = epSquare;
+
                 Square   ksq         = square<KING>(them);
                 Bitboard notBlockers = ~st->previous->blockersForKing[them];
                 bool     noDiscovery = (from & notBlockers) || file_of(from) == file_of(ksq);
@@ -1193,6 +1202,7 @@ void Position::do_null_move(StateInfo& newSt) {
         st->key ^= Zobrist::enpassant[file_of(st->epSquare)];
         st->epSquare = SQ_NONE;
     }
+    st->polyglotEpSquare = SQ_NONE;
 
     st->key ^= Zobrist::side;
 

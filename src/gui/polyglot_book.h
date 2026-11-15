@@ -51,7 +51,7 @@ inline uint64_t hashPosition(const Stockfish::Position& position) {
 
     // Polyglot includes an en-passant file only if a side-to-move pawn can
     // pseudo-legally capture onto that square. King-safety legality is ignored.
-    const Square ep = position.ep_square();
+    const Square ep = position.polyglot_ep_square();
     if (is_ok(ep)) {
         const int epFile = int(file_of(ep));
         const int sourceRank = int(rank_of(ep))
