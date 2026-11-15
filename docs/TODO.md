@@ -14,6 +14,8 @@ This list tracks features and verification work that remain outstanding for the 
 
 ## Features
 
+- [ ] **GUI: Add chessboard coordinates** — show files `a–h` above the board and ranks `8–1` along its left edge. Center labels on their respective squares, use a subtle small font, and mirror both label sequences when Black is at the bottom. Keep the current 208 × 208 px board size, piece icons and right-hand information panel unchanged.
+
 - [ ] **Opening book — hardware validation remains**
   - [x] Select the initial licensed book: `lichess_2100_rapid_2026-05.bin` (CC0 release, 1,601,616 bytes).
   - [x] Keep book data separate in the raw read-only `book` partition and map only its used payload with `esp_partition_mmap()`; do not copy the book into RAM.
