@@ -8,7 +8,7 @@ This list tracks features and verification work that remain outstanding for the 
 - [x] Document the project license, source provenance, third-party attribution and firmware distribution obligations in the README.
 - [x] Run the PlatformIO firmware matrix and native regression tests on pushes to `main` and pull requests targeting `main`.
 - [x] Add Gitleaks scanning for the checked-out tree and complete Git history across all fetched branches; run on branch pushes, pull requests to `main` and weekly.
-- [x] Scan all three existing branches (`main`, `stockfish-port-analysis`, `board-diagnostics`): 319 commits scanned; no leaks found in history or current files (2026-11-15).
+- [x] Scan all three existing branches (`main`, `stockfish-port-analysis`, `board-diagnostics`): Gitleaks found no leaks in Git history or the working tree (2026-11-15). The workflow repeats the scan on every branch push and weekly.
 - [x] Refresh the README, extended technical documentation and historical development checkpoint to distinguish completed work from remaining hardware validation.
 - [x] Keep ZIP/archive files unchanged by decision.
 
