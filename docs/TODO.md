@@ -13,26 +13,26 @@ This list tracks planned features and verification work that is not part of the 
 
 ## Flash and partition layout
 
-- [ ] **Verify the physical flash capacity before changing the partition table.**
-  - Read the exact module marking and capture `esptool.py flash_id` output; add a runtime `ESP.getFlashChipSize()` diagnostic.
-  - Current PlatformIO configuration assumes 16 MiB: `board_upload.flash_size = 16MB` and `default_16MB.csv`.
-  - The current 16 MiB table allocates two 6.25 MiB OTA app slots, a 3.375 MiB SPIFFS partition, plus NVS, OTA metadata and coredump. The current project does not appear to use SPIFFS, so that data area is a candidate for the opening book after checking all source references.
-  - If 32 MiB flash is actually fitted, verify the exact flash part and ESP-IDF 5.5.5 addressing support before placing a partition above the 16 MiB boundary. Do not infer 32 MiB capacity from the ESP32-S3's address-mapping capability.
-  - Record application binary size separately from physical flash size and partition size. A roughly 1.4 MiB firmware image does not establish that the chip itself is only 1.4 MiB or that the remaining address space is already available to a data partition.
-  - Decide whether to preserve dual-slot OTA. Keeping two OTA slots constrains each app partition; a single-app layout could trade OTA rollback for more book storage.
+- [x] **Confirm physical flash capacity: 16 MiB.** The user checked the fitted module.
+- [x] **Remove the OTA layout.** Firmware updates are performed over USB/serial; the two OTA app slots and `otadata` partition are no longer required. This is a USB-update design choice, not a consequence of Wi-Fi being disabled.
+- [x] **Allocate one 4 MiB factory application partition.** The latest QIO build reports 1,884,600 bytes of Flash Data + Flash Code, leaving approximately 2.20 MiB within the 4 MiB app partition.
+- [x] **Replace SPIFFS with a raw book partition.** The `book` partition is `data/undefined` with the read-only flag; it is not a filesystem. It is mapped read-only with `esp_partition_mmap()` when the reader is implemented.
+- [ ] Implement Polyglot hash and move decoding, direct mmap lookup, validation and tests.
+- [ ] Add a host-side book conversion/validation tool and choose the final licensed book.
+- [ ] Add a separate book flashing command at offset `0x410000`.
+- [ ] Add runtime `ESP.getFlashChipSize()` reporting as a diagnostic (not a blocker; physical capacity is already confirmed).
 
+The old NVS partition remains at exactly `0x9000` with size `0x5000` (20 KiB), preserving the existing Preferences data layout. The former `otadata` bytes are now an unused 8 KiB gap; they are deliberately not merged into NVS.
 
-## Current flash configuration reference
+### Current `partitions_stockfish_16MB.csv`
 
-The current `default_16MB.csv` partition table uses:
+| Partition | Type / subtype | Offset | Size |
+|---|---|---:|---:|
+| NVS | data / nvs | `0x9000` | 20 KiB |
+| Factory app | app / factory | `0x10000` | 4 MiB |
+| Opening book | data / undefined (`0x06`), read-only | `0x410000` | 11.875 MiB |
+| Coredump | data / coredump | `0xFF0000` | 64 KiB |
 
-| Partition | Offset | Size |
-|---|---:|---:|
-| NVS | 0x9000 | 20 KiB |
-| OTA metadata | 0xE000 | 8 KiB |
-| app0 | 0x10000 | 6.25 MiB |
-| app1 | 0x650000 | 6.25 MiB |
-| SPIFFS | 0xC90000 | 3.375 MiB |
-| Coredump | 0xFF0000 | 64 KiB |
+The book partition ends at `0xFF0000`; the coredump partition ends exactly at the 16 MiB flash boundary (`0x1000000`). There are no `app1`, `otadata` or filesystem partitions. PlatformIO's `build.app_partition_name` is explicitly set to `factory`, so upload-size checks apply to the 4 MiB app partition.
 
-The table exactly spans the configured 16 MiB address range. A change to the partition table requires a full erase/reflash and should be done only after physical flash identification and a decision about OTA requirements.
+Changing the partition table requires flashing the new table and firmware. Do **not** run a full-chip erase as part of this layout change: the existing NVS offset and size are intentionally preserved so saved games and settings remain in place. The book partition will need its own raw binary flashed separately after the reader is ready.

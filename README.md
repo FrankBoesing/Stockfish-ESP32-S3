@@ -4,7 +4,7 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 ## Development checkpoint
 
-The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a validated baseline. The current work is focused on the touchscreen chess GUI and measured FC0 experiments. The exact branch, commits, hardware measurements and implementation constraints are recorded in [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md). Planned feature and hardware follow-ups are tracked in [docs/TODO.md](docs/TODO.md).
+The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a validated baseline. QIO is now the default flash mode. The current work is focused on completing the touchscreen chess GUI and adding a flash-mapped opening book. The exact branch, commits, hardware measurements and implementation constraints are recorded in [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md). Planned feature and hardware follow-ups are tracked in [docs/TODO.md](docs/TODO.md).
 
 ## Project goals
 
@@ -19,7 +19,7 @@ The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a valida
 - Freenove ESP32-S3 Display, 2.8-inch 320x240 capacitive-touch variant
 - ESP32-S3, dual-core Xtensa LX7
 - OPI PSRAM: 8 MiB, confirmed by runtime heap diagnostics.
-- Flash: PlatformIO is currently configured for 16 MiB with `default_16MB.csv`. The physical flash capacity has not yet been independently verified by a flash-ID read or module marking. If the fitted module is an N16R8, that suffix means 16 MiB flash plus 8 MiB PSRAM; it does not mean 32 MiB flash.
+- Flash: 16 MiB physical capacity confirmed by the user. The project uses `partitions_stockfish_16MB.csv`: one 4 MiB factory app (USB/serial updates, no OTA slots), a dedicated 11.875 MiB read-only raw `book` partition, the existing 20 KiB NVS partition and a 64 KiB coredump partition. Flash mode is QIO.
 - ILI9341 SPI display, native 240x320 portrait resolution; diagnostic firmware rotates it to 320x240 landscape.
 
 ## Current status

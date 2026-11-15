@@ -29,6 +29,32 @@ jobs:
       - name: Install PlatformIO
         run: python -m pip install --upgrade platformio
 
+      - name: Validate single-app raw-book partition layout
+        shell: bash
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          path = Path("partitions_stockfish_16MB.csv")
+          rows = {}
+          with path.open(newline="") as f:
+              for row in csv.reader(line for line in f if not line.lstrip().startswith("#")):
+                  if row and row[0].strip():
+                      name, typ, subtype, offset, size, *flags = [v.strip() for v in row]
+                      rows[name] = (typ, subtype, int(offset, 0), int(size, 0), flags[0] if flags else "")
+
+          assert rows["nvs"][2:4] == (0x9000, 0x5000)
+          assert rows["factory"][0:4] == ("app", "factory", 0x10000, 0x400000)
+          assert rows["book"][0:4] == ("data", "0x06", 0x410000, 0xBE0000)
+          assert rows["book"][4] == "readonly"
+          assert rows["coredump"][2:4] == (0xFF0000, 0x10000)
+          assert not {"app0", "app1", "otadata", "spiffs"} & rows.keys()
+          assert 0x410000 + 0xBE0000 == 0xFF0000
+          assert 0xFF0000 + 0x10000 == 0x1000000
+          print("Validated: 4 MiB factory app, 11.875 MiB read-only raw book, existing NVS and coredump.")
+          PY
+
       - name: Run native Stockfish GUI rule regression tests
         run: bash tests/native/run_tests.sh
 
