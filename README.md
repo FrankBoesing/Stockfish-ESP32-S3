@@ -77,13 +77,22 @@ A single move can also be entered directly in UCI notation, for example `e2e4` o
 
 ## Build and upload
 
-The repository contains the firmware source and PlatformIO configuration. To build and upload the touchscreen application:
+The repository contains the firmware source and PlatformIO configuration. Install PlatformIO Core and run the following commands from the repository root:
 
 ```sh
+# Compile the touchscreen application
+pio run -e freenove_stockfish_gui
+
+# Upload it to the connected Freenove board
 pio run -e freenove_stockfish_gui -t upload
+
+# Run the host-side chess/GUI regression tests (Linux or WSL)
+bash tests/native/run_tests.sh
 ```
 
-The serial console uses 115200 baud. PlatformIO and the Espressif32 platform packages are required.
+The serial console uses 115200 baud. PlatformIO installs the Espressif32 toolchain and libraries required by the selected environment. The Stockfish build script downloads the required Smallnet NNUE network during the build, so the first build needs Internet access.
+
+GitHub Actions runs the native regression suite and the firmware build matrix for relevant changes on `main` and pull requests targeting `main`. A separate Gitleaks workflow checks the repository files and the full reachable Git history across branches on every branch push and weekly.
 
 ## Opening book
 
@@ -99,4 +108,6 @@ For implementation details, benchmark results, build environments, NNUE/PIE vali
 
 ## Source and licence
 
-The chess engine is based on [Stockfish](https://github.com/official-stockfish/Stockfish). Stockfish is distributed under the GNU General Public License version 3. See [src/stockfish/Copying.txt](src/stockfish/Copying.txt) for the licence text and the upstream project for source provenance.
+This project, including the integrated Stockfish-derived firmware, is distributed under the **GNU General Public License version 3 (GPLv3)**. The complete license is in the repository-root [LICENSE](LICENSE) file; the original Stockfish license copy, author list and copyright notices remain under [src/stockfish](src/stockfish/).
+
+The engine is based on [official Stockfish](https://github.com/official-stockfish/Stockfish). Third-party components and artwork retain their respective copyright and license notices. When distributing firmware, comply with GPLv3 requirements for the corresponding source code and build modifications.
