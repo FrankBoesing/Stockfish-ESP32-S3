@@ -8,6 +8,7 @@ on:
       - "platformio.ini"
       - "src/**"
       - "tests/**"
+      - "scripts/**"
       - ".github/workflows/stockfish-compile.yml"
   workflow_dispatch:
 

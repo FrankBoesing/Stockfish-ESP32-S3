@@ -4,7 +4,7 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 ## Development checkpoint
 
-The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a validated baseline. QIO is now the default flash mode. The current work is focused on completing the touchscreen chess GUI and adding a flash-mapped opening book. The exact branch, commits, hardware measurements and implementation constraints are recorded in [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md). Planned feature and hardware follow-ups are tracked in [docs/TODO.md](docs/TODO.md).
+The engine/NNUE bring-up and the ESP32-S3 PIE optimization have reached a validated baseline. QIO is now the default flash mode. The touchscreen GUI now has a first Polyglot opening-book integration: it maps only the used data bytes from a separate flash partition, validates the image and chooses a legal weighted book move before falling back to Stockfish. Native tests cover the hash and move-decoding logic; hardware validation is still pending. The exact branch, commits, measurements and implementation constraints are recorded in [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md). See [the book flashing guide](docs/FLASHING-OPENING-BOOK.md) and [the project TODO](docs/TODO.md).
 
 ## Project goals
 
@@ -100,6 +100,20 @@ implemented, so the book is not yet used for move selection.
 
 See [Flashing an opening book](docs/FLASHING-OPENING-BOOK.md) for the
 repeatable PowerShell procedure, partition offset and verification output.
+
+## Opening book
+
+The selected initial Polyglot book is `lichess_2100_rapid_2026-05.bin` (CC0
+release, 1,601,616 bytes). The raw file is not committed to this repository.
+Run `python scripts/prepare_polyglot_book.py <book.bin>` to validate it and
+create an `.sfbook` image with entry count and CRC32 metadata. Flash that image
+at offset `0x410000`; see [the flashing guide](docs/FLASHING-OPENING-BOOK.md).
+
+The GUI maps only the actual Polyglot payload from the `book` partition. It
+checks the image metadata, CRC and key order, then probes legal matching moves
+using the Polyglot key. Book moves are weighted by the stored entry weights;
+if no legal book move is present, the normal Stockfish search is used. Physical
+validation of the mmap and move-selection path remains pending.
 
 ## Planned milestones
 

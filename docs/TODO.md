@@ -4,14 +4,18 @@ This list tracks planned features and verification work that is not part of the 
 
 ## Features
 
-- [ ] **Optional opening book**
-  - Add an opening-book lookup to the chess application, with normal Stockfish search as the fallback when no book move is available.
-  - Use Polyglot `.bin` format initially; keep the book separate from the application in the dedicated raw read-only `book` partition and access it with `esp_partition_mmap()` rather than copying the complete file into RAM.
+- [ ] **Opening book — hardware validation remains**
   - [x] Select the initial licensed book: `lichess_2100_rapid_2026-05.bin` (CC0 release, 1,601,616 bytes).
-  - [x] Document and verify the separate raw-book flash procedure; see [Flashing an opening book](FLASHING-OPENING-BOOK.md).
-  - [ ] Implement Polyglot lookup and add a book enable/disable setting, deterministic lookup tests and on-device lookup timing.
-  - [ ] Add a host-side book validation tool.
-  - Do not commit the raw book binary to the firmware source repository.
+  - [x] Keep book data separate in the raw read-only `book` partition and map only its used payload with `esp_partition_mmap()`; do not copy the book into RAM.
+  - [x] Implement Polyglot Zobrist hashing, big-endian entry reading, binary search, legal move decoding and weighted move selection.
+  - [x] Add the `SFBK` image header and host-side packaging/validation script. Raw `.bin` remains unchanged.
+  - [x] Integrate book lookup before Stockfish's engine-move search, with Stockfish fallback on a miss. HINT continues to use Stockfish.
+  - [x] Add native tests for hash vectors, castling, en-passant, promotion, binary search and weighted selection.
+  - [x] Document the repeatable flash process; see [Flashing an opening book](FLASHING-OPENING-BOOK.md).
+  - [ ] Repackage and reflash the existing book as `.sfbook`, then verify mmap/header/CRC on the FNK0104B.
+  - [ ] Verify book move logging and GUI integration on the board; verify Stockfish fallback when no legal book move exists.
+  - [ ] Add a user-facing book enable/disable setting.
+  - Do not commit the raw book binary or generated `.sfbook` image to the firmware repository.
 
 ## Flash and partition layout
 
@@ -37,4 +41,4 @@ The old NVS partition remains at exactly `0x9000` with size `0x5000` (20 KiB), p
 
 The book partition ends at `0xFF0000`; the coredump partition ends exactly at the 16 MiB flash boundary (`0x1000000`). There are no `app1`, `otadata` or filesystem partitions. PlatformIO's `build.app_partition_name` is explicitly set to `factory`, so upload-size checks apply to the 4 MiB app partition.
 
-Changing the partition table requires flashing the new table and firmware. Do **not** run a full-chip erase as part of this layout change: the existing NVS offset and size are intentionally preserved so saved games and settings remain in place. The initial raw book image has already been programmed separately at `0x410000`; the application-side reader is still pending. See [the flashing guide](FLASHING-OPENING-BOOK.md).
+Changing the partition table requires flashing the new table and firmware. Do **not** run a full-chip erase as part of this layout change: the existing NVS offset and size are intentionally preserved so saved games and settings remain in place. The initial raw book image was programmed at `0x410000`, but the current reader expects the new 24-byte `SFBK` header. Repackage the source `.bin` and reflash the generated `.sfbook` image before hardware testing. See [the flashing guide](FLASHING-OPENING-BOOK.md).
