@@ -6,10 +6,12 @@ This list tracks planned features and verification work that is not part of the 
 
 - [ ] **Optional opening book**
   - Add an opening-book lookup to the chess application, with normal Stockfish search as the fallback when no book move is available.
-  - Prefer a documented format such as Polyglot `.bin`, or convert a supplied source book into a compact sorted format optimized for this target.
-  - Keep book data separate from the application binary. Evaluate replacing the currently configured SPIFFS partition with a dedicated read-only `book` data partition and map it for reads with `esp_partition_mmap()`; do not load the complete book into internal RAM.
-  - Add a host-side conversion/validation tool, book enable/disable setting, deterministic lookup tests and on-device lookup timing.
-  - Do not commit a commercial or otherwise unlicensed opening-book data file. Keep the format/tooling separate from the actual book data.
+  - Use Polyglot `.bin` format initially; keep the book separate from the application in the dedicated raw read-only `book` partition and access it with `esp_partition_mmap()` rather than copying the complete file into RAM.
+  - [x] Select the initial licensed book: `lichess_2100_rapid_2026-05.bin` (CC0 release, 1,601,616 bytes).
+  - [x] Document and verify the separate raw-book flash procedure; see [Flashing an opening book](FLASHING-OPENING-BOOK.md).
+  - [ ] Implement Polyglot lookup and add a book enable/disable setting, deterministic lookup tests and on-device lookup timing.
+  - [ ] Add a host-side book validation tool.
+  - Do not commit the raw book binary to the firmware source repository.
 
 ## Flash and partition layout
 
@@ -35,4 +37,4 @@ The old NVS partition remains at exactly `0x9000` with size `0x5000` (20 KiB), p
 
 The book partition ends at `0xFF0000`; the coredump partition ends exactly at the 16 MiB flash boundary (`0x1000000`). There are no `app1`, `otadata` or filesystem partitions. PlatformIO's `build.app_partition_name` is explicitly set to `factory`, so upload-size checks apply to the 4 MiB app partition.
 
-Changing the partition table requires flashing the new table and firmware. Do **not** run a full-chip erase as part of this layout change: the existing NVS offset and size are intentionally preserved so saved games and settings remain in place. The book partition will need its own raw binary flashed separately after the reader is ready.
+Changing the partition table requires flashing the new table and firmware. Do **not** run a full-chip erase as part of this layout change: the existing NVS offset and size are intentionally preserved so saved games and settings remain in place. The initial raw book image has already been programmed separately at `0x410000`; the application-side reader is still pending. See [the flashing guide](FLASHING-OPENING-BOOK.md).

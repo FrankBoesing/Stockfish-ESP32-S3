@@ -89,6 +89,18 @@ a full-screen framebuffer.
 This is an initial implementation milestone. Touch mapping, rendering, search
 responsiveness and move handling still require a hardware test on the FNK0104B.
 
+## Opening-book data
+
+The 16 MiB flash layout reserves a dedicated 11.875 MiB raw `book` partition
+at offset `0x410000`. The initial book is
+`lichess_2100_rapid_2026-05.bin` (Polyglot, 1,601,616 bytes, CC0 release).
+The image has been flashed separately from the firmware and esptool verified
+the written bytes. The application-side Polyglot reader is still to be
+implemented, so the book is not yet used for move selection.
+
+See [Flashing an opening book](docs/FLASHING-OPENING-BOOK.md) for the
+repeatable PowerShell procedure, partition offset and verification output.
+
 ## Planned milestones
 
 1. Inspect upstream Stockfish build system, architecture-specific code, NNUE network loading, threading, and memory allocation.
