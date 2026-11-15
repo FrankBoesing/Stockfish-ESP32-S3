@@ -28,6 +28,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "gui/pieces.h"
 #include "gui/game_history.h"
 #include "gui/chess_rules.h"
+#include "gui/flash_polyglot_book.h"
 
 #include <algorithm>
 #include <cctype>
@@ -40,6 +41,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include <vector>
 
 #include <esp_heap_caps.h>
+#include <esp_random.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 #include <freertos/task.h>
@@ -149,6 +151,7 @@ public:
 
 BoardDisplay tft;
 Stockfish::Engine *engine = nullptr;
+PolyglotBook::FlashPolyglotBook openingBook;
 
 enum class Screen : uint8_t { Calibration, Menu, Game, Promotion };
 enum class SearchMode : uint8_t { None, EngineMove, Hint };
@@ -1037,6 +1040,8 @@ static void renderCalibrationComplete(bool saved) {
   delay(500);
 }
 
+static void handleSearchResult(const char *bestMove);
+
 static void startSearch(SearchMode mode) {
   if (!engine || searchInFlight || gameOver)
     return;
@@ -1062,6 +1067,35 @@ static void startSearch(SearchMode mode) {
   searchMailbox.bestMoveReady = false;
   searchMailbox.bestMove[0] = '\0';
   portEXIT_CRITICAL(&searchMux);
+
+  if (mode == SearchMode::EngineMove && openingBook.ready()) {
+    Stockfish::Position position;
+    Stockfish::StateInfo state;
+    const auto positionError = position.set(currentFen, false, &state);
+    if (!positionError.has_value()) {
+      Stockfish::Move bookMove;
+      PolyglotBook::SelectionStats stats;
+      const uint64_t key = PolyglotBook::hashPosition(position);
+      const uint64_t randomValue = (uint64_t(esp_random()) << 32) | esp_random();
+
+      if (openingBook.chooseMove(position, randomValue, bookMove, &stats)) {
+        const std::string uciMove = Stockfish::UCIEngine::move(bookMove, false);
+        Serial.printf("[BOOK] HIT key=%016llX legal-entries=%lu total-weight=%llu move=%s\n",
+                      (unsigned long long)key,
+                      (unsigned long)stats.legalEntries,
+                      (unsigned long long)stats.totalWeight,
+                      uciMove.c_str());
+        handleSearchResult(uciMove.c_str());
+        return;
+      }
+
+      Serial.printf("[BOOK] MISS key=%016llX; falling back to Stockfish search\n",
+                    (unsigned long long)key);
+    } else {
+      Serial.printf("[BOOK] Position parse failed; falling back to Stockfish: %s\n",
+                    positionError->what());
+    }
+  }
 
   Stockfish::Search::LimitsType limits;
   limits.movetime = mode == SearchMode::Hint ? 1400 : 2400;
@@ -2141,6 +2175,16 @@ static void initializeDisplayAndTouch() {
                 TOUCH_I2C_ADDR, touchPresent ? "ACK" : "NOT FOUND");
 }
 
+static void initializeOpeningBook() {
+  if (openingBook.begin()) {
+    Serial.printf("[BOOK] Ready: %lu Polyglot entries, %lu data bytes mapped read-only from flash\n",
+                  (unsigned long)openingBook.entryCount(),
+                  (unsigned long)openingBook.dataBytes());
+  } else {
+    Serial.printf("[BOOK] Unavailable: %s\n", openingBook.error());
+  }
+}
+
 static void initializeEngine() {
   // Stockfish's standalone Engine constructor expects the global attack and
   // position tables to have been initialized by the application first.
@@ -2214,6 +2258,7 @@ void setup() {
   initializeDisplayAndTouch();
   renderLoading();
   initializeEngine();
+  initializeOpeningBook();
 
   loadTouchCalibration();
   Serial.printf("[GUI] Touch calibration: %s\n",
