@@ -1080,7 +1080,7 @@ static void startSearch(SearchMode mode) {
 
     if (openingBook.chooseMove(position, randomValue, bookMove, &stats)) {
       const std::string uciMove = Stockfish::UCIEngine::move(bookMove, false);
-      Serial.printf("[BOOK] HIT key=%016llX legal-entries=%lu total-weight=%llu move=%s\\n",
+      Serial.printf("[BOOK] HIT key=%016llX legal-entries=%lu total-weight=%llu move=%s\n",
                     (unsigned long long)key,
                     (unsigned long)stats.legalEntries,
                     (unsigned long long)stats.totalWeight,
@@ -1089,7 +1089,7 @@ static void startSearch(SearchMode mode) {
       return;
     }
 
-    Serial.printf("[BOOK] MISS key=%016llX; falling back to Stockfish search\\n",
+    Serial.printf("[BOOK] MISS key=%016llX; falling back to Stockfish search\n",
                   (unsigned long long)key);
   }
 
