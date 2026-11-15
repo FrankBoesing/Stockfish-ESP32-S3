@@ -18,7 +18,6 @@
 
 #include "thread.h"
 
-#include "esp_trace.h"
 #include "esp_fatal.h"
 
 #include <algorithm>
@@ -61,17 +60,12 @@ Thread::Thread(Search::SharedState&                    sharedState,
     nthreads(sharedState.options["Threads"]),
     stdThread(
       create_native_thread(NativeThreadOptions{}.setLargeStack(true), &Thread::idle_loop, this)) {
-
-    SF_ESP_TRACE("Thread ctor body entered; native thread created");
     if (!stdThread.joinable())
     {
         std::cerr << "Failed to create search thread\n";
         SF_FATAL_EXIT(EXIT_FAILURE, "Failed to create Stockfish search thread");
     }
-
-    SF_ESP_TRACE("Thread: waiting for idle_loop startup");
     wait_for_search_finished();
-    SF_ESP_TRACE("Thread: idle_loop is ready");
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
     if (!binder.is_binding_enabled())
@@ -79,30 +73,22 @@ Thread::Thread(Search::SharedState&                    sharedState,
         // A single-worker ESP32 has no NUMA placement requirement. Construct
         // the large Worker synchronously instead of dispatching an init job
         // through the new pthread and its condition variable.
-        SF_ESP_TRACE("Thread: constructing Worker synchronously on caller task");
         this->numaAccessToken = binder();
         this->worker          = make_unique_large_page<Search::Worker>(
           sharedState, std::move(sm), n, idxInNuma, totalNuma, this->numaAccessToken);
-        SF_ESP_TRACE("Thread: synchronous Worker construction complete");
     }
     else
 #endif
     {
         run_custom_job([this, &binder, &sharedState, &sm, n]() {
-            SF_ESP_TRACE("Thread job: binding NUMA access");
             // Use the binder to [maybe] bind the threads to a NUMA node before doing
             // the Worker allocation. Ideally we would also allocate the SearchManager
             // here, but that's minor.
             this->numaAccessToken = binder();
-            SF_ESP_TRACE("Thread job: before Search::Worker allocation");
             this->worker          = make_unique_large_page<Search::Worker>(
               sharedState, std::move(sm), n, idxInNuma, totalNuma, this->numaAccessToken);
-            SF_ESP_TRACE("Thread job: Search::Worker allocation and construction complete");
         });
-
-        SF_ESP_TRACE("Thread: waiting for Worker construction job");
         wait_for_search_finished();
-        SF_ESP_TRACE("Thread: Worker construction job complete");
     }
 }
 
@@ -154,7 +140,6 @@ void Thread::ensure_network_replicated() { worker->ensure_network_replicated(); 
 // when the thread has no work to do.
 
 void Thread::idle_loop() {
-    SF_ESP_TASK_INFO("Stockfish search worker", static_cast<int>(idx));
     while (true)
     {
         std::unique_lock<std::mutex> lk(mutex);
@@ -188,8 +173,6 @@ static usize next_power_of_two(u64 count) { return count > 1 ? (2ULL << msb(coun
 void ThreadPool::set(const NumaConfig&                           numaConfig,
                      Search::SharedState                         sharedState,
                      const Search::SearchManager::UpdateContext& updateContext) {
-
-    SF_ESP_TRACE("ThreadPool::set begin");
     if (!threads.empty())  // destroy any existing thread(s)
     {
         // A partially initialized pool may contain null slots. Wait only on
@@ -236,8 +219,6 @@ void ThreadPool::set(const NumaConfig&                           numaConfig,
             for (usize i = 0; i < boundThreadToNumaNode.size(); ++i)
                 counts[boundThreadToNumaNode[i]]++;
         }
-
-        SF_ESP_TRACE("ThreadPool::set before shared history allocation");
         sharedState.sharedHistories.clear();
         for (auto pair : counts)
         {
@@ -271,12 +252,9 @@ void ThreadPool::set(const NumaConfig&                           numaConfig,
                 // on the same NUMA node.
                 auto binder = doBindThreads ? OptionalThreadToNumaNodeBinder(numaConfig, numaId)
                                                        : OptionalThreadToNumaNodeBinder(numaId);
-
-                SF_ESP_TRACE("ThreadPool::set creating Thread");
                 threads.emplace_back(std::make_unique<Thread>(sharedState, std::move(manager),
                                                                          threadId, counts[numaId]++,
                                                                          threadsPerNode[numaId], binder));
-                SF_ESP_TRACE("ThreadPool::set Thread created");
             };
 
             // Ensure the worker thread inherits the intended NUMA affinity at creation.
@@ -290,7 +268,6 @@ void ThreadPool::set(const NumaConfig&                           numaConfig,
         // Each newly constructed Thread creates its Worker, whose constructor
         // already calls Worker::clear(). Avoid clearing the large histories a
         // second time here; only initialize the main SearchManager state.
-        SF_ESP_TRACE("ThreadPool::set: skip redundant Worker::clear; reset SearchManager");
         auto* manager = main_manager();
         manager->bestPreviousAverageScore = VALUE_INFINITE;
         manager->previousTimeReduction    = 0.85;
@@ -298,16 +275,10 @@ void ThreadPool::set(const NumaConfig&                           numaConfig,
         manager->bestPreviousScore        = VALUE_INFINITE;
         manager->originalTimeAdjust       = -1;
         manager->tm.clear();
-        SF_ESP_TRACE("ThreadPool::set: SearchManager state initialized");
 #else
-        SF_ESP_TRACE("ThreadPool::set before initial clear");
         clear();
-        SF_ESP_TRACE("ThreadPool::set after initial clear");
 #endif
-
-        SF_ESP_TRACE("ThreadPool::set before final worker wait");
         main_thread()->wait_for_search_finished();
-        SF_ESP_TRACE("ThreadPool::set after final worker wait");
     }
 }
 

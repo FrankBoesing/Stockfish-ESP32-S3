@@ -112,16 +112,12 @@ class NativeThread {
     void start(NativeThreadOptions options, ThreadCallableBase* func) {
         pthread_attr_t attr_storage, *attr = &attr_storage;
         const int attrInitRc = pthread_attr_init(attr);
-#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-#endif
         int stackSizeRc = 0;
         if (options.largeStack)
         {
             stackSizeRc = attrInitRc == 0
                             ? pthread_attr_setstacksize(attr, TH_STACK_SIZE)
                             : EINVAL;
-#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-#endif
         }
 
         auto start_routine = [](void* ptr) -> void* {
@@ -151,7 +147,6 @@ class NativeThread {
         workerCfg.inherit_cfg = false;
         const esp_err_t setCfgRc = esp_pthread_set_cfg(&workerCfg);
 
-
         const int rc = (attrInitRc == 0 && stackSizeRc == 0 && setCfgRc == ESP_OK)
                          ? pthread_create(&thread, attr, start_routine, func)
                          : EINVAL;
@@ -167,8 +162,6 @@ class NativeThread {
 #endif
         if (attrInitRc == 0)
             pthread_attr_destroy(attr);
-#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
-#endif
 
         if (rc != 0)
             delete func;
