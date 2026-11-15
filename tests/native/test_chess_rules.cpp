@@ -1,5 +1,6 @@
 #include "gui/chess_rules.h"
 #include "gui/game_history.h"
+#include "gui/polyglot_book.h"
 
 #include "stockfish/attacks.h"
 #include "stockfish/position.h"
@@ -454,6 +455,141 @@ void testCompactGameHistory() {
   CHECK(!maximum.appendUci("e2e4"));
 }
 
+
+uint16_t polyglotMove(int from, int to, unsigned promotion = 0) {
+  return uint16_t((from & 7) << 6)
+       | uint16_t((from >> 3) << 9)
+       | uint16_t(to & 7)
+       | uint16_t((to >> 3) << 3)
+       | uint16_t(promotion << 12);
+}
+
+void storeBe16(uint8_t* p, uint16_t value) {
+  p[0] = uint8_t(value >> 8);
+  p[1] = uint8_t(value);
+}
+
+void storeBe64(uint8_t* p, uint64_t value) {
+  for (int i = 7; i >= 0; --i) {
+    p[i] = uint8_t(value);
+    value >>= 8;
+  }
+}
+
+void testPolyglotHashing() {
+  TestPosition p;
+  CHECK(p.setFen(StartFen));
+  CHECK(PolyglotBook::hashPosition(p.get()) == 0x463B96181691FC9Cull);
+
+  CHECK(p.play("e2e4"));
+  CHECK(PolyglotBook::hashPosition(p.get()) == 0x823C9B50FD114196ull);
+
+  // Castling rights and the side to move are part of the Polyglot key.
+  CHECK(p.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1"));
+  const uint64_t noRights = PolyglotBook::hashPosition(p.get());
+  CHECK(p.setFen(StartFen));
+  CHECK(PolyglotBook::hashPosition(p.get()) != noRights);
+
+  CHECK(p.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"));
+  CHECK(PolyglotBook::hashPosition(p.get()) != 0x463B96181691FC9Cull);
+
+  // Polyglot hashes a capturable en-passant file, even if the capture would
+  // expose the king. It ignores an EP target when no side-to-move pawn can
+  // pseudo-legally capture it.
+  CHECK(p.setFen("4r1k1/8/8/3pP3/8/8/8/4K3 w - d6 0 1"));
+  const uint64_t pinnedEp = PolyglotBook::hashPosition(p.get());
+  CHECK(p.setFen("4r1k1/8/8/3pP3/8/8/8/4K3 w - - 0 1"));
+  CHECK(pinnedEp != PolyglotBook::hashPosition(p.get()));
+
+  CHECK(p.setFen("4k3/8/8/3p4/8/8/8/4K3 w - d6 0 1"));
+  const uint64_t uncapturableEp = PolyglotBook::hashPosition(p.get());
+  CHECK(p.setFen("4k3/8/8/3p4/8/8/8/4K3 w - - 0 1"));
+  CHECK(uncapturableEp == PolyglotBook::hashPosition(p.get()));
+}
+
+void testPolyglotMoveDecoding() {
+  TestPosition p;
+  Stockfish::Move decoded;
+
+  CHECK(p.setFen(StartFen));
+  CHECK(PolyglotBook::decodeLegalMove(
+    p.get(), polyglotMove(squareIndex("e2"), squareIndex("e4")), decoded));
+  CHECK(Stockfish::UCIEngine::move(decoded, false) == "e2e4");
+  CHECK(!PolyglotBook::decodeLegalMove(
+    p.get(), polyglotMove(squareIndex("e2"), squareIndex("e5")), decoded));
+
+  // Standard Polyglot castling uses king-to-c/g; Stockfish internally stores
+  // the rook square as the destination for orthodox castling.
+  CHECK(p.setFen("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1"));
+  CHECK(PolyglotBook::decodeLegalMove(
+    p.get(), polyglotMove(squareIndex("e1"), squareIndex("g1")), decoded));
+  CHECK(Stockfish::UCIEngine::move(decoded, false) == "e1g1");
+  CHECK(PolyglotBook::decodeLegalMove(
+    p.get(), polyglotMove(squareIndex("e1"), squareIndex("c1")), decoded));
+  CHECK(Stockfish::UCIEngine::move(decoded, false) == "e1c1");
+
+  // En-passant is matched against Stockfish's fully legal move list.
+  CHECK(p.setFen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 1"));
+  CHECK(PolyglotBook::decodeLegalMove(
+    p.get(), polyglotMove(squareIndex("e5"), squareIndex("d6")), decoded));
+  CHECK(Stockfish::UCIEngine::move(decoded, false) == "e5d6");
+
+  CHECK(p.setFen("4k3/P7/8/8/8/8/8/4K3 w - - 0 1"));
+  CHECK(PolyglotBook::decodeLegalMove(
+    p.get(), polyglotMove(squareIndex("a7"), squareIndex("a8"), 4), decoded));
+  CHECK(Stockfish::UCIEngine::move(decoded, false) == "a7a8q");
+  CHECK(PolyglotBook::decodeLegalMove(
+    p.get(), polyglotMove(squareIndex("a7"), squareIndex("a8"), 1), decoded));
+  CHECK(Stockfish::UCIEngine::move(decoded, false) == "a7a8n");
+  CHECK(!PolyglotBook::decodeLegalMove(
+    p.get(), polyglotMove(squareIndex("a7"), squareIndex("a8"), 5), decoded));
+}
+
+void testPolyglotBinarySearchAndWeightedSelection() {
+  TestPosition p;
+  CHECK(p.setFen(StartFen));
+  const uint64_t key = PolyglotBook::hashPosition(p.get());
+
+  // Three records for the start position: an illegal move with a large weight,
+  // e2e4 with weight 1, and d2d4 with weight 3. A later unrelated key checks
+  // that lookup stops at the end of the matching contiguous range.
+  std::vector<uint8_t> data(4 * PolyglotBook::EntrySize, 0);
+  for (int i = 0; i < 3; ++i)
+    storeBe64(data.data() + i * 16, key);
+  storeBe16(data.data() + 8, polyglotMove(squareIndex("e2"), squareIndex("e5")));
+  storeBe16(data.data() + 10, 100);
+  storeBe16(data.data() + 16 + 8, polyglotMove(squareIndex("e2"), squareIndex("e4")));
+  storeBe16(data.data() + 16 + 10, 1);
+  storeBe16(data.data() + 32 + 8, polyglotMove(squareIndex("d2"), squareIndex("d4")));
+  storeBe16(data.data() + 32 + 10, 3);
+  storeBe64(data.data() + 48, key + 1);
+
+  Stockfish::Move selected;
+  PolyglotBook::SelectionStats stats;
+  CHECK(PolyglotBook::chooseMove(p.get(), data.data(), 4, 0, selected, &stats));
+  CHECK(Stockfish::UCIEngine::move(selected, false) == "e2e4");
+  CHECK(stats.legalEntries == 2);
+  CHECK(stats.totalWeight == 4);
+
+  CHECK(PolyglotBook::chooseMove(p.get(), data.data(), 4, 1, selected, &stats));
+  CHECK(Stockfish::UCIEngine::move(selected, false) == "d2d4");
+
+  CHECK(PolyglotBook::chooseMove(p.get(), data.data(), 4, 3, selected, &stats));
+  CHECK(Stockfish::UCIEngine::move(selected, false) == "d2d4");
+
+  // A key outside the book range must produce a clean miss.
+  CHECK(p.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"));
+  CHECK(!PolyglotBook::chooseMove(p.get(), data.data(), 4, 0, selected, &stats));
+  CHECK(stats.legalEntries == 0);
+  CHECK(stats.totalWeight == 0);
+
+  // Zero-weight entries are intentionally ignored.
+  CHECK(p.setFen(StartFen));
+  storeBe16(data.data() + 16 + 10, 0);
+  storeBe16(data.data() + 32 + 10, 0);
+  CHECK(!PolyglotBook::chooseMove(p.get(), data.data(), 4, 0, selected, &stats));
+}
+
 }  // namespace
 
 int main() {
@@ -468,6 +604,9 @@ int main() {
   testRepetitionHistory();
   testBoardOrientationAndUndoPolicy();
   testCompactGameHistory();
+  testPolyglotHashing();
+  testPolyglotMoveDecoding();
+  testPolyglotBinarySearchAndWeightedSelection();
 
   if (failures) {
     std::cerr << failures << " of " << checks << " checks failed.\n";
