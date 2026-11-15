@@ -190,7 +190,7 @@ static void printPieValidationStats(const char *label) {
                   (unsigned)stats.firstMismatchIndex,
                   (long)stats.firstExpected, (long)stats.firstActual);
   Serial.println();
-  Serial.printf("[PIE_VALIDATE] feature-shapes R1/A1=%llu R1/A2=%llu R2/A1=%llu R2/A2=%llu\\n",
+  Serial.printf("[PIE_VALIDATE] feature-shapes R1/A1=%llu R1/A2=%llu R2/A1=%llu R2/A2=%llu\n",
                 (unsigned long long)stats.featureShapeCounts[0],
                 (unsigned long long)stats.featureShapeCounts[1],
                 (unsigned long long)stats.featureShapeCounts[2],

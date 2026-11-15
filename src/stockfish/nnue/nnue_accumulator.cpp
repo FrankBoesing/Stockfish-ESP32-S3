@@ -427,19 +427,19 @@ sf_always_inline void apply_features_esp32_s3_pie_loop(const i16* fromPtr,
     // its loop registers are shared with compiler-generated hardware loops.
     if constexpr (RemoveSecond && AddSecond) {
         asm volatile(
-          "1:\\n\\t"
-          "ee.vld.128.ip q0, %[from], 16\\n\\t"
-          "ee.vld.128.ip q1, %[removed0], 16\\n\\t"
-          "ee.vld.128.ip q2, %[removed1], 16\\n\\t"
-          "ee.vld.128.ip q3, %[added0], 16\\n\\t"
-          "ee.vld.128.ip q4, %[added1], 16\\n\\t"
-          "ee.vsubs.s16 q5, q0, q1\\n\\t"
-          "ee.vsubs.s16 q5, q5, q2\\n\\t"
-          "ee.vadds.s16 q5, q5, q3\\n\\t"
-          "ee.vadds.s16 q5, q5, q4\\n\\t"
-          "ee.vst.128.ip q5, %[to], 16\\n\\t"
-          "addi %[iterations], %[iterations], -1\\n\\t"
-          "bnez %[iterations], 1b\\n\\t"
+          "1:\n\t"
+          "ee.vld.128.ip q0, %[from], 16\n\t"
+          "ee.vld.128.ip q1, %[removed0], 16\n\t"
+          "ee.vld.128.ip q2, %[removed1], 16\n\t"
+          "ee.vld.128.ip q3, %[added0], 16\n\t"
+          "ee.vld.128.ip q4, %[added1], 16\n\t"
+          "ee.vsubs.s16 q5, q0, q1\n\t"
+          "ee.vsubs.s16 q5, q5, q2\n\t"
+          "ee.vadds.s16 q5, q5, q3\n\t"
+          "ee.vadds.s16 q5, q5, q4\n\t"
+          "ee.vst.128.ip q5, %[to], 16\n\t"
+          "addi %[iterations], %[iterations], -1\n\t"
+          "bnez %[iterations], 1b\n\t"
           : [from] "+&a"(fromPtr),
             [removed0] "+&a"(removed0Ptr),
             [removed1] "+&a"(removed1Ptr),
@@ -451,17 +451,17 @@ sf_always_inline void apply_features_esp32_s3_pie_loop(const i16* fromPtr,
           : "memory");
     } else if constexpr (RemoveSecond) {
         asm volatile(
-          "1:\\n\\t"
-          "ee.vld.128.ip q0, %[from], 16\\n\\t"
-          "ee.vld.128.ip q1, %[removed0], 16\\n\\t"
-          "ee.vld.128.ip q2, %[removed1], 16\\n\\t"
-          "ee.vld.128.ip q3, %[added0], 16\\n\\t"
-          "ee.vsubs.s16 q5, q0, q1\\n\\t"
-          "ee.vsubs.s16 q5, q5, q2\\n\\t"
-          "ee.vadds.s16 q5, q5, q3\\n\\t"
-          "ee.vst.128.ip q5, %[to], 16\\n\\t"
-          "addi %[iterations], %[iterations], -1\\n\\t"
-          "bnez %[iterations], 1b\\n\\t"
+          "1:\n\t"
+          "ee.vld.128.ip q0, %[from], 16\n\t"
+          "ee.vld.128.ip q1, %[removed0], 16\n\t"
+          "ee.vld.128.ip q2, %[removed1], 16\n\t"
+          "ee.vld.128.ip q3, %[added0], 16\n\t"
+          "ee.vsubs.s16 q5, q0, q1\n\t"
+          "ee.vsubs.s16 q5, q5, q2\n\t"
+          "ee.vadds.s16 q5, q5, q3\n\t"
+          "ee.vst.128.ip q5, %[to], 16\n\t"
+          "addi %[iterations], %[iterations], -1\n\t"
+          "bnez %[iterations], 1b\n\t"
           : [from] "+&a"(fromPtr),
             [removed0] "+&a"(removed0Ptr),
             [removed1] "+&a"(removed1Ptr),
@@ -472,17 +472,17 @@ sf_always_inline void apply_features_esp32_s3_pie_loop(const i16* fromPtr,
           : "memory");
     } else if constexpr (AddSecond) {
         asm volatile(
-          "1:\\n\\t"
-          "ee.vld.128.ip q0, %[from], 16\\n\\t"
-          "ee.vld.128.ip q1, %[removed0], 16\\n\\t"
-          "ee.vld.128.ip q2, %[added0], 16\\t"
-          "ee.vld.128.ip q3, %[added1], 16\\t"
-          "ee.vsubs.s16 q5, q0, q1\\n\\t"
-          "ee.vadds.s16 q5, q5, q2\\n\\t"
-          "ee.vadds.s16 q5, q5, q3\\n\\t"
-          "ee.vst.128.ip q5, %[to], 16\\n\\t"
-          "addi %[iterations], %[iterations], -1\\n\\t"
-          "bnez %[iterations], 1b\\n\\t"
+          "1:\n\t"
+          "ee.vld.128.ip q0, %[from], 16\n\t"
+          "ee.vld.128.ip q1, %[removed0], 16\n\t"
+          "ee.vld.128.ip q2, %[added0], 16\t"
+          "ee.vld.128.ip q3, %[added1], 16\t"
+          "ee.vsubs.s16 q5, q0, q1\n\t"
+          "ee.vadds.s16 q5, q5, q2\n\t"
+          "ee.vadds.s16 q5, q5, q3\n\t"
+          "ee.vst.128.ip q5, %[to], 16\n\t"
+          "addi %[iterations], %[iterations], -1\n\t"
+          "bnez %[iterations], 1b\n\t"
           : [from] "+&a"(fromPtr),
             [removed0] "+&a"(removed0Ptr),
             [added0] "+&a"(added0Ptr),
@@ -493,15 +493,15 @@ sf_always_inline void apply_features_esp32_s3_pie_loop(const i16* fromPtr,
           : "memory");
     } else {
         asm volatile(
-          "1:\\n\\t"
-          "ee.vld.128.ip q0, %[from], 16\\n\\t"
-          "ee.vld.128.ip q1, %[removed0], 16\\n\\t"
-          "ee.vld.128.ip q2, %[added0], 16\\n\\t"
-          "ee.vsubs.s16 q5, q0, q1\\n\\t"
-          "ee.vadds.s16 q5, q5, q2\\n\\t"
-          "ee.vst.128.ip q5, %[to], 16\\n\\t"
-          "addi %[iterations], %[iterations], -1\\n\\t"
-          "bnez %[iterations], 1b\\n\\t"
+          "1:\n\t"
+          "ee.vld.128.ip q0, %[from], 16\n\t"
+          "ee.vld.128.ip q1, %[removed0], 16\n\t"
+          "ee.vld.128.ip q2, %[added0], 16\n\t"
+          "ee.vsubs.s16 q5, q0, q1\n\t"
+          "ee.vadds.s16 q5, q5, q2\n\t"
+          "ee.vst.128.ip q5, %[to], 16\n\t"
+          "addi %[iterations], %[iterations], -1\n\t"
+          "bnez %[iterations], 1b\n\t"
           : [from] "+&a"(fromPtr),
             [removed0] "+&a"(removed0Ptr),
             [added0] "+&a"(added0Ptr),
@@ -562,7 +562,8 @@ __attribute__((noinline)) void apply_features_esp32_s3_pie(Color                
             apply_features_esp32_s3_pie_loop<true, true>(
               fromPtr, toPtr, removed0Ptr, removed1Ptr, added0Ptr, added1Ptr);
     }
-}#endif
+}
+#endif
 
 #if defined(STOCKFISH_ESP32_S3_PIE_VALIDATE)
 template<int sign>
