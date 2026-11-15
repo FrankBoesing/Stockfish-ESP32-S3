@@ -1,6 +1,16 @@
 # Project TODO
 
-This list tracks planned features and verification work that is not part of the validated default firmware. Experimental engine kernels must remain separate from the normal build until they have passed correctness and performance checks.
+This list tracks features and verification work that remain outstanding for the current firmware. The ESP32-S3 PIE accumulator kernel is part of the standard engine build; its network range guard and on-device scalar-parity validation are documented in [README-extended.md](../README-extended.md) and the [development log](STATUS-2026-11-14.md). The profiler and explicit parity-check environments are diagnostic builds, not performance baselines.
+
+## Repository and public-readiness
+
+- [x] Add a root `LICENSE` containing the complete GNU GPL version 3 text already shipped with Stockfish.
+- [x] Document the project license, source provenance, third-party attribution and firmware distribution obligations in the README.
+- [x] Run the PlatformIO firmware matrix and native regression tests on pushes to `main` and pull requests targeting `main`.
+- [x] Add Gitleaks scanning for the checked-out tree and complete Git history across all fetched branches; run on branch pushes, pull requests to `main` and weekly.
+- [x] Scan all three existing branches (`main`, `stockfish-port-analysis`, `board-diagnostics`): 319 commits scanned; no leaks found in history or current files (2026-11-15).
+- [x] Refresh the README, extended technical documentation and historical development checkpoint to distinguish completed work from remaining hardware validation.
+- [x] Keep ZIP/archive files unchanged by decision.
 
 ## Features
 
