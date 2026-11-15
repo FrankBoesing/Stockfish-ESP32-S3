@@ -154,6 +154,7 @@ void Thread::ensure_network_replicated() { worker->ensure_network_replicated(); 
 // when the thread has no work to do.
 
 void Thread::idle_loop() {
+    SF_ESP_TASK_INFO("Stockfish search worker", static_cast<int>(idx));
     while (true)
     {
         std::unique_lock<std::mutex> lk(mutex);

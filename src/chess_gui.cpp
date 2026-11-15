@@ -24,6 +24,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/position.h"
 #include "stockfish/movegen.h"
 #include "stockfish/uci.h"
+#include "stockfish/esp_trace.h"
 #include "gui/pieces.h"
 #include "gui/game_history.h"
 #include "gui/chess_rules.h"
@@ -2203,6 +2204,7 @@ static void initializeEngine() {
 void setup() {
   Serial.begin(115200);
   delay(1200);
+  SF_ESP_TASK_INFO("Arduino setup/loop", -1);
   Serial.println();
   Serial.println("Stockfish ESP32-S3 touchscreen GUI");
   Serial.println("[GUI] Build: ips-invert-panel-clear-v3");

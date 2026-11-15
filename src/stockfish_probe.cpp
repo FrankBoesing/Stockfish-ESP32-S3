@@ -29,6 +29,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/attacks.h"
 #include "stockfish/position.h"
 #include "stockfish/misc.h"
+#include "stockfish/esp_trace.h"
 #include "stockfish/nnue/network.h"
 #include "stockfish/nnue/nnue_accumulator.h"
 #if defined(STOCKFISH_NNUE_BENCHMARK) || defined(STOCKFISH_ESP32_S3_PIE_VALIDATE)
@@ -189,6 +190,11 @@ static void printPieValidationStats(const char *label) {
                   (unsigned)stats.firstMismatchIndex,
                   (long)stats.firstExpected, (long)stats.firstActual);
   Serial.println();
+  Serial.printf("[PIE_VALIDATE] feature-shapes R1/A1=%llu R1/A2=%llu R2/A1=%llu R2/A2=%llu\\n",
+                (unsigned long long)stats.featureShapeCounts[0],
+                (unsigned long long)stats.featureShapeCounts[1],
+                (unsigned long long)stats.featureShapeCounts[2],
+                (unsigned long long)stats.featureShapeCounts[3]);
 }
 #else
 static void resetPieValidationStats() {}
@@ -392,6 +398,7 @@ static void print_heap(const char* stage) {
 void setup() {
   Serial.begin(115200);
   delay(2000);
+  SF_ESP_TASK_INFO("Arduino setup/loop", -1);
 
   Serial.println();
   Serial.println("Stockfish 19 Smallnet ESP32-S3 engine memory probe");

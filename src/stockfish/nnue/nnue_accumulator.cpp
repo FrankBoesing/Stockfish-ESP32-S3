@@ -407,68 +407,162 @@ sf_always_inline PsqtTile apply_psqt(IndexType                         j,
 }
 
 #if defined(STOCKFISH_ESP32_S3_PIE)
-__attribute__((noinline)) void apply_features_esp32_s3_pie(Color                     perspective,
-                                 const FeatureTransformer& featureTransformer,
-                                 const AccumulatorState&   from,
-                                 AccumulatorState&         to,
-                                 const FeatureSet::IndexList& added,
-                                 const FeatureSet::IndexList& removed) {
+template<bool RemoveSecond, bool AddSecond>
+sf_always_inline void apply_features_esp32_s3_pie_loop(const i16* fromPtr,
+                                                       i16*       toPtr,
+                                                       const i16* removed0Ptr,
+                                                       const i16* removed1Ptr,
+                                                       const i16* added0Ptr,
+                                                       const i16* added1Ptr) {
     static_assert(Dimensions % 8 == 0);
     static_assert((Dimensions * sizeof(i16)) % 16 == 0);
 
-    // An absent second feature is represented by an aligned zero row.
-    alignas(CacheLineSize) static constexpr std::array<i16, Dimensions> zeroWeights{};
+    // The unused pointer is intentionally passed as nullptr by the dispatcher.
+    (void)removed1Ptr;
+    (void)added1Ptr;
+
+    u32 iterations = Dimensions / 8;
+    // Xtensa GCC does not accept PIE QR registers as inline-asm clobbers.
+    // Keep q-register use inside this single asm block. Avoid LOOPGTZ here:
+    // its loop registers are shared with compiler-generated hardware loops.
+    if constexpr (RemoveSecond && AddSecond) {
+        asm volatile(
+          "1:\\n\\t"
+          "ee.vld.128.ip q0, %[from], 16\\n\\t"
+          "ee.vld.128.ip q1, %[removed0], 16\\n\\t"
+          "ee.vld.128.ip q2, %[removed1], 16\\n\\t"
+          "ee.vld.128.ip q3, %[added0], 16\\n\\t"
+          "ee.vld.128.ip q4, %[added1], 16\\n\\t"
+          "ee.vsubs.s16 q5, q0, q1\\n\\t"
+          "ee.vsubs.s16 q5, q5, q2\\n\\t"
+          "ee.vadds.s16 q5, q5, q3\\n\\t"
+          "ee.vadds.s16 q5, q5, q4\\n\\t"
+          "ee.vst.128.ip q5, %[to], 16\\n\\t"
+          "addi %[iterations], %[iterations], -1\\n\\t"
+          "bnez %[iterations], 1b\\n\\t"
+          : [from] "+&a"(fromPtr),
+            [removed0] "+&a"(removed0Ptr),
+            [removed1] "+&a"(removed1Ptr),
+            [added0] "+&a"(added0Ptr),
+            [added1] "+&a"(added1Ptr),
+            [to] "+&a"(toPtr),
+            [iterations] "+&a"(iterations)
+          :
+          : "memory");
+    } else if constexpr (RemoveSecond) {
+        asm volatile(
+          "1:\\n\\t"
+          "ee.vld.128.ip q0, %[from], 16\\n\\t"
+          "ee.vld.128.ip q1, %[removed0], 16\\n\\t"
+          "ee.vld.128.ip q2, %[removed1], 16\\n\\t"
+          "ee.vld.128.ip q3, %[added0], 16\\n\\t"
+          "ee.vsubs.s16 q5, q0, q1\\n\\t"
+          "ee.vsubs.s16 q5, q5, q2\\n\\t"
+          "ee.vadds.s16 q5, q5, q3\\n\\t"
+          "ee.vst.128.ip q5, %[to], 16\\n\\t"
+          "addi %[iterations], %[iterations], -1\\n\\t"
+          "bnez %[iterations], 1b\\n\\t"
+          : [from] "+&a"(fromPtr),
+            [removed0] "+&a"(removed0Ptr),
+            [removed1] "+&a"(removed1Ptr),
+            [added0] "+&a"(added0Ptr),
+            [to] "+&a"(toPtr),
+            [iterations] "+&a"(iterations)
+          :
+          : "memory");
+    } else if constexpr (AddSecond) {
+        asm volatile(
+          "1:\\n\\t"
+          "ee.vld.128.ip q0, %[from], 16\\n\\t"
+          "ee.vld.128.ip q1, %[removed0], 16\\n\\t"
+          "ee.vld.128.ip q2, %[added0], 16\\t"
+          "ee.vld.128.ip q3, %[added1], 16\\t"
+          "ee.vsubs.s16 q5, q0, q1\\n\\t"
+          "ee.vadds.s16 q5, q5, q2\\n\\t"
+          "ee.vadds.s16 q5, q5, q3\\n\\t"
+          "ee.vst.128.ip q5, %[to], 16\\n\\t"
+          "addi %[iterations], %[iterations], -1\\n\\t"
+          "bnez %[iterations], 1b\\n\\t"
+          : [from] "+&a"(fromPtr),
+            [removed0] "+&a"(removed0Ptr),
+            [added0] "+&a"(added0Ptr),
+            [added1] "+&a"(added1Ptr),
+            [to] "+&a"(toPtr),
+            [iterations] "+&a"(iterations)
+          :
+          : "memory");
+    } else {
+        asm volatile(
+          "1:\\n\\t"
+          "ee.vld.128.ip q0, %[from], 16\\n\\t"
+          "ee.vld.128.ip q1, %[removed0], 16\\n\\t"
+          "ee.vld.128.ip q2, %[added0], 16\\n\\t"
+          "ee.vsubs.s16 q5, q0, q1\\n\\t"
+          "ee.vadds.s16 q5, q5, q2\\n\\t"
+          "ee.vst.128.ip q5, %[to], 16\\n\\t"
+          "addi %[iterations], %[iterations], -1\\n\\t"
+          "bnez %[iterations], 1b\\n\\t"
+          : [from] "+&a"(fromPtr),
+            [removed0] "+&a"(removed0Ptr),
+            [added0] "+&a"(added0Ptr),
+            [to] "+&a"(toPtr),
+            [iterations] "+&a"(iterations)
+          :
+          : "memory");
+    }
+}
+
+__attribute__((noinline)) void apply_features_esp32_s3_pie(Color                     perspective,
+                                                           const FeatureTransformer& featureTransformer,
+                                                           const AccumulatorState&   from,
+                                                           AccumulatorState&         to,
+                                                           const FeatureSet::IndexList& added,
+                                                           const FeatureSet::IndexList& removed) {
+    assert((removed.ssize() == 1 || removed.ssize() == 2)
+           && (added.ssize() == 1 || added.ssize() == 2));
 
     const i16* fromPtr = from.accumulation[perspective].data();
     i16*       toPtr   = to.accumulation[perspective].data();
-    const i16* removed0Ptr = featureTransformer.weights.data() + removed[0] * Dimensions;
-    const i16* removed1Ptr = removed.ssize() > 1
-                               ? featureTransformer.weights.data() + removed[1] * Dimensions
-                               : zeroWeights.data();
-    const i16* added0Ptr = featureTransformer.weights.data() + added[0] * Dimensions;
-    const i16* added1Ptr = added.ssize() > 1
-                             ? featureTransformer.weights.data() + added[1] * Dimensions
-                             : zeroWeights.data();
+    const i16* weights = featureTransformer.weights.data();
+    const i16* removed0Ptr = weights + removed[0] * Dimensions;
+    const i16* added0Ptr = weights + added[0] * Dimensions;
+    const i16* removed1Ptr = nullptr;
+    const i16* added1Ptr = nullptr;
+
+    if (removed.ssize() == 2)
+        removed1Ptr = weights + removed[1] * Dimensions;
+    if (added.ssize() == 2)
+        added1Ptr = weights + added[1] * Dimensions;
 
     // Accumulator and feature rows are 16-byte aligned:
     // Accumulator is cache-line aligned, and each feature row is 1024 int16s.
     assert((reinterpret_cast<uintptr_t>(fromPtr) & 15) == 0);
     assert((reinterpret_cast<uintptr_t>(toPtr) & 15) == 0);
     assert((reinterpret_cast<uintptr_t>(removed0Ptr) & 15) == 0);
-    assert((reinterpret_cast<uintptr_t>(removed1Ptr) & 15) == 0);
     assert((reinterpret_cast<uintptr_t>(added0Ptr) & 15) == 0);
-    assert((reinterpret_cast<uintptr_t>(added1Ptr) & 15) == 0);
+    if (removed1Ptr)
+        assert((reinterpret_cast<uintptr_t>(removed1Ptr) & 15) == 0);
+    if (added1Ptr)
+        assert((reinterpret_cast<uintptr_t>(added1Ptr) & 15) == 0);
 
-    constexpr u32 Iterations = Dimensions / 8;
-    u32 iterations = Iterations;
-    // Xtensa GCC does not accept PIE QR registers as inline-asm clobbers.
-    // Keep q-register use inside this single asm block. Avoid LOOPGTZ here:
-    // its loop registers are shared with compiler-generated hardware loops.
-    asm volatile(
-      "1:\n\t"
-      "ee.vld.128.ip q0, %[from], 16\n\t"
-      "ee.vld.128.ip q1, %[removed0], 16\n\t"
-      "ee.vld.128.ip q2, %[removed1], 16\n\t"
-      "ee.vld.128.ip q3, %[added0], 16\n\t"
-      "ee.vld.128.ip q4, %[added1], 16\n\t"
-      "ee.vsubs.s16 q5, q0, q1\n\t"
-      "ee.vsubs.s16 q5, q5, q2\n\t"
-      "ee.vadds.s16 q5, q5, q3\n\t"
-      "ee.vadds.s16 q5, q5, q4\n\t"
-      "ee.vst.128.ip q5, %[to], 16\n\t"
-      "addi %[iterations], %[iterations], -1\n\t"
-      "bnez %[iterations], 1b\n\t"
-      : [from] "+&a"(fromPtr),
-        [removed0] "+&a"(removed0Ptr),
-        [removed1] "+&a"(removed1Ptr),
-        [added0] "+&a"(added0Ptr),
-        [added1] "+&a"(added1Ptr),
-        [to] "+&a"(toPtr),
-        [iterations] "+&a"(iterations)
-      :
-      : "memory");
-}
-#endif
+    // Select the exact feature-count kernel once; there is no count branch in
+    // the 128-iteration assembly loop. Missing features cause no load or op.
+    if (removed.ssize() == 1) {
+        if (added.ssize() == 1)
+            apply_features_esp32_s3_pie_loop<false, false>(
+              fromPtr, toPtr, removed0Ptr, nullptr, added0Ptr, nullptr);
+        else
+            apply_features_esp32_s3_pie_loop<false, true>(
+              fromPtr, toPtr, removed0Ptr, nullptr, added0Ptr, added1Ptr);
+    } else {
+        if (added.ssize() == 1)
+            apply_features_esp32_s3_pie_loop<true, false>(
+              fromPtr, toPtr, removed0Ptr, removed1Ptr, added0Ptr, nullptr);
+        else
+            apply_features_esp32_s3_pie_loop<true, true>(
+              fromPtr, toPtr, removed0Ptr, removed1Ptr, added0Ptr, added1Ptr);
+    }
+}#endif
 
 #if defined(STOCKFISH_ESP32_S3_PIE_VALIDATE)
 template<int sign>
@@ -521,6 +615,9 @@ void apply_features(Color                        perspective,
         // into the parity-validation environment.
         auto& validation = Bench::pieValidationStats;
         ++validation.calls;
+        const unsigned shapeIndex = (removed.ssize() == 2 ? 2u : 0u)
+                                  + (added.ssize() == 2 ? 1u : 0u);
+        ++validation.featureShapeCounts[shapeIndex];
         uint64_t mismatches = 0;
         uint64_t outOfRange = 0;
 

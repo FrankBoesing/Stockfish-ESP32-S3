@@ -64,6 +64,7 @@ inline void record(Stage stage, uint32_t start) {
 // Updated only by the single Stockfish search worker in the validation build.
 struct PieValidationStats {
     uint64_t calls;
+    uint64_t featureShapeCounts[4];
     uint64_t mismatchedCalls;
     uint64_t mismatchedElements;
     uint64_t outOfRangeCalls;
