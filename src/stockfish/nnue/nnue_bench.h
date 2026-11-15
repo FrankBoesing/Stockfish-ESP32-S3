@@ -22,7 +22,6 @@ enum Stage : uint8_t {
     FeatureTransform,
     FC0,
     FC0AccxKernel,
-    FC0Tile8Kernel,
     SqrClippedReLU0,
     ClippedReLU0,
     FC1,
@@ -101,19 +100,6 @@ struct FC0AccxValidationStats {
 extern FC0AccxValidationStats fc0AccxValidationStats;
 #endif
 
-#if defined(STOCKFISH_ESP32_S3_FC0_TILE8_VALIDATE)
-struct FC0Tile8ValidationStats {
-    uint64_t calls;
-    uint64_t mismatchedCalls;
-    uint64_t mismatchedElements;
-    uint32_t firstMismatchIndex;
-    int32_t firstExpected;
-    int32_t firstActual;
-    bool hasMismatch;
-};
-
-extern FC0Tile8ValidationStats fc0Tile8ValidationStats;
-#endif
 
 }  // namespace Stockfish::Eval::NNUE::Bench
 

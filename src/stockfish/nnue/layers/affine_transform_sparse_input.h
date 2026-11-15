@@ -21,9 +21,6 @@
 #ifndef NNUE_LAYERS_AFFINE_TRANSFORM_SPARSE_INPUT_H_INCLUDED
 #define NNUE_LAYERS_AFFINE_TRANSFORM_SPARSE_INPUT_H_INCLUDED
 
-#if defined(STOCKFISH_ESP32_S3_FC0_ACCX) && defined(STOCKFISH_ESP32_S3_FC0_TILE8)
-    #error "FC0 ACCX and TILE8 experiments are mutually exclusive"
-#endif
 
 #include <algorithm>
 #include <cstddef>
@@ -570,94 +567,6 @@ class AffineTransformSparseInput {
             for (IndexType i = 0; i < InputDimensions; ++i)
                 output[j] += static_cast<OutputType>(weightsForOutput[i]) * input[i];
         }
-#elif defined(STOCKFISH_ESP32_S3_FC0_TILE8)
-        static_assert(InputDimensions == 1024 && OutputDimensions == 32,
-                      "The ESP32-S3 FC0 TILE8 kernel is specialized for 1024x32.");
-        static_assert(OutputDimensions % 8 == 0);
-
-#if defined(STOCKFISH_NNUE_BENCHMARK)
-        const uint32_t tile8Start = Bench::cycle_count();
-#endif
-
-        // Retain the ESP32-S3 input-major layout. Calculate eight output
-        // channels at a time so their accumulators can stay in registers
-        // throughout the complete input scan. Each output still observes
-        // the original ascending input order.
-        constexpr IndexType TileSize = 8;
-        for (IndexType base = 0; base < OutputDimensions; base += TileSize)
-        {
-            OutputType sum0 = biases[base + 0];
-            OutputType sum1 = biases[base + 1];
-            OutputType sum2 = biases[base + 2];
-            OutputType sum3 = biases[base + 3];
-            OutputType sum4 = biases[base + 4];
-            OutputType sum5 = biases[base + 5];
-            OutputType sum6 = biases[base + 6];
-            OutputType sum7 = biases[base + 7];
-
-            const i8* weightsForInput = weights + base;
-            for (IndexType i = 0; i < InputDimensions; ++i)
-            {
-                const int in = input[i];
-                if (in != 0)
-                {
-                    sum0 += weightsForInput[0] * in;
-                    sum1 += weightsForInput[1] * in;
-                    sum2 += weightsForInput[2] * in;
-                    sum3 += weightsForInput[3] * in;
-                    sum4 += weightsForInput[4] * in;
-                    sum5 += weightsForInput[5] * in;
-                    sum6 += weightsForInput[6] * in;
-                    sum7 += weightsForInput[7] * in;
-                }
-                weightsForInput += OutputDimensions;
-            }
-
-            output[base + 0] = sum0;
-            output[base + 1] = sum1;
-            output[base + 2] = sum2;
-            output[base + 3] = sum3;
-            output[base + 4] = sum4;
-            output[base + 5] = sum5;
-            output[base + 6] = sum6;
-            output[base + 7] = sum7;
-        }
-
-#if defined(STOCKFISH_NNUE_BENCHMARK)
-        Bench::record(Bench::FC0Tile8Kernel, tile8Start);
-#endif
-
-#if defined(STOCKFISH_ESP32_S3_FC0_TILE8_VALIDATE)
-        auto& stats = Bench::fc0Tile8ValidationStats;
-        ++stats.calls;
-        uint64_t mismatches = 0;
-
-        // Compare every output against the original sparse scalar expression.
-        // This is intentionally outside the timed kernel interval.
-        for (IndexType j = 0; j < OutputDimensions; ++j)
-        {
-            OutputType expected = biases[j];
-            for (IndexType i = 0; i < InputDimensions; ++i)
-                if (input[i] != 0)
-                    expected += weights[i * OutputDimensions + j] * input[i];
-
-            if (output[j] != expected)
-            {
-                if (!stats.hasMismatch)
-                {
-                    stats.hasMismatch = true;
-                    stats.firstMismatchIndex = j;
-                    stats.firstExpected = expected;
-                    stats.firstActual = output[j];
-                }
-                ++mismatches;
-            }
-        }
-
-        if (mismatches)
-            ++stats.mismatchedCalls;
-        stats.mismatchedElements += mismatches;
-#endif
 #elif defined(STOCKFISH_ESP32_S3)
         // Same sparse-input dot product as the generic fallback, but use the
         // ESP32-S3 input-major weight layout to read each active input's

@@ -23,11 +23,6 @@ This list tracks planned features and verification work that is not part of the 
 
 ## Engine optimization
 
-- [ ] **Complete the FC0 TILE8 evaluation / decide whether to retain it.**
-  - Hardware parity validation passed for 15,875 start-position, 12,976 Kiwipete and 1,705 timed-search FC0 calls, with zero mismatches.
-  - The dedicated bench build (without scalar parity work) measured 114,248 cycles on start position, 120,528 on Kiwipete and 115,061 in timed search. This confirms that the TILE8 kernel itself is roughly 51–58% slower than the previous scalar measurements (about 72k–80k cycles).
-  - The bench build reported 1,095 / 1,179 / 1,383 NPS, but these values include instrumentation and must not be compared directly with normal-firmware NPS.
-  - Next optimization candidate: test a 16-output tile (two input scans instead of four), then inspect Xtensa disassembly for register spills. Keep the standard scalar path unchanged unless a repeatable improvement is demonstrated.
 - [ ] Retain the FC0 ACCX experiment as a reference only; its uninstrumented NPS and kernel-cycle measurements were slower than the normal scalar baseline.
 
 ## Current flash configuration reference

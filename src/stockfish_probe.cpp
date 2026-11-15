@@ -33,7 +33,6 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/nnue/nnue_accumulator.h"
 #if defined(STOCKFISH_NNUE_BENCHMARK) || defined(STOCKFISH_ESP32_S3_PIE_VALIDATE) \
     || defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE) \
-    || defined(STOCKFISH_ESP32_S3_FC0_TILE8_VALIDATE)
 #include "stockfish/nnue/nnue_bench.h"
 #endif
 #if defined(STOCKFISH_NNUE_BENCHMARK)
@@ -49,11 +48,6 @@ PieValidationStats pieValidationStats{};
 #if defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
 namespace Stockfish::Eval::NNUE::Bench {
 FC0AccxValidationStats fc0AccxValidationStats{};
-}
-#endif
-#if defined(STOCKFISH_ESP32_S3_FC0_TILE8_VALIDATE)
-namespace Stockfish::Eval::NNUE::Bench {
-FC0Tile8ValidationStats fc0Tile8ValidationStats{};
 }
 #endif
 #include "stockfish/history.h"
@@ -153,7 +147,7 @@ static void resetNnueBenchCounters() {
 static void printNnueBenchCounters(const char *label) {
   using namespace Stockfish::Eval::NNUE::Bench;
   static const char *const stageNames[StageCount] = {
-    "accumulator", "feature-transform", "fc0", "fc0-accx-kernel", "fc0-tile8-kernel", "sqr-relu0", "clip-relu0",
+    "accumulator", "feature-transform", "fc0", "fc0-accx-kernel", "sqr-relu0", "clip-relu0",
     "fc1", "sqr-relu1", "clip-relu1", "fc2", "evaluation-total",
     "accum-find-last", "accum-forward", "accum-backward", "accum-forward-both",
     "accum-refresh-cache", "accum-build-indices", "accum-main-loop",
@@ -266,31 +260,6 @@ static void resetFc0AccxValidationStats() {}
 static void printFc0AccxValidationStats(const char *) {}
 #endif
 
-#if defined(STOCKFISH_ESP32_S3_FC0_TILE8_VALIDATE)
-static void resetFc0Tile8ValidationStats() {
-  Stockfish::Eval::NNUE::Bench::fc0Tile8ValidationStats = {};
-}
-
-static void printFc0Tile8ValidationStats(const char *label) {
-  using Stockfish::Eval::NNUE::Bench::fc0Tile8ValidationStats;
-  const auto &stats = fc0Tile8ValidationStats;
-  const char *status = stats.calls == 0 ? "NOT_RUN"
-    : (stats.mismatchedCalls == 0 ? "PASS" : "FAIL");
-  Serial.printf("[FC0_TILE8_VALIDATE] %s status=%s calls=%llu mismatched_calls=%llu mismatched_elements=%llu",
-                label, status,
-                (unsigned long long)stats.calls,
-                (unsigned long long)stats.mismatchedCalls,
-                (unsigned long long)stats.mismatchedElements);
-  if (stats.hasMismatch)
-    Serial.printf(" first_mismatch_index=%u expected=%ld actual=%ld",
-                  (unsigned)stats.firstMismatchIndex,
-                  (long)stats.firstExpected, (long)stats.firstActual);
-  Serial.println();
-}
-#else
-static void resetFc0Tile8ValidationStats() {}
-static void printFc0Tile8ValidationStats(const char *) {}
-#endif
 
 static void copySearchText(char *destination, size_t capacity, std::string_view source) {
   if (capacity == 0) return;
@@ -399,7 +368,6 @@ static void runBoundedSearch(Stockfish::Engine& engine,
   resetNnueBenchCounters();
   resetPieValidationStats();
   resetFc0AccxValidationStats();
-  resetFc0Tile8ValidationStats();
   Stockfish::Search::LimitsType limits;
   limits.depth = maxDepth;
   limits.nodes = nodeLimit;
@@ -416,7 +384,6 @@ static void runBoundedSearch(Stockfish::Engine& engine,
   printNnueBenchCounters(label);
   printPieValidationStats(label);
   printFc0AccxValidationStats(label);
-  printFc0Tile8ValidationStats(label);
   char heapLabel[64];
   snprintf(heapLabel, sizeof(heapLabel), "After %.48s", label);
   print_heap(heapLabel);
@@ -427,7 +394,6 @@ static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
   resetNnueBenchCounters();
   resetPieValidationStats();
   resetFc0AccxValidationStats();
-  resetFc0Tile8ValidationStats();
   Stockfish::Search::LimitsType limits;
   limits.movetime = milliseconds;
   limits.startTime = Stockfish::now();
@@ -443,7 +409,6 @@ static void runTimedSearch(Stockfish::Engine& engine, uint32_t milliseconds) {
   printNnueBenchCounters("timed search");
   printPieValidationStats("timed search");
   printFc0AccxValidationStats("timed search");
-  printFc0Tile8ValidationStats("timed search");
   print_heap("After 5-second search");
 }
 
