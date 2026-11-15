@@ -376,6 +376,68 @@ static void print_panic_configuration() {
 #endif
 }
 
+
+#if defined(configUSE_TRACE_FACILITY) && configUSE_TRACE_FACILITY == 1
+static const char *taskStateName(eTaskState state) {
+  switch (state) {
+    case eRunning: return "RUN";
+    case eReady: return "READY";
+    case eBlocked: return "BLOCK";
+    case eSuspended: return "SUSPEND";
+    case eDeleted: return "DELETE";
+    default: return "INVALID";
+  }
+}
+
+static void printTaskInventory(const char *stage) {
+  // Static storage avoids heap allocation and extra call-stack usage.
+  static TaskStatus_t taskSnapshot[48];
+  const UBaseType_t total = uxTaskGetNumberOfTasks();
+  const UBaseType_t capacity = sizeof(taskSnapshot) / sizeof(taskSnapshot[0]);
+  const UBaseType_t requested = total < capacity ? total : capacity;
+  const UBaseType_t count = uxTaskGetSystemState(taskSnapshot, requested, nullptr);
+
+  Serial.printf("\n[TASKS] %s snapshot=%u total=%u%s\n",
+                stage, (unsigned)count, (unsigned)total,
+                total > capacity ? " TRUNCATED" : "");
+
+  // Momentary view of which task is executing on each core right now.
+  for (BaseType_t core = 0; core < 2; ++core) {
+    TaskHandle_t current = xTaskGetCurrentTaskHandleForCore(core);
+    Serial.printf("[TASKS] current core%u: %s\n", (unsigned)core,
+                  current ? pcTaskGetName(current) : "(unavailable)");
+  }
+
+  // xCoreID is the task's affinity (0, 1, or tskNO_AFFINITY).
+  for (BaseType_t core = 0; core < 2; ++core) {
+    Serial.printf("[TASKS] core%u affinity:\n", (unsigned)core);
+    for (UBaseType_t i = 0; i < count; ++i) {
+      const TaskStatus_t &task = taskSnapshot[i];
+      if (task.xCoreID != core) continue;
+      Serial.printf("  %-16s state=%-7s prio=%u stack-free=%u\n",
+                    task.pcTaskName, taskStateName(task.eCurrentState),
+                    (unsigned)task.uxCurrentPriority,
+                    (unsigned)task.usStackHighWaterMark);
+    }
+  }
+
+  Serial.println("[TASKS] no core affinity:");
+  for (UBaseType_t i = 0; i < count; ++i) {
+    const TaskStatus_t &task = taskSnapshot[i];
+    if (task.xCoreID != tskNO_AFFINITY) continue;
+    Serial.printf("  %-16s state=%-7s prio=%u stack-free=%u\n",
+                  task.pcTaskName, taskStateName(task.eCurrentState),
+                  (unsigned)task.uxCurrentPriority,
+                  (unsigned)task.usStackHighWaterMark);
+  }
+  Serial.flush();
+}
+#else
+static void printTaskInventory(const char *stage) {
+  Serial.printf("[TASKS] %s unavailable: configUSE_TRACE_FACILITY=0\n", stage);
+}
+#endif
+
 static void print_heap(const char* stage) {
   constexpr uint32_t psramCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
   constexpr uint32_t internalCaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
@@ -409,6 +471,10 @@ void setup() {
                 (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   Serial.printf("CPU cores reported by Stockfish = %u; setup running on core %d\n",
                 (unsigned)Stockfish::SYSTEM_THREADS_NB, (int)xPortGetCoreID());
+#ifndef STOCKFISH_SEARCH_CORE
+  #define STOCKFISH_SEARCH_CORE 0
+#endif
+  Serial.printf("Stockfish search pthread pin_to_core = %d\n", STOCKFISH_SEARCH_CORE);
   print_panic_configuration();
   Serial.flush();
 
@@ -449,6 +515,7 @@ void setup() {
   Serial.println("Engine construction complete.");
   const std::string threadInfo = engine.thread_allocation_information_as_string();
   Serial.println(threadInfo.c_str());
+  printTaskInventory("after Engine construction");
 
   print_heap("After Engine construction");
 
@@ -523,6 +590,7 @@ void setup() {
     Serial.println("[POSITION] start position restored.");
 
   runTimedSearch(engine, 5000);
+  printTaskInventory("after all searches");
 
   Serial.println();
   Serial.println("Probe complete. Display, NNUE, bounded depth-16 searches and timed search finished.");

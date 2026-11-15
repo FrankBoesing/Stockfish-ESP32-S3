@@ -87,6 +87,15 @@ struct ThreadCallable final: ThreadCallableBase {
 // The implementation calls pthread_create() with the stack size parameter
 // equal to the Linux 8MB default, on platforms that support it.
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    #ifndef STOCKFISH_SEARCH_CORE
+        #define STOCKFISH_SEARCH_CORE 0
+    #endif
+    #if STOCKFISH_SEARCH_CORE != 0 && STOCKFISH_SEARCH_CORE != 1
+        #error "STOCKFISH_SEARCH_CORE must be 0 or 1"
+    #endif
+#endif
+
 class NativeThread {
     pthread_t thread;
     bool      running_ = false;
@@ -141,9 +150,8 @@ class NativeThread {
         esp_pthread_cfg_t workerCfg = previousCfg;
         workerCfg.stack_size = TH_STACK_SIZE;
         workerCfg.stack_alloc_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-        // Arduino setup()/loop() is observed on Core 1 on the target board.
-        // Keep the Stockfish worker on Core 0 to avoid competing with the UI task.
-        workerCfg.pin_to_core = 0;
+        // Only this affinity differs between the core-0 and core-1 A/B builds.
+        workerCfg.pin_to_core = STOCKFISH_SEARCH_CORE;
         workerCfg.inherit_cfg = false;
         const esp_err_t setCfgRc = esp_pthread_set_cfg(&workerCfg);
 
