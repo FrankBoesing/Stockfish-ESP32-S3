@@ -73,3 +73,6 @@ Testing/
 # Stockfish NNUE model downloaded by PlatformIO pre-build hook
 nn-*.nnue
 nn-*.nnue.download
+
+#Book
+lichess_2100_rapid_2026-05.bin
