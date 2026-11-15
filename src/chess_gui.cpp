@@ -1040,7 +1040,7 @@ static void renderCalibrationComplete(bool saved) {
   delay(500);
 }
 
-static void handleSearchResult(const char *bestMove);
+static void handleSearchResult(const char *bestMove, const char *actor = "Stockfish");
 
 static void startSearch(SearchMode mode) {
   if (!engine || searchInFlight || gameOver)
@@ -1069,32 +1069,28 @@ static void startSearch(SearchMode mode) {
   portEXIT_CRITICAL(&searchMux);
 
   if (mode == SearchMode::EngineMove && openingBook.ready()) {
-    Stockfish::Position position;
-    Stockfish::StateInfo state;
-    const auto positionError = position.set(currentFen, false, &state);
-    if (!positionError.has_value()) {
-      Stockfish::Move bookMove;
-      PolyglotBook::SelectionStats stats;
-      const uint64_t key = PolyglotBook::hashPosition(position);
-      const uint64_t randomValue = (uint64_t(esp_random()) << 32) | esp_random();
+    // Use Engine's live root position, not a FEN round-trip. Stockfish's FEN
+    // omits en-passant squares that are pseudo-legal but pinned; Polyglot
+    // deliberately hashes those files. This also avoids rebuilding a Position.
+    const Stockfish::Position& position = engine->position();
+    Stockfish::Move bookMove;
+    PolyglotBook::SelectionStats stats;
+    const uint64_t key = PolyglotBook::hashPosition(position);
+    const uint64_t randomValue = (uint64_t(esp_random()) << 32) | esp_random();
 
-      if (openingBook.chooseMove(position, randomValue, bookMove, &stats)) {
-        const std::string uciMove = Stockfish::UCIEngine::move(bookMove, false);
-        Serial.printf("[BOOK] HIT key=%016llX legal-entries=%lu total-weight=%llu move=%s\n",
-                      (unsigned long long)key,
-                      (unsigned long)stats.legalEntries,
-                      (unsigned long long)stats.totalWeight,
-                      uciMove.c_str());
-        handleSearchResult(uciMove.c_str());
-        return;
-      }
-
-      Serial.printf("[BOOK] MISS key=%016llX; falling back to Stockfish search\n",
-                    (unsigned long long)key);
-    } else {
-      Serial.printf("[BOOK] Position parse failed; falling back to Stockfish: %s\n",
-                    positionError->what());
+    if (openingBook.chooseMove(position, randomValue, bookMove, &stats)) {
+      const std::string uciMove = Stockfish::UCIEngine::move(bookMove, false);
+      Serial.printf("[BOOK] HIT key=%016llX legal-entries=%lu total-weight=%llu move=%s\\n",
+                    (unsigned long long)key,
+                    (unsigned long)stats.legalEntries,
+                    (unsigned long long)stats.totalWeight,
+                    uciMove.c_str());
+      handleSearchResult(uciMove.c_str(), "Book");
+      return;
     }
+
+    Serial.printf("[BOOK] MISS key=%016llX; falling back to Stockfish search\\n",
+                  (unsigned long long)key);
   }
 
   Stockfish::Search::LimitsType limits;
@@ -1133,7 +1129,7 @@ static void logAcceptedMove(const char *actor, char movingSide, const char *uciM
                 movingSide == 'w' ? "White" : "Black", uciMove);
 }
 
-static void handleSearchResult(const char *bestMove) {
+static void handleSearchResult(const char *bestMove, const char *actor) {
   if (!bestMove || !bestMove[0] || strcmp(bestMove, "0000") == 0) {
     searchMode = SearchMode::None;
     if (!updateGameStatusFromPosition())
@@ -1181,7 +1177,7 @@ static void handleSearchResult(const char *bestMove) {
       syncEnginePosition();
       setStatus("Engine move error");
     } else {
-      logAcceptedMove("Stockfish", movingSide, bestMove);
+      logAcceptedMove(actor, movingSide, bestMove);
       updateGameStatusFromPosition();
       saveGameToNvs();
     }

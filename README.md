@@ -89,31 +89,31 @@ a full-screen framebuffer.
 This is an initial implementation milestone. Touch mapping, rendering, search
 responsiveness and move handling still require a hardware test on the FNK0104B.
 
-## Opening-book data
-
-The 16 MiB flash layout reserves a dedicated 11.875 MiB raw `book` partition
-at offset `0x410000`. The initial book is
-`lichess_2100_rapid_2026-05.bin` (Polyglot, 1,601,616 bytes, CC0 release).
-The image has been flashed separately from the firmware and esptool verified
-the written bytes. The application-side Polyglot reader is still to be
-implemented, so the book is not yet used for move selection.
-
-See [Flashing an opening book](docs/FLASHING-OPENING-BOOK.md) for the
-repeatable PowerShell procedure, partition offset and verification output.
-
 ## Opening book
 
-The selected initial Polyglot book is `lichess_2100_rapid_2026-05.bin` (CC0
-release, 1,601,616 bytes). The raw file is not committed to this repository.
-Run `python scripts/prepare_polyglot_book.py <book.bin>` to validate it and
-create an `.sfbook` image with entry count and CRC32 metadata. Flash that image
-at offset `0x410000`; see [the flashing guide](docs/FLASHING-OPENING-BOOK.md).
+The 16 MiB flash layout reserves a dedicated 11.875 MiB raw `book` partition
+at offset `0x410000`. The selected book is
+`lichess_2100_rapid_2026-05.bin` (Polyglot, 1,601,616 bytes, CC0 release).
+Keep the raw `.bin` and generated `.sfbook` image local; neither belongs in
+the firmware repository.
 
-The GUI maps only the actual Polyglot payload from the `book` partition. It
-checks the image metadata, CRC and key order, then probes legal matching moves
-using the Polyglot key. Book moves are weighted by the stored entry weights;
-if no legal book move is present, the normal Stockfish search is used. Physical
-validation of the mmap and move-selection path remains pending.
+The GUI reader is implemented. It validates a 24-byte `SFBK` image header,
+CRC32 and sorted Polyglot keys, maps only the actual payload with
+`esp_partition_mmap()`, and selects a weighted legal book move before the
+normal Stockfish search. A miss falls back to Stockfish; HINT continues to
+use Stockfish.
+
+The original raw `.bin` was flashed before the `SFBK` wrapper was introduced
+and is not accepted by the current reader. Prepare the image with:
+
+```powershell
+python scripts/prepare_polyglot_book.py .\lichess_2100_rapid_2026-05.bin
+```
+
+Then flash the resulting `.sfbook` at `0x410000`. See
+[Flashing an opening book](docs/FLASHING-OPENING-BOOK.md) for the full procedure.
+Native regression tests and the QIO firmware CI build pass; mmap/header and
+book-move behavior still require verification on the physical FNK0104B board.
 
 ## Planned milestones
 

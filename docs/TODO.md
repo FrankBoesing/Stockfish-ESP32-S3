@@ -22,10 +22,10 @@ This list tracks planned features and verification work that is not part of the 
 - [x] **Confirm physical flash capacity: 16 MiB.** The user checked the fitted module.
 - [x] **Remove the OTA layout.** Firmware updates are performed over USB/serial; the two OTA app slots and `otadata` partition are no longer required. This is a USB-update design choice, not a consequence of Wi-Fi being disabled.
 - [x] **Allocate one 4 MiB factory application partition.** The latest QIO build reports 1,884,600 bytes of Flash Data + Flash Code, leaving approximately 2.20 MiB within the 4 MiB app partition.
-- [x] **Replace SPIFFS with a raw book partition.** The `book` partition is `data/undefined` with the read-only flag; it is not a filesystem. It is mapped read-only with `esp_partition_mmap()` when the reader is implemented.
-- [ ] Implement Polyglot hash and move decoding, direct mmap lookup, validation and tests.
-- [ ] Add a host-side book conversion/validation tool and choose the final licensed book.
-- [ ] Add a separate book flashing command at offset `0x410000`.
+- [x] **Replace SPIFFS with a raw book partition.** The `book` partition is `data/undefined` with the read-only flag; it is not a filesystem. The current reader maps only the packaged payload with `esp_partition_mmap()`.
+- [x] Implement Polyglot hash and move decoding, direct mmap lookup, image validation and native tests.
+- [x] Add a host-side book packaging/validation tool and select the CC0 Lichess 2100 Rapid book.
+- [x] Document the separate book flashing command at offset `0x410000`.
 - [ ] Add runtime `ESP.getFlashChipSize()` reporting as a diagnostic (not a blocker; physical capacity is already confirmed).
 
 The old NVS partition remains at exactly `0x9000` with size `0x5000` (20 KiB), preserving the existing Preferences data layout. The former `otadata` bytes are now an unused 8 KiB gap; they are deliberately not merged into NVS.

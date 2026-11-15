@@ -118,6 +118,9 @@ class Engine {
     int get_hashfull(int maxAge = 0) const;
 
     std::string                          fen() const;
+    // Read-only access to the current root position. The GUI uses this for
+    // Polyglot hashing so pseudo-legal en-passant metadata is not lost via FEN.
+    const Position& position() const { return pos; }
     std::optional<PositionSetError>      flip();
     std::string                          visualize() const;
     std::vector<std::pair<usize, usize>> get_bound_thread_count_by_numa_node() const;

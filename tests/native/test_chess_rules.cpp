@@ -1,6 +1,7 @@
 #include "gui/chess_rules.h"
 #include "gui/game_history.h"
 #include "gui/polyglot_book.h"
+#include "gui/flash_polyglot_book.h"
 
 #include "stockfish/attacks.h"
 #include "stockfish/position.h"
@@ -13,6 +14,44 @@
 #include <iostream>
 #include <string>
 #include <vector>
+
+namespace {
+std::vector<uint8_t> fakeFlashPartitionBytes;
+const esp_partition_t fakeBookPartition{0xBE0000};
+}
+
+extern "C" {
+const esp_partition_t *esp_partition_find_first(
+    esp_partition_type_t type, esp_partition_subtype_t subtype, const char *label) {
+  if (type != ESP_PARTITION_TYPE_DATA || subtype != 0x06
+      || !label || std::strcmp(label, "book") != 0)
+    return nullptr;
+  return &fakeBookPartition;
+}
+
+esp_err_t esp_partition_read(const esp_partition_t *, std::size_t offset,
+                             void *dst, std::size_t size) {
+  if (!dst || offset > fakeFlashPartitionBytes.size()
+      || size > fakeFlashPartitionBytes.size() - offset)
+    return -1;
+  std::memcpy(dst, fakeFlashPartitionBytes.data() + offset, size);
+  return ESP_OK;
+}
+
+esp_err_t esp_partition_mmap(const esp_partition_t *, std::size_t offset,
+                             std::size_t size, esp_partition_mmap_flag_t,
+                             const void **outPtr,
+                             esp_partition_mmap_handle_t *outHandle) {
+  if (!outPtr || !outHandle || offset > fakeFlashPartitionBytes.size()
+      || size > fakeFlashPartitionBytes.size() - offset)
+    return -1;
+  *outPtr = fakeFlashPartitionBytes.data() + offset;
+  *outHandle = 1;
+  return ESP_OK;
+}
+
+void esp_partition_munmap(esp_partition_mmap_handle_t) {}
+}
 
 namespace {
 
@@ -507,6 +546,23 @@ void testPolyglotHashing() {
   CHECK(uncapturableEp == PolyglotBook::hashPosition(p.get()));
 }
 
+void testPolyglotPseudoLegalEpAfterDoublePush() {
+  TestPosition pinned;
+  TestPosition withoutEp;
+
+  // After g2-g4, f4xg3 e.p. is pseudo-legal, but illegal because it removes
+  // both rank-4 blockers and exposes the black king h4 to the white rook a4.
+  // Polyglot still hashes the g-file; Stockfish's ordinary ep_square is none.
+  CHECK(pinned.setFen("8/8/8/8/R4p1k/8/6P1/4K3 w - - 0 1"));
+  CHECK(pinned.play("g2g4"));
+  CHECK(pinned.get().polyglot_ep_square() == square("g3"));
+  CHECK(pinned.get().ep_square() == Stockfish::SQ_NONE);
+
+  CHECK(withoutEp.setFen("8/8/8/8/R4pPk/8/8/4K3 b - - 0 1"));
+  CHECK(PolyglotBook::hashPosition(pinned.get())
+        != PolyglotBook::hashPosition(withoutEp.get()));
+}
+
 void testPolyglotMoveDecoding() {
   TestPosition p;
   Stockfish::Move decoded;
@@ -590,6 +646,99 @@ void testPolyglotBinarySearchAndWeightedSelection() {
   CHECK(!PolyglotBook::chooseMove(p.get(), data.data(), 4, 0, selected, &stats));
 }
 
+void storeLe16(uint8_t* p, uint16_t value) {
+  p[0] = uint8_t(value);
+  p[1] = uint8_t(value >> 8);
+}
+
+void storeLe32(uint8_t* p, uint32_t value) {
+  p[0] = uint8_t(value);
+  p[1] = uint8_t(value >> 8);
+  p[2] = uint8_t(value >> 16);
+  p[3] = uint8_t(value >> 24);
+}
+
+std::vector<uint8_t> makeSfbookImage(const std::vector<uint8_t>& entries) {
+  const std::size_t headerSize = PolyglotBook::ImageHeaderSize;
+  std::vector<uint8_t> image(headerSize + entries.size(), 0);
+  std::memcpy(image.data(), "SFBK", 4);
+  storeLe16(image.data() + 4, PolyglotBook::ImageVersion);
+  storeLe16(image.data() + 6, uint16_t(headerSize));
+  storeLe32(image.data() + 8, uint32_t(entries.size() / PolyglotBook::EntrySize));
+  storeLe32(image.data() + 12, uint32_t(entries.size()));
+  storeLe32(image.data() + 16,
+            PolyglotBook::crc32(entries.data(), entries.size()));
+  storeLe32(image.data() + 20, 0);
+  if (!entries.empty())
+    std::memcpy(image.data() + headerSize, entries.data(), entries.size());
+  return image;
+}
+
+void testFlashPolyglotBookImage() {
+  TestPosition position;
+  CHECK(position.setFen(StartFen));
+  const uint64_t key = PolyglotBook::hashPosition(position.get());
+
+  std::vector<uint8_t> entries(2 * PolyglotBook::EntrySize, 0);
+  storeBe64(entries.data(), key);
+  storeBe16(entries.data() + 8,
+            polyglotMove(squareIndex("e2"), squareIndex("e4")));
+  storeBe16(entries.data() + 10, 5);
+  storeBe64(entries.data() + 16, key);
+  storeBe16(entries.data() + 24,
+            polyglotMove(squareIndex("d2"), squareIndex("d4")));
+  storeBe16(entries.data() + 26, 3);
+
+  fakeFlashPartitionBytes = makeSfbookImage(entries);
+  {
+    PolyglotBook::FlashPolyglotBook book;
+    CHECK(book.begin());
+    CHECK(book.ready());
+    CHECK(book.entryCount() == 2);
+    CHECK(book.dataBytes() == entries.size());
+
+    Stockfish::Move selected;
+    PolyglotBook::SelectionStats stats;
+    CHECK(book.chooseMove(position.get(), 0, selected, &stats));
+    CHECK(Stockfish::UCIEngine::move(selected, false) == "e2e4");
+    CHECK(stats.legalEntries == 2);
+    CHECK(stats.totalWeight == 8);
+    CHECK(book.chooseMove(position.get(), 5, selected, &stats));
+    CHECK(Stockfish::UCIEngine::move(selected, false) == "d2d4");
+  }
+
+  // Corrupt payload must be rejected by the reader's own CRC implementation.
+  fakeFlashPartitionBytes = makeSfbookImage(entries);
+  fakeFlashPartitionBytes[PolyglotBook::ImageHeaderSize + 10] ^= 0x01;
+  {
+    PolyglotBook::FlashPolyglotBook book;
+    CHECK(!book.begin());
+    CHECK(std::strcmp(book.error(), "book CRC32 mismatch") == 0);
+  }
+
+  // Sorted-key validation is performed on the actual mapped payload too.
+  std::vector<uint8_t> unsorted(2 * PolyglotBook::EntrySize, 0);
+  storeBe64(unsorted.data(), key + 1);
+  storeBe64(unsorted.data() + PolyglotBook::EntrySize, key);
+  fakeFlashPartitionBytes = makeSfbookImage(unsorted);
+  {
+    PolyglotBook::FlashPolyglotBook book;
+    CHECK(!book.begin());
+    CHECK(std::strcmp(book.error(), "Polyglot entries are not sorted by key") == 0);
+  }
+
+  // A raw Polyglot .bin has no SFBK metadata and must not be treated as ready.
+  fakeFlashPartitionBytes.assign(PolyglotBook::ImageHeaderSize, 0xFF);
+  {
+    PolyglotBook::FlashPolyglotBook book;
+    CHECK(!book.begin());
+    CHECK(std::strstr(book.error(), "book image header missing") != nullptr);
+  }
+
+  CHECK(PolyglotBook::crc32(
+          reinterpret_cast<const uint8_t*>("123456789"), 9) == 0xCBF43926u);
+}
+
 }  // namespace
 
 int main() {
@@ -605,8 +754,10 @@ int main() {
   testBoardOrientationAndUndoPolicy();
   testCompactGameHistory();
   testPolyglotHashing();
+  testPolyglotPseudoLegalEpAfterDoublePush();
   testPolyglotMoveDecoding();
   testPolyglotBinarySearchAndWeightedSelection();
+  testFlashPolyglotBookImage();
 
   if (failures) {
     std::cerr << failures << " of " << checks << " checks failed.\n";
