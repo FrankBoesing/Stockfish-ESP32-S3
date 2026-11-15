@@ -32,7 +32,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/nnue/network.h"
 #include "stockfish/nnue/nnue_accumulator.h"
 #if defined(STOCKFISH_NNUE_BENCHMARK) || defined(STOCKFISH_ESP32_S3_PIE_VALIDATE) \
-    || defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE) \
+    || defined(STOCKFISH_ESP32_S3_FC0_ACCX_VALIDATE)
 #include "stockfish/nnue/nnue_bench.h"
 #endif
 #if defined(STOCKFISH_NNUE_BENCHMARK)
