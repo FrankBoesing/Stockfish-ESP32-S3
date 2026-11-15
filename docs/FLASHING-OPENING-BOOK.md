@@ -37,7 +37,7 @@ Keep the raw `.bin` file local; do not commit it to the firmware repository.
 The project `.gitignore` should contain the filename. Confirm with:
 
 ```powershell
-git check-ignore -v .\\lichess_2100_rapid_2026-05.bin
+git check-ignore -v .\lichess_2100_rapid_2026-05.bin
 ```
 
 ## 1. Install the partition table and firmware
@@ -69,7 +69,7 @@ Run the following from the project root. The expected file size for the
 selected book is exactly 1,601,616 bytes:
 
 ```powershell
-Get-Item .\\lichess_2100_rapid_2026-05.bin | Select-Object Name, Length
+Get-Item .\lichess_2100_rapid_2026-05.bin | Select-Object Name, Length
 ```
 
 If the file is in another directory, adjust the path in the command below.
@@ -81,7 +81,7 @@ Close the PlatformIO serial monitor first. Replace `COM12` with the COM port
 assigned to the ESP32-S3. Run:
 
 ```powershell
-pio pkg exec -p tool-esptoolpy -- esptool --chip esp32s3 --port COM12 --baud 460800 write-flash 0x410000 ".\\lichess_2100_rapid_2026-05.bin"
+pio pkg exec -p tool-esptoolpy -- esptool --chip esp32s3 --port COM12 --baud 460800 write-flash 0x410000 ".\lichess_2100_rapid_2026-05.bin"
 ```
 
 The command uses PlatformIO's installed `tool-esptoolpy` package. The
