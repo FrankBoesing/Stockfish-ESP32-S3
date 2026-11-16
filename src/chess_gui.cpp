@@ -181,6 +181,10 @@ int hintTo = -1;
 bool hasGame = false;
 bool gameOver = false;
 bool searchInFlight = false;
+constexpr uint32_t BookMovePauseMs = 500;
+bool pendingBookMove = false;
+uint32_t pendingBookMoveStarted = 0;
+char pendingBookMoveUci[16] = {};
 char statusText[48] = "Ready";
 char hintText[16] = "";
 ChessGuiRules::PromotionRequest pendingPromotion;
@@ -1348,7 +1352,18 @@ static void startSearch(SearchMode mode) {
                     (unsigned long)stats.legalEntries,
                     (unsigned long long)stats.totalWeight,
                     uciMove.c_str());
-      handleSearchResult(uciMove.c_str(), "Book");
+      // Keep the move visible as a deliberate engine action. This is a
+      // non-blocking pause: the GUI loop, serial console and touch polling
+      // continue to run, while the normal search lock prevents a move race.
+      snprintf(pendingBookMoveUci, sizeof(pendingBookMoveUci), "%s", uciMove.c_str());
+      pendingBookMoveStarted = millis();
+      pendingBookMove = true;
+      searchInFlight = true;
+      setStatus("Opening book");
+      if (screen == Screen::Game)
+        drawGamePanelInfo();
+      Serial.printf("[BOOK] Showing book move after %lu ms\n",
+                    (unsigned long)BookMovePauseMs);
       return;
     }
 
@@ -1391,6 +1406,16 @@ static void showCurrentGame() {
 }
 
 static void stopSearch() {
+  // A pending opening-book move is only waiting for its display pause; no
+  // Stockfish search exists yet. Cancel it without calling Engine::stop().
+  if (pendingBookMove) {
+    pendingBookMove = false;
+    pendingBookMoveUci[0] = '\0';
+    searchInFlight = false;
+    searchMode = SearchMode::None;
+    return;
+  }
+
   if (!engine || !searchInFlight)
     return;
   engine->stop();
@@ -1572,6 +1597,21 @@ static void pollSearchMailbox() {
 
     handleSearchResult(bestMove);
   }
+}
+
+static void pollPendingBookMove() {
+  if (!pendingBookMove
+      || (uint32_t)(millis() - pendingBookMoveStarted) < BookMovePauseMs)
+    return;
+
+  char move[sizeof(pendingBookMoveUci)];
+  snprintf(move, sizeof(move), "%s", pendingBookMoveUci);
+  pendingBookMove = false;
+  pendingBookMoveUci[0] = '\0';
+  searchInFlight = false;
+
+  Serial.printf("[BOOK] Applying delayed move: %s\n", move);
+  handleSearchResult(move, "Book");
 }
 
 static void startNewGame() {
@@ -2728,6 +2768,7 @@ void setup() {
 void loop() {
   pollSerialCommands();
   pollSearchMailbox();
+  pollPendingBookMove();
 
   uint16_t rawX = 0;
   uint16_t rawY = 0;
