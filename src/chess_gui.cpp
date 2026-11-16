@@ -98,7 +98,7 @@ constexpr uint16_t ColorMuted      = rgb(149, 157, 177);
 constexpr uint16_t ColorButton     = rgb(51, 77, 128);
 constexpr uint16_t ColorDisabled   = rgb(48, 54, 68);
 constexpr uint16_t ColorSelected   = rgb(235, 220, 111);
-constexpr uint16_t ColorLegal      = rgb(88, 156, 103);
+constexpr uint16_t ColorTargetDot  = rgb(40, 40, 40);
 constexpr uint16_t ColorLastMove   = rgb(224, 204, 91);
 constexpr uint16_t ColorHint       = rgb(69, 190, 184);
 constexpr uint16_t ColorCheck      = rgb(217, 65, 65);
@@ -502,7 +502,23 @@ static int pieceIconIndex(char piece) {
   }
 }
 
-static void drawPiece(char piece, int x, int y, uint16_t squareColor) {
+// Add the four small corner triangles used to identify capture destinations.
+// They stay clear of the piece silhouette and are composed into the same
+// RGB565 tile, so the square still needs only one display transfer.
+static void addCaptureMarkerToTile() {
+  constexpr int MarkerSize = 6; // Scaled from the 30px TeensyChess squares.
+  for (int y = 0; y < MarkerSize; ++y) {
+    for (int x = 0; x < MarkerSize - y; ++x) {
+      pieceTile[y * SquareSize + x] = ColorTargetDot;
+      pieceTile[y * SquareSize + (SquareSize - 1 - x)] = ColorTargetDot;
+      pieceTile[(SquareSize - 1 - y) * SquareSize + x] = ColorTargetDot;
+      pieceTile[(SquareSize - 1 - y) * SquareSize + (SquareSize - 1 - x)] = ColorTargetDot;
+    }
+  }
+}
+
+static void drawPiece(char piece, int x, int y, uint16_t squareColor,
+                      bool captureMarker = false) {
   const int iconIndex = pieceIconIndex(piece);
   if (iconIndex < 0) {
     tft.fillRect(x, y, SquareSize, SquareSize, squareColor);
@@ -529,6 +545,9 @@ static void drawPiece(char piece, int x, int y, uint16_t squareColor) {
       pieceTile[i] = outline;
   }
 
+  if (captureMarker)
+    addCaptureMarkerToTile();
+
   tft.pushImage(x, y, SquareSize, SquareSize, pieceTile);
 }
 
@@ -543,8 +562,6 @@ static uint16_t boardSquareColor(int square, int lastFromValue, int lastToValue,
     color = ColorLastMove;
   if (square == hintFromValue || square == hintToValue)
     color = ColorHint;
-  if (legalDestinations[square])
-    color = ColorLegal;
   if (square == selectedSquareValue)
     color = ColorSelected;
   return color;
@@ -563,10 +580,17 @@ static void drawBoardSquare(int square) {
   const uint16_t color = boardSquareColor(square, lastFrom, lastTo,
                                           hintFrom, hintTo, selectedSquare);
 
-  if (board[square])
-    drawPiece(board[square], x, y, color);
-  else
+  const bool legalTarget = legalDestinations[square];
+  if (board[square]) {
+    drawPiece(board[square], x, y, color, legalTarget);
+  } else {
     tft.fillRect(x, y, SquareSize, SquareSize, color);
+    if (legalTarget) {
+      // Small Lichess-style destination dot on an empty square.
+      tft.fillCircle(x + SquareSize / 2 - 1, y + SquareSize / 2 - 1,
+                     4, ColorTargetDot);
+    }
+  }
 }
 
 static void clearLegalDestinations(bool redraw = true) {
