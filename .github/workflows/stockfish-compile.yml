@@ -115,6 +115,27 @@ jobs:
             fi
           done
 
+
+      - name: Disassemble focused Xtensa code-generation probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          object=".pio/build/freenove_stockfish_compile/src/xtensa_codegen_probe.cpp.o"
+          test -f "$object" || {
+            echo "Code-generation probe object missing: $object"
+            find .pio/build/freenove_stockfish_compile -name '*codegen*' -o -name '*probe*.o' | sort
+            exit 1
+          }
+          objdump="$(find "$HOME/.platformio/packages" -type f -name 'xtensa-esp32s3-elf-objdump' -print -quit)"
+          test -n "$objdump" && test -x "$objdump" || {
+            echo "Could not locate xtensa-esp32s3-elf-objdump."
+            find "$HOME/.platformio/packages" -type f -name '*objdump' | head -n 30
+            exit 1
+          }
+          "$objdump" -d -C "$object" > s3-codegen.txt
+          echo "===== Xtensa S3 focused code-generation disassembly ====="
+          cat s3-codegen.txt
+
       - name: Upload default PIE, profiler and validation artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -129,5 +150,7 @@ jobs:
             .pio/build/freenove_stockfish_nnubench/firmware.map
             .pio/build/freenove_stockfish_pievalidate/firmware.bin
             .pio/build/freenove_stockfish_pievalidate/firmware.map
+            .pio/build/freenove_stockfish_compile/src/xtensa_codegen_probe.cpp.o
+            s3-codegen.txt
           if-no-files-found: warn
           retention-days: 7
