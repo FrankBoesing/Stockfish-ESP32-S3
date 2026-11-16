@@ -3257,7 +3257,6 @@ static void executeSerialCommand() {
     Serial.println("  position startpos [moves e2e4 ...] (streamed; up to 4096 plies)");
     Serial.println("  position fen <6 FEN fields> [moves ...] (streamed)");
     Serial.println("  fen <6 FEN fields>  (streamed shorthand)");
-    Serial.println("  fen <6 FEN fields>  (shorthand)");
     Serial.println("  print  print the current board in Stockfish ASCII format");
     Serial.println("  moves (or uci)  print current position as a UCI command");
     Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move; O-O / 0-0 = short castle");
