@@ -1257,8 +1257,11 @@ static void startSearch(SearchMode mode) {
   limits.startTime = Stockfish::now();
 
   searchInFlight = true;
-  setStatus(mode == SearchMode::Hint ? "Finding hint"
-            : mode == SearchMode::Evaluation ? "Evaluating" : "Thinking");
+  if (mode == SearchMode::Hint)
+    setStatus("Finding hint");
+  else if (mode == SearchMode::EngineMove)
+    setStatus("Thinking");
+  // Evaluation-only searches leave the position's normal status text intact.
   engine->go(limits);
   if (screen == Screen::Game)
     drawGamePanelInfo();
