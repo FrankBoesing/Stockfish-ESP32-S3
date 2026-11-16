@@ -2202,7 +2202,6 @@ static bool buildSanMove(Stockfish::Position &position, Stockfish::Move move,
                           std::string &san) {
   if (!move.is_ok())
     return false;
-
   const Stockfish::Square from = move.from_sq();
   const Stockfish::Square to = move.to_sq();
   const Stockfish::Piece movingPiece = position.moved_piece(move);
@@ -2235,7 +2234,6 @@ static bool buildSanMove(Stockfish::Position &position, Stockfish::Move move,
         if (Stockfish::rank_of(alternative.from_sq()) == Stockfish::rank_of(from))
           alternativeOnSameRank = true;
       }
-
       if (alternativeFound) {
         if (!alternativeOnSameFile || (alternativeOnSameFile && alternativeOnSameRank))
           san.push_back(char('a' + int(Stockfish::file_of(from))));
@@ -2243,12 +2241,9 @@ static bool buildSanMove(Stockfish::Position &position, Stockfish::Move move,
           san.push_back(char('1' + int(Stockfish::rank_of(from))));
       }
     }
-
     if (capture)
       san.push_back('x');
-
     san += Stockfish::UCIEngine::square(to);
-
     if (move.type_of() == Stockfish::PROMOTION) {
       const char promotionLetter = pgnPieceLetter(move.promotion_type());
       if (!promotionLetter)
@@ -2257,7 +2252,6 @@ static bool buildSanMove(Stockfish::Position &position, Stockfish::Move move,
       san.push_back(promotionLetter);
     }
   }
-
   return true;
 }
 
@@ -2265,7 +2259,6 @@ static bool formatSanMove(Stockfish::Position &position, Stockfish::Move move,
                           Stockfish::StateInfo &nextState, std::string &san) {
   if (!buildSanMove(position, move, san))
     return false;
-
   position.do_move(move, nextState);
   if (position.checkers()) {
     const Stockfish::MoveList<Stockfish::LEGAL> replies(position);
@@ -2419,7 +2412,6 @@ static bool parsePgnTag(const std::string &tagText, std::string &name,
     return false;
   }
   name.assign(tagText, nameStart, pos - nameStart);
-
   while (pos < tagText.size() && isspace((unsigned char)tagText[pos]))
     ++pos;
   if (pos >= tagText.size() || tagText[pos] != '"') {
@@ -2431,14 +2423,13 @@ static bool parsePgnTag(const std::string &tagText, std::string &name,
   bool closed = false;
   while (pos < tagText.size()) {
     const char ch = tagText[pos++];
-    if (ch == '\\' && pos < tagText.size()) {
+    if (ch == '\\' && pos < tagText.size())
       value.push_back(tagText[pos++]);
-    } else if (ch == '"') {
+    else if (ch == '"') {
       closed = true;
       break;
-    } else {
+    } else
       value.push_back(ch);
-    }
   }
   if (!closed) {
     error = "unterminated quoted PGN tag value";
@@ -2456,7 +2447,6 @@ static bool parsePgnTag(const std::string &tagText, std::string &name,
 static bool normalizePgnSan(std::string &token) {
   while (!token.empty() && (token.back() == '!' || token.back() == '?'))
     token.pop_back();
-
   if (token.size() >= 4) {
     std::string suffix = token.substr(token.size() - 4);
     std::transform(suffix.begin(), suffix.end(), suffix.begin(),
@@ -2467,11 +2457,9 @@ static bool normalizePgnSan(std::string &token) {
         token.pop_back();
     }
   }
-
   while (!token.empty() && (token.back() == '+' || token.back() == '#'
                             || token.back() == '!' || token.back() == '?'))
     token.pop_back();
-
   if (!token.empty() && token[0] == '0') {
     for (char &ch : token)
       if (ch == '0')
@@ -2495,29 +2483,17 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
 
   for (size_t i = 0; i < pgn.size(); ++i) {
     const char ch = pgn[i];
-
     if (inBraceComment) {
-      if (ch == '}')
-        inBraceComment = false;
+      if (ch == '}') inBraceComment = false;
       continue;
     }
     if (inLineComment) {
-      if (ch == '\n' || ch == '\r')
-        inLineComment = false;
+      if (ch == '\n' || ch == '\r') inLineComment = false;
       continue;
     }
-    if (ch == '{') {
-      inBraceComment = true;
-      continue;
-    }
-    if (ch == ';') {
-      inLineComment = true;
-      continue;
-    }
-    if (ch == '(') {
-      ++variationDepth;
-      continue;
-    }
+    if (ch == '{') { inBraceComment = true; continue; }
+    if (ch == ';') { inLineComment = true; continue; }
+    if (ch == '(') { ++variationDepth; continue; }
     if (ch == ')') {
       if (variationDepth == 0) {
         error = "unmatched ')' in PGN variation";
@@ -2535,43 +2511,26 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
       bool escaped = false;
       for (; end < pgn.size(); ++end) {
         const char tagChar = pgn[end];
-        if (escaped) {
-          escaped = false;
-          continue;
-        }
-        if (quoted && tagChar == '\\') {
-          escaped = true;
-          continue;
-        }
-        if (tagChar == '"') {
-          quoted = !quoted;
-          continue;
-        }
-        if (!quoted && tagChar == ']')
-          break;
+        if (escaped) { escaped = false; continue; }
+        if (quoted && tagChar == '\\') { escaped = true; continue; }
+        if (tagChar == '"') { quoted = !quoted; continue; }
+        if (!quoted && tagChar == ']') break;
       }
       if (end >= pgn.size()) {
         error = "unterminated PGN tag";
         return false;
       }
-
       const std::string tagText = pgn.substr(i + 1, end - i - 1);
       std::string tagName, tagValue;
       if (!parsePgnTag(tagText, tagName, tagValue, error))
         return false;
-
-      if (tagName == "FEN")
-        startingFen = tagValue;
-      else if (tagName == "SetUp")
-        setupValue = tagValue;
-      else if (tagName == "White")
-        whiteName = tagValue;
-      else if (tagName == "Black")
-        blackName = tagValue;
+      if (tagName == "FEN") startingFen = tagValue;
+      else if (tagName == "SetUp") setupValue = tagValue;
+      else if (tagName == "White") whiteName = tagValue;
+      else if (tagName == "Black") blackName = tagValue;
       i = end;
       continue;
     }
-
     moveText.push_back(ch);
   }
 
@@ -2591,11 +2550,8 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
     error = "PGN FEN is empty or exceeds the saved-game limit";
     return false;
   }
-
-  if (whiteName == "Player" && blackName != "Player")
-    candidatePlayerColor = 'w';
-  else if (blackName == "Player" && whiteName != "Player")
-    candidatePlayerColor = 'b';
+  if (whiteName == "Player" && blackName != "Player") candidatePlayerColor = 'w';
+  else if (blackName == "Player" && whiteName != "Player") candidatePlayerColor = 'b';
 
   baseFen = startingFen;
   Stockfish::Position position;
@@ -2607,16 +2563,13 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
     return false;
   }
   std::string currentFen = baseFen;
-
   std::istringstream tokens(moveText);
   std::string token;
   size_t ply = 0;
   std::string san;
-  while (tokens >> token) {
-    if (token.empty())
-      continue;
 
-    // Strip move numbers attached to SAN, e.g. "1.e4" and "12...Nf6".
+  while (tokens >> token) {
+    if (token.empty()) continue;
     size_t digits = 0;
     while (digits < token.size() && isdigit((unsigned char)token[digits]))
       ++digits;
@@ -2628,405 +2581,8 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
     } else if (token.compare(0, 3, "...") == 0) {
       token.erase(0, 3);
     }
-    if (token.empty())
-      continue;
-
-    if (token[0] == '
-  if (serialCommandOverflow) {
-    Serial.printf("[SERIAL] ERROR: command exceeded %u bytes; discarded\n",
-                  (unsigned)(SerialCommandCapacity - 1));
-    serialCommandLength = 0;
-    serialCommandOverflow = false;
-    return;
-  }
-
-  serialCommand[serialCommandLength] = '\0';
-  const std::string line(serialCommand, serialCommandLength);
-  if (!line.empty())
-    Serial.printf("[SERIAL] RX (%u bytes): %s\n",
-                  (unsigned)line.size(), line.c_str());
-  std::istringstream input(line);
-  std::string command;
-  input >> command;
-  std::transform(command.begin(), command.end(), command.begin(),
-                 [](unsigned char ch) { return char(tolower(ch)); });
-
-  if (command == "moves" || command == "uci") {
-    printGameUciPosition();
-  } else if (command == "undo") {
-    if (!hasGame) {
-      Serial.println("[SERIAL] ERROR: no active game");
-    } else {      const size_t previousPlies = gameHistory.size();
-      undoMove();
-      const size_t removedPlies = previousPlies - gameHistory.size();
-      if (removedPlies)
-        Serial.printf("[UNDO] Removed %u plies; %u remain\n",
-                      unsigned(removedPlies), unsigned(gameHistory.size()));
-      else
-        Serial.println("[UNDO] No move was removed");
-    }
-  } else if (command == "hint") {
-    if (!hasGame)
-      Serial.println("[SERIAL] ERROR: no active game");
-    else if (gameOver)
-      Serial.println("[SERIAL] ERROR: game is over");
-    else if (searchInFlight)
-      Serial.println("[SERIAL] ERROR: a search is already running");
-    else if (sideToMove() != playerColor)
-      Serial.println("[SERIAL] ERROR: it is not the player's turn");
-    else
-      startSearch(SearchMode::Hint);
-  } else if (command == "stop") {
-    if (!searchInFlight)
-      Serial.println("[SERIAL] No search is running");
-    else {
-      stopSearch();
-      setStatus("Search stopped");
-      if (screen == Screen::Game)
-        drawGamePanelInfo();
-      Serial.println("[SERIAL] Search stopped");
-    }
-  } else if (command == "level") {
-    std::string levelText;
-    std::string extra;
-    if (!(input >> levelText)) {
-      Serial.printf("[SETTINGS] Next game: Level %d; current game: Level %d\n",
-                    selectedSkillLevel, skillLevel);
-    } else {
-      int requestedLevel = 0;
-      bool validLevel = !levelText.empty();
-      for (unsigned char ch : levelText) {
-        if (ch < '0' || ch > '9') {
-          validLevel = false;
-          break;
-        }
-        requestedLevel = requestedLevel * 10 + (ch - '0');
-        if (requestedLevel > 20) {
-          validLevel = false;
-          break;
-        }
-      }
-      if (!validLevel || requestedLevel < 1 || requestedLevel > 20 || (input >> extra)) {
-        Serial.println("[SERIAL] Usage: LEVEL [1..20]");
-      } else {
-        selectedSkillLevel = requestedLevel;
-        if (saveSkillSettingToNvs())
-          Serial.printf("[SETTINGS] Next game will use Level %d\n", selectedSkillLevel);
-      }
-    }
-  } else if (command == "book") {
-    std::string requestedState;
-    std::string extra;
-    if (!(input >> requestedState)) {
-      Serial.printf("[BOOK] Opening book is %s%s\n",
-                    openingBookEnabled ? "ON" : "OFF",
-                    openingBookEnabled && !openingBook.ready()
-                      ? " (image unavailable; Stockfish fallback)" : "");
-    } else {
-      std::transform(requestedState.begin(), requestedState.end(), requestedState.begin(),
-                     [](unsigned char ch) { return char(tolower(ch)); });
-      if ((requestedState != "on" && requestedState != "off") || (input >> extra)) {
-        Serial.println("[SERIAL] Usage: BOOK [ON|OFF]");
-      } else {
-        setOpeningBookEnabled(requestedState == "on");
-      }
-    }
-  } else if (command == "pgn" || command == "exportpgn") {
-    exportPgn();
-  } else if (command == "position") {
-    processPositionCommand(line, false);
-  } else if (command == "fen") {
-    processPositionCommand(line, true);
-  } else if (command == "newgame") {
-    std::string argument;
-    int requestedSkill = selectedSkillLevel;
-    char requestedPlayer = playerColor;
-    bool skillSpecified = false;
-    bool playerSpecified = false;
-    bool valid = true;
-
-    // Accept either ordering: NEWGAME 12 BLACK or NEWGAME BLACK 12.
-    while (input >> argument) {
-      std::transform(argument.begin(), argument.end(), argument.begin(),
-                     [](unsigned char ch) { return char(tolower(ch)); });
-
-      if (argument == "white" || argument == "black") {
-        if (playerSpecified) {
-          valid = false;
-          break;
-        }
-        playerSpecified = true;
-        requestedPlayer = argument == "white" ? 'w' : 'b';
-        continue;
-      }
-
-      if (skillSpecified || argument.empty()) {
-        valid = false;
-        break;
-      }
-
-      int parsedSkill = 0;
-      for (unsigned char ch : argument) {
-        if (ch < '0' || ch > '9') {
-          valid = false;
-          break;
-        }
-        parsedSkill = parsedSkill * 10 + (ch - '0');
-        if (parsedSkill > 20) {
-          valid = false;
-          break;
-        }
-      }
-      if (!valid || parsedSkill < 1 || parsedSkill > 20) {
-        valid = false;
-        break;
-      }
-      skillSpecified = true;
-      requestedSkill = parsedSkill;
-    }
-
-    if (!valid) {
-      Serial.println("[SERIAL] Usage: NEWGAME [1..20] [WHITE|BLACK] (colour may also be given alone)");
-    } else {
-      selectedSkillLevel = requestedSkill;
-      playerColor = requestedPlayer;
-      startNewGame();
-    }
-  } else if (command == "help") {
-    Serial.println("Commands:");
-    Serial.println("  position startpos [moves e2e4 ...]");
-    Serial.println("  position fen <6 FEN fields> [moves e2e4 ...]");
-    Serial.println("  fen <6 FEN fields>  (shorthand)");
-    Serial.println("  moves (or uci)  print current position as a UCI command");
-    Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move to the current game");
-    Serial.println("  UNDO  undo the last move pair (or the only move)");
-    Serial.println("  HINT  ask Stockfish for a move suggestion");
-    Serial.println("  STOP  stop the current search");
-    Serial.println("  LEVEL [1..20]  show/set skill for the next game");
-    Serial.println("  BOOK [ON|OFF]  show or set opening-book usage");
-    Serial.println("  PGN  export the current game in PGN/SAN format");
-    Serial.println("  NEWGAME [1..20] [WHITE|BLACK]  start a new game");
-    Serial.println("  NEWGAME BLACK  start as Black (or use WHITE)");
-    Serial.println("FEN piece-letter case is preserved. Invalid positions leave the current game unchanged.");
-  } else if (!command.empty()) {
-    if (command.size() == 4 || command.size() == 5)
-      processSingleUciMove(command);
-    else
-      Serial.printf("[SERIAL] Unknown command: %s\n", command.c_str());
-  }
-  serialCommandLength = 0;
-}
-
-static void pollSerialCommands() {
-  while (Serial.available() > 0) {
-    const int value = Serial.read();
-    if (value == '\r') continue;
-    if (value == '\n') { executeSerialCommand(); continue; }
-    if (serialCommandOverflow)
-      continue; // Discard the rest of an overlong line up to its newline.
-    if (serialCommandLength + 1 < sizeof(serialCommand))
-      serialCommand[serialCommandLength++] = char(value);
-    else {
-      serialCommandLength = 0;
-      serialCommandOverflow = true;
-    }
-  }
-}
-
-static void initializeDisplayAndTouch() {
-  pinMode(LCD_BL, OUTPUT);
-  backlightPwmReady = ledcAttach(LCD_BL, BacklightPwmFrequencyHz,
-                                 BacklightPwmResolution);
-  if (backlightPwmReady
-      && ledcWrite(LCD_BL, BacklightFullBrightness)) {
-    Serial.printf("[GUI] Backlight PWM ready: %lu Hz, %u-bit\n",
-                  (unsigned long)BacklightPwmFrequencyHz,
-                  BacklightPwmResolution);
-  } else {
-    backlightPwmReady = false;
-    digitalWrite(LCD_BL, 1);
-    Serial.println("[GUI] WARNING: backlight PWM unavailable; using full brightness");
-  }
-
-  tft.init();
-  tft.setRotation(1);
-  Serial.printf("[GUI] Display initialized: %d x %d\n", tft.width(), tft.height());
-
-  pinMode(TOUCH_RST, OUTPUT);
-  digitalWrite(TOUCH_RST, 1);
-  Wire.begin(TOUCH_SDA, TOUCH_SCL, 400000);
-  delay(50);
-
-  Wire.beginTransmission(TOUCH_I2C_ADDR);
-  const bool touchPresent = Wire.endTransmission() == 0;
-  Serial.printf("[GUI] FT6336U I2C @0x%02X: %s\n",
-                TOUCH_I2C_ADDR, touchPresent ? "ACK" : "NOT FOUND");
-}
-
-static void initializeOpeningBook() {
-  if (openingBook.begin()) {
-    Serial.printf("[BOOK] Ready: %lu Polyglot entries, %lu data bytes mapped read-only from flash\n",
-                  (unsigned long)openingBook.entryCount(),
-                  (unsigned long)openingBook.dataBytes());
-  } else {
-    Serial.printf("[BOOK] Unavailable: %s\n", openingBook.error());
-  }
-}
-
-static void initializeEngine() {
-  // Stockfish's standalone Engine constructor expects the global attack and
-  // position tables to have been initialized by the application first.
-  // The diagnostic probe performs these same calls before constructing Engine.
-  Serial.println("[GUI] Initializing Stockfish attack tables...");
-  Stockfish::Attacks::init();
-  Serial.println("[GUI] Initializing Stockfish position tables...");
-  Stockfish::Position::init();
-  Serial.println("[GUI] Attack and position initialization complete.");
-
-  static Stockfish::Engine stockfish;
-  engine = &stockfish;
-
-  std::istringstream wdlOption("name UCI_ShowWDL value true");
-  engine->get_options().setoption(wdlOption);
-  Serial.println("[GUI] Stockfish WDL output enabled for advantage bar");
-
-  engine->set_on_verify_network([](std::string_view message) {
-    Serial.printf("[NNUE] %.*s\n", (int)message.size(), message.data());
-  });
-
-  // The standalone Engine API requires all five search callbacks.
-  // The UCI frontend normally supplies them; this GUI does not use all events,
-  // so explicitly install no-op handlers for the events it does not display.
-  engine->set_on_start([]() {
-    // Search started. The UI already changed its state in startSearch().
-  });
-
-  engine->set_on_update_no_moves([](const Stockfish::Engine::InfoShort &) {
-    // No additional event handling is needed for a terminal position yet.
-  });
-
-  engine->set_on_iter([](const Stockfish::Engine::InfoIter &) {
-    // Per-iteration details are not currently displayed.
-  });
-
-  engine->set_on_update_full([](const Stockfish::Engine::InfoFull &info) {
-    SearchScoreKind scoreKind = SearchScoreKind::None;
-    int scoreValue = 0;
-    bool tablebaseWin = false;
-
-    if (info.score.is<Stockfish::Score::InternalUnits>()) {
-      scoreKind = SearchScoreKind::Centipawns;
-      scoreValue = info.score.get<Stockfish::Score::InternalUnits>().value;
-    } else if (info.score.is<Stockfish::Score::Mate>()) {
-      scoreKind = SearchScoreKind::Mate;
-      scoreValue = info.score.get<Stockfish::Score::Mate>().plies;
-    } else if (info.score.is<Stockfish::Score::Tablebase>()) {
-      const Stockfish::Score::Tablebase tablebase =
-        info.score.get<Stockfish::Score::Tablebase>();
-      scoreKind = SearchScoreKind::Tablebase;
-      scoreValue = tablebase.plies;
-      tablebaseWin = tablebase.win;
-    }
-
-    int wdlWin = 0, wdlDraw = 0, wdlLoss = 0;
-    const bool wdlValid = parseWdl(info.wdl, wdlWin, wdlDraw, wdlLoss);
-
-    portENTER_CRITICAL(&searchMux);
-    searchMailbox.depth = info.depth;
-    searchMailbox.nps = (uint32_t)info.nps;
-    searchMailbox.nodes = (uint64_t)info.nodes;
-    searchMailbox.scoreKind = scoreKind;
-    searchMailbox.scoreValue = scoreValue;
-    searchMailbox.tablebaseWin = tablebaseWin;
-    searchMailbox.scoreValid = scoreKind != SearchScoreKind::None;
-    searchMailbox.wdlWin = wdlWin;
-    searchMailbox.wdlDraw = wdlDraw;
-    searchMailbox.wdlLoss = wdlLoss;
-    searchMailbox.wdlValid = wdlValid;
-    searchMailbox.infoDirty = true;
-    portEXIT_CRITICAL(&searchMux);
-  });
-
-  engine->set_on_bestmove([](std::string_view bestMove, std::string_view) {
-    portENTER_CRITICAL(&searchMux);
-    const size_t count = std::min(bestMove.size(), sizeof(searchMailbox.bestMove) - 1);
-    if (count)
-      memcpy(searchMailbox.bestMove, bestMove.data(), count);
-    searchMailbox.bestMove[count] = '\0';
-    searchMailbox.bestMoveReady = true;
-    portEXIT_CRITICAL(&searchMux);
-  });
-
-  Serial.println("[GUI] Verifying embedded NNUE network...");
-  engine->verify_network();
-  Serial.println("[GUI] Engine ready");
-  Serial.printf("[GUI] PSRAM free after Engine construction: %u bytes\n",
-                (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-}
-
-} // namespace
-
-void setup() {
-  // USB-CDC defaults to a 256-byte RX queue. Position commands can be longer;
-  // size the queue before begin() so a burst is not lost while the GUI loop
-  // is servicing touch or display work.
-  const size_t serialRxBuffer = Serial.setRxBufferSize(SerialCommandCapacity);
-  Serial.begin(115200);
-  if (serialRxBuffer < SerialCommandCapacity)
-    Serial.printf("[SERIAL] WARNING: USB-CDC RX buffer is %u bytes (requested %u)\n",
-                  (unsigned)serialRxBuffer, (unsigned)SerialCommandCapacity);
-  else
-    Serial.printf("[SERIAL] USB-CDC RX buffer: %u bytes\n",
-                  (unsigned)serialRxBuffer);
-  delay(1200);
-  Serial.println();
-  Serial.println("Stockfish ESP32-S3 touchscreen GUI");
-  Serial.println("[GUI] Build: ips-invert-panel-clear-v3");
-  Serial.println("[GUI] ILI9341 config: IPS inversion=ON, color order=BGR");
-  Serial.printf("[GUI] Palette RGB565: background=0x%04X panel=0x%04X\n",
-                ColorBackground, ColorPanel);
-
-  initializeDisplayAndTouch();
-  renderLoading();
-  initializeEngine();
-  loadOpeningBookSettingFromNvs();
-  initializeOpeningBook();
-
-  loadTouchCalibration();
-  Serial.printf("[GUI] Touch calibration: %s\n",
-                touchCalibrated ? "loaded from NVS" : "not found");
-  const bool hasSavedSkillSetting = loadSkillSettingFromNvs();
-  const bool restoredGame = loadSavedGameFromNvs(hasSavedSkillSetting);
-  Serial.printf("[GUI] Move history storage: %s (PSRAM preferred)\n",
-                gameHistory.usesPsram() ? "PSRAM" : "internal RAM fallback");
-  if (!touchCalibrated) beginTouchCalibration();
-  else if (restoredGame) showCurrentGame();
-  else renderMenu();
-}
-
-void loop() {
-  pollSerialCommands();
-  pollSearchMailbox();
-  pollPendingBookMove();
-
-  uint16_t rawX = 0;
-  uint16_t rawY = 0;
-  uint8_t points = 0;
-  const bool down = touchReadRaw(rawX, rawY, points);
-
-  if (down && !previousTouchDown) {
-    int x = rawX;
-    int y = rawY;
-    if (screen != Screen::Calibration && touchCalibrated)
-      mapTouch(rawX, rawY, x, y);
-    processTouch(x, y, rawX, rawY);
-  }
-  previousTouchDown = down;
-
-  updateInputLockIndicator();
-  delay(12);
-})
-      continue; // Numeric annotation glyph.
+    if (token.empty()) continue;
+    if (token[0] == char(0x24)) continue; // Numeric annotation glyph.
     if (token == "1-0" || token == "0-1" || token == "1/2-1/2" || token == "*")
       break;
 
@@ -3051,14 +2607,11 @@ void loop() {
     Stockfish::Move matchedMove = Stockfish::Move::none();
     unsigned matches = 0;
     for (const Stockfish::Move legalMove : Stockfish::MoveList<Stockfish::LEGAL>(position)) {
-      if (!buildSanMove(position, legalMove, san))
-        continue;
-      if (san == token) {
+      if (buildSanMove(position, legalMove, san) && san == token) {
         matchedMove = legalMove;
         ++matches;
       }
     }
-
     if (matches != 1) {
       char message[112];
       snprintf(message, sizeof(message), "%s SAN at ply %u: '%s'",
@@ -3073,7 +2626,6 @@ void loop() {
       error = "too many PGN moves or insufficient memory for move history";
       return false;
     }
-
     position.do_move(matchedMove, nextState);
     currentFen = position.fen();
     ++ply;
@@ -3091,7 +2643,6 @@ static bool importPgn(const std::string &pgn) {
     Serial.println("[PGN] ERROR: engine is not ready");
     return false;
   }
-
   std::string baseFen;
   std::string error;
   GameHistory candidateHistory;
@@ -3106,7 +2657,6 @@ static bool importPgn(const std::string &pgn) {
   const std::vector<std::string> previousMoves = gameHistory.toUciMoves();
   const char previousPlayerColor = playerColor;
   const bool previousHadGame = hasGame;
-
   stopSearch();
   const auto positionError = engine->set_position(baseFen, candidateMoves);
   if (positionError.has_value()) {
@@ -3116,10 +2666,8 @@ static bool importPgn(const std::string &pgn) {
     if (restoreError.has_value())
       Serial.printf("[PGN] WARNING: previous engine position could not be restored: %s\n",
                     restoreError->what());
-    if (previousHadGame)
-      showCurrentGame();
-    else
-      renderMenu();
+    if (previousHadGame) showCurrentGame();
+    else renderMenu();
     return false;
   }
 
@@ -3135,10 +2683,8 @@ static bool importPgn(const std::string &pgn) {
     engine->set_position(previousBaseFen, previousMoves);
     currentFen = engine->fen();
     loadFenBoard(currentFen);
-    if (previousHadGame)
-      showCurrentGame();
-    else
-      renderMenu();
+    if (previousHadGame) showCurrentGame();
+    else renderMenu();
     return false;
   }
 
@@ -3171,6 +2717,36 @@ static void executeSerialCommand() {
 
   serialCommand[serialCommandLength] = '\0';
   const std::string line(serialCommand, serialCommandLength);
+  if (pgnImportActive) {
+    std::string control = line;
+    control.erase(0, control.find_first_not_of(" \t\r\n"));
+    const size_t last = control.find_last_not_of(" \t\r\n");
+    if (last == std::string::npos) control.clear();
+    else control.erase(last + 1);
+    std::transform(control.begin(), control.end(), control.begin(),
+                   [](unsigned char ch) { return char(tolower(ch)); });
+    if (control == "endpgn" || control == "pgn end") {
+      pgnImportActive = false;
+      Serial.printf("[PGN] Received %u bytes; validating...\n",
+                    unsigned(pgnImportBuffer.size()));
+      importPgn(pgnImportBuffer);
+      pgnImportBuffer.clear();
+    } else if (control == "cancelpgn" || control == "pgn cancel") {
+      pgnImportActive = false;
+      pgnImportBuffer.clear();
+      Serial.println("[PGN] Import cancelled");
+    } else if (pgnImportBuffer.size() + line.size() + 1 > PgnImportMaxBytes) {
+      pgnImportActive = false;
+      pgnImportBuffer.clear();
+      Serial.printf("[PGN] ERROR: import exceeds %u bytes; cancelled\n",
+                    unsigned(PgnImportMaxBytes));
+    } else {
+      pgnImportBuffer += line;
+      pgnImportBuffer.push_back('\n');
+    }
+    serialCommandLength = 0;
+    return;
+  }
   if (!line.empty())
     Serial.printf("[SERIAL] RX (%u bytes): %s\n",
                   (unsigned)line.size(), line.c_str());
@@ -3205,15 +2781,14 @@ static void executeSerialCommand() {
       Serial.println("[SERIAL] ERROR: it is not the player's turn");
     else
       startSearch(SearchMode::Hint);
-  } else if (command == "stop") {
-    if (!searchInFlight)
-      Serial.println("[SERIAL] No search is running");
-    else {
+  } else if (command == "calibration") {
+    std::string extra;
+    if (input >> extra) {
+      Serial.println("[SERIAL] Usage: CALIBRATION");
+    } else {
       stopSearch();
-      setStatus("Search stopped");
-      if (screen == Screen::Game)
-        drawGamePanelInfo();
-      Serial.println("[SERIAL] Search stopped");
+      beginTouchCalibration();
+      Serial.println("[GUI] Touch calibration started");
     }
   } else if (command == "level") {
     std::string levelText;
@@ -3261,7 +2836,24 @@ static void executeSerialCommand() {
       }
     }
   } else if (command == "pgn" || command == "exportpgn") {
-    exportPgn();
+    std::string action;
+    std::string extra;
+    if (!(input >> action)) {
+      exportPgn();
+    } else {
+      std::transform(action.begin(), action.end(), action.begin(),
+                     [](unsigned char ch) { return char(tolower(ch)); });
+      if (action == "import" && !(input >> extra)) {
+        pgnImportBuffer.clear();
+        pgnImportActive = true;
+        Serial.println("[PGN] Import mode active. Paste the PGN, then send ENDPGN.");
+        Serial.println("[PGN] Send CANCELPGN to abort.");
+      } else if (action == "export" && !(input >> extra)) {
+        exportPgn();
+      } else {
+        Serial.println("[SERIAL] Usage: PGN [EXPORT|IMPORT]");
+      }
+    }
   } else if (command == "position") {
     processPositionCommand(line, false);
   } else if (command == "fen") {
@@ -3330,15 +2922,23 @@ static void executeSerialCommand() {
     Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move to the current game");
     Serial.println("  UNDO  undo the last move pair (or the only move)");
     Serial.println("  HINT  ask Stockfish for a move suggestion");
-    Serial.println("  STOP  stop the current search");
+    Serial.println("  CALIBRATION  start touch calibration");
     Serial.println("  LEVEL [1..20]  show/set skill for the next game");
     Serial.println("  BOOK [ON|OFF]  show or set opening-book usage");
-    Serial.println("  PGN  export the current game in PGN/SAN format");
+    Serial.println("  PGN [EXPORT|IMPORT]  export or import a PGN game");
+    Serial.println("      PGN IMPORT: paste PGN lines, finish with ENDPGN");
     Serial.println("  NEWGAME [1..20] [WHITE|BLACK]  start a new game");
     Serial.println("  NEWGAME BLACK  start as Black (or use WHITE)");
     Serial.println("FEN piece-letter case is preserved. Invalid positions leave the current game unchanged.");
   } else if (!command.empty()) {
-    if (command.size() == 4 || command.size() == 5)
+    const bool uciShape = (command.size() == 4 || command.size() == 5)
+      && command[0] >= 'a' && command[0] <= 'h'
+      && command[1] >= '1' && command[1] <= '8'
+      && command[2] >= 'a' && command[2] <= 'h'
+      && command[3] >= '1' && command[3] <= '8'
+      && (command.size() == 4 || command[4] == 'q' || command[4] == 'r'
+                              || command[4] == 'b' || command[4] == 'n');
+    if (uciShape)
       processSingleUciMove(command);
     else
       Serial.printf("[SERIAL] Unknown command: %s\n", command.c_str());
