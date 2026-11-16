@@ -15,6 +15,7 @@ This list tracks features and verification work that remain outstanding for the 
 ## Features
 
 - [x] **GUI: Add chessboard coordinates** — files `a–h` above the board and ranks `8–1` along its left edge, centered on each square in a subtle small font. Both sequences follow the board orientation when Black is at the bottom. The board remains 208 × 208 px; piece icons and the right-hand information panel are unchanged.
+- [x] **GUI: Legal move indicators** — mark empty legal destinations with a small center dot and capture destinations with corner markers instead of recoloring the entire square. Keep the separate Stockfish `HINT` source/destination highlights.
 
 - [ ] **Opening book — hardware validation remains**
   - [x] Select the initial licensed book: `lichess_2100_rapid_2026-05.bin` (CC0 release, 1,601,616 bytes).
