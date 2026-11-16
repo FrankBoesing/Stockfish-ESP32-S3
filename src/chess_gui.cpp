@@ -243,6 +243,7 @@ constexpr int16_t CalibrationTargets[3][2] = {
 int calibrationStep = 0;
 
 uint32_t lastPanelRefresh = 0;
+// Used for ordinary commands and PGN lines; POSITION/FEN bypass this line buffer.
 static constexpr size_t SerialCommandCapacity = 2048;
 static constexpr size_t PgnImportMaxBytes = 32768;
 static char serialCommand[SerialCommandCapacity] = {};
@@ -3253,8 +3254,9 @@ static void executeSerialCommand() {
     }
   } else if (command == "help") {
     Serial.println("Commands:");
-    Serial.println("  position startpos [moves e2e4 ...]");
-    Serial.println("  position fen <6 FEN fields> [moves e2e4 ...]");
+    Serial.println("  position startpos [moves e2e4 ...] (streamed; up to 4096 plies)");
+    Serial.println("  position fen <6 FEN fields> [moves ...] (streamed)");
+    Serial.println("  fen <6 FEN fields>  (streamed shorthand)");
     Serial.println("  fen <6 FEN fields>  (shorthand)");
     Serial.println("  print  print the current board in Stockfish ASCII format");
     Serial.println("  moves (or uci)  print current position as a UCI command");
