@@ -103,6 +103,8 @@ constexpr uint16_t ColorSelected   = rgb(235, 220, 111);
 constexpr uint16_t ColorTargetDot  = rgb(40, 40, 40);
 constexpr uint16_t ColorEvalWhite    = rgb(230, 230, 235);
 constexpr uint16_t ColorEvalBlack    = rgb(34, 39, 52);
+constexpr uint16_t ColorEvalDividerWhite = rgb(194, 194, 199);
+constexpr uint16_t ColorEvalDividerBlack = rgb(45, 50, 63);
 constexpr uint16_t ColorEvalTextDark = rgb(43, 49, 64);
 constexpr uint16_t ColorLastMove   = rgb(224, 204, 91);
 constexpr uint16_t ColorHint       = rgb(69, 190, 184);
@@ -181,6 +183,10 @@ int hintTo = -1;
 bool hasGame = false;
 bool gameOver = false;
 bool searchInFlight = false;
+constexpr uint32_t BookMovePauseMs = 500;
+bool pendingBookMove = false;
+uint32_t pendingBookMoveStarted = 0;
+char pendingBookMoveUci[16] = {};
 char statusText[48] = "Ready";
 char hintText[16] = "";
 ChessGuiRules::PromotionRequest pendingPromotion;
@@ -239,13 +245,56 @@ constexpr int16_t CalibrationTargets[3][2] = {
 int calibrationStep = 0;
 
 uint32_t lastPanelRefresh = 0;
+// Used for ordinary commands and PGN lines; POSITION/FEN bypass this line buffer.
 static constexpr size_t SerialCommandCapacity = 2048;
+static constexpr size_t PgnImportMaxBytes = 32768;
 static char serialCommand[SerialCommandCapacity] = {};
 static size_t serialCommandLength = 0;
 static bool serialCommandOverflow = false;
+static bool pgnImportActive = false;
+static std::string pgnImportBuffer;
+
+enum class SerialPositionState : uint8_t { Idle, ExpectFormat, FenFields, ExpectMoves, Moves };
+static bool serialPositionActive = false;
+static bool serialPositionFailed = false;
+static SerialPositionState serialPositionState = SerialPositionState::Idle;
+static char serialPositionToken[96] = {};
+static size_t serialPositionTokenLength = 0;
+static char serialPositionFen[SavedGameMaxFenBytes + 1] = {};
+static size_t serialPositionFenLength = 0;
+static uint8_t serialPositionFenFieldCount = 0;
+static GameHistory serialPositionHistory;
 
 static void setStatus(const char *message) {
   snprintf(statusText, sizeof(statusText), "%s", message ? message : "");
+}
+
+constexpr uint32_t BacklightPwmFrequencyHz = 5000;
+constexpr uint8_t BacklightPwmResolution = 8;
+constexpr uint8_t BacklightFullBrightness = 255;
+constexpr uint8_t BacklightLockedBrightness = 115; // About 45%; still readable.
+bool backlightPwmReady = false;
+bool backlightInputLocked = false;
+
+static void updateInputLockIndicator() {
+  // The game screen rejects every touch while a Stockfish search is active.
+  // Make that state visible without redrawing or covering the chessboard.
+  const bool locked = screen == Screen::Game && searchInFlight;
+  if (locked == backlightInputLocked)
+    return;
+
+  backlightInputLocked = locked;
+  if (backlightPwmReady) {
+    const uint8_t brightness = locked ? BacklightLockedBrightness
+                                      : BacklightFullBrightness;
+    if (!ledcWrite(LCD_BL, brightness)) {
+      ledcDetach(LCD_BL);
+      backlightPwmReady = false;
+      digitalWrite(LCD_BL, 1); // Fail safe: keep the display fully illuminated.
+      Serial.println("[GUI] WARNING: backlight PWM update failed; using full brightness");
+    }
+  }
+
 }
 
 static bool touchReadRaw(uint16_t &x, uint16_t &y, uint8_t &points) {
@@ -457,11 +506,17 @@ static void updateLastMove() {
   lastTo = squareFromUci(move + 2);
 }
 
+static bool readGameHistoryMove(const void *context, size_t index, char *out) {
+  if (!context || !out)
+    return false;
+  return static_cast<const GameHistory *>(context)->formatMoveAt(index, out);
+}
+
 static bool syncEnginePosition() {
   if (!engine)
     return false;
-  const std::vector<std::string> moves = gameHistory.toUciMoves();
-  const auto error = engine->set_position(gameBaseFen, moves);
+  const auto error = engine->set_position(gameBaseFen, &gameHistory,
+                                          gameHistory.size(), readGameHistoryMove);
   if (error.has_value()) {
     Serial.printf("[GUI] Position rejected: %s\n", error->what());
     return false;
@@ -712,6 +767,21 @@ static void drawEvaluationBar() {
     if (blackTop < BoardY + BoardSize)
       tft.fillRect(0, blackTop, BoardX, BoardY + BoardSize - blackTop, ColorEvalBlack);
   }
+
+  // Subtle rank separators, like the Lichess evaluation bar. Keep the
+  // separators low-contrast and choose their shade for the segment below.
+  const int whiteBoundary = playerColor == 'w'
+                          ? BoardY + BoardSize - whiteHeight
+                          : BoardY + whiteHeight;
+  for (int rank = 1; rank < 8; ++rank) {
+    const int y = BoardY + rank * SquareSize;
+    const bool whiteSegment = playerColor == 'w'
+                            ? y >= whiteBoundary
+                            : y < whiteBoundary;
+    const uint16_t divider = whiteSegment ? ColorEvalDividerWhite
+                                          : ColorEvalDividerBlack;
+    tft.fillRect(0, y, BoardX, 1, divider);
+  }
 }
 
 static void drawBoardCoordinates() {
@@ -755,7 +825,10 @@ static void refreshEvaluationBar() {
 static void drawPanelText(const char *text, int x, int y, int w, int h,
                            uint16_t color, const lgfx::IFont *font) {
   tft.fillRect(x, y, w, h, ColorPanel);
+  // Keep long status strings and font overhang inside the narrow information panel.
+  tft.setClipRect(x, y, w, h);
   drawCenteredText(text, x, y, w, h, color, font);
+  tft.clearClipRect();
 }
 
 static void drawGamePanelSearchStats();
@@ -857,9 +930,8 @@ static void drawGamePanel() {
 
   drawCenteredText("Stockfish", x, 25, w, 18,
                    ColorText, &fonts::FreeSansBold9pt7b);
-  char levelText[28];
-  snprintf(levelText, sizeof(levelText), "L%d  Book %s", skillLevel,
-           openingBookEnabled ? "ON" : "OFF");
+  char levelText[8];
+  snprintf(levelText, sizeof(levelText), "L%d", skillLevel);
   drawCenteredText(levelText, x, 44, w, 14,
                    ColorOrange, &fonts::FreeSansBold9pt7b);
   drawGamePanelInfo();
@@ -1204,8 +1276,8 @@ static bool loadSavedGameFromNvs(bool hasSavedSkillSetting) {
   heap_caps_free(blob);
 
   if (valid) {
-    const std::vector<std::string> moves = candidateHistory.toUciMoves();
-    const auto error = engine->set_position(candidateFen, moves);
+    const auto error = engine->set_position(candidateFen, &candidateHistory,
+                                            candidateHistory.size(), readGameHistoryMove);
     if (error.has_value()) {
       Serial.printf("[GAME] Saved position rejected: %s\n", error->what());
       valid = false;
@@ -1214,8 +1286,7 @@ static bool loadSavedGameFromNvs(bool hasSavedSkillSetting) {
   if (!valid) {
     gameHistory.clear();
     gameBaseFen = StartFen;
-    const std::vector<std::string> noMoves;
-    engine->set_position(StartFen, noMoves);
+    engine->set_position(StartFen, nullptr, 0, nullptr);
     syncEnginePosition();
     discardSavedGame();
     Serial.println("[GAME] Saved game validation failed; discarded");
@@ -1315,7 +1386,18 @@ static void startSearch(SearchMode mode) {
                     (unsigned long)stats.legalEntries,
                     (unsigned long long)stats.totalWeight,
                     uciMove.c_str());
-      handleSearchResult(uciMove.c_str(), "Book");
+      // Keep the move visible as a deliberate engine action. This is a
+      // non-blocking pause: the GUI loop, serial console and touch polling
+      // continue to run, while the normal search lock prevents a move race.
+      snprintf(pendingBookMoveUci, sizeof(pendingBookMoveUci), "%s", uciMove.c_str());
+      pendingBookMoveStarted = millis();
+      pendingBookMove = true;
+      searchInFlight = true;
+      setStatus("Opening book");
+      if (screen == Screen::Game)
+        drawGamePanelInfo();
+      Serial.printf("[BOOK] Showing book move after %lu ms\n",
+                    (unsigned long)BookMovePauseMs);
       return;
     }
 
@@ -1358,6 +1440,16 @@ static void showCurrentGame() {
 }
 
 static void stopSearch() {
+  // A pending opening-book move is only waiting for its display pause; no
+  // Stockfish search exists yet. Cancel it without calling Engine::stop().
+  if (pendingBookMove) {
+    pendingBookMove = false;
+    pendingBookMoveUci[0] = '\0';
+    searchInFlight = false;
+    searchMode = SearchMode::None;
+    return;
+  }
+
   if (!engine || !searchInFlight)
     return;
   engine->stop();
@@ -1539,6 +1631,21 @@ static void pollSearchMailbox() {
 
     handleSearchResult(bestMove);
   }
+}
+
+static void pollPendingBookMove() {
+  if (!pendingBookMove
+      || (uint32_t)(millis() - pendingBookMoveStarted) < BookMovePauseMs)
+    return;
+
+  char move[sizeof(pendingBookMoveUci)];
+  snprintf(move, sizeof(move), "%s", pendingBookMoveUci);
+  pendingBookMove = false;
+  pendingBookMoveUci[0] = '\0';
+  searchInFlight = false;
+
+  Serial.printf("[BOOK] Applying delayed move: %s\n", move);
+  handleSearchResult(move, "Book");
 }
 
 static void startNewGame() {
@@ -1911,6 +2018,17 @@ static void processTouch(int x, int y, uint16_t rawX, uint16_t rawY) {
   }
 }
 
+static void printBoardAscii() {
+  if (!engine) {
+    Serial.println("[BOARD] ERROR: engine is not ready");
+    return;
+  }
+
+  const std::string boardText = engine->visualize();
+  Serial.print(boardText.c_str());
+  Serial.println();
+}
+
 static bool applySerialPosition(const std::string &baseFen, GameHistory &candidateHistory,
                                 const char *moveActor = nullptr, const char *uciMove = nullptr,
                                 char movingSide = '\0') {
@@ -1922,16 +2040,16 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
     return false;
   }
 
-  const std::vector<std::string> candidateMoves = candidateHistory.toUciMoves();
   const std::string previousBaseFen = gameBaseFen;
-  const std::vector<std::string> previousMoves = gameHistory.toUciMoves();
   const bool previousHadGame = hasGame;
 
   stopSearch();
-  const auto error = engine->set_position(baseFen, candidateMoves);
+  const auto error = engine->set_position(baseFen, &candidateHistory,
+                                          candidateHistory.size(), readGameHistoryMove);
   if (error.has_value()) {
     Serial.printf("[SERIAL] Position rejected: %s\n", error->what());
-    const auto restoreError = engine->set_position(previousBaseFen, previousMoves);
+    const auto restoreError = engine->set_position(previousBaseFen, &gameHistory,
+                                                   gameHistory.size(), readGameHistoryMove);
     if (restoreError.has_value()) {
       Serial.printf("[SERIAL] CRITICAL: cannot restore previous position: %s\n",
                     restoreError->what());
@@ -1981,11 +2099,211 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
                   sideToMove() == 'w' ? "White" : "Black");
   }
   Serial.printf("[FEN] %s\n", currentFen.c_str());
+  if (!moveActor)
+    printBoardAscii();
   if (touchCalibrated)
     showCurrentGame();
   else
     beginTouchCalibration();
   return true;
+}
+
+static bool serialPositionTokenEquals(const char *expected) {
+  const size_t expectedLength = strlen(expected);
+  if (serialPositionTokenLength != expectedLength)
+    return false;
+  for (size_t i = 0; i < expectedLength; ++i) {
+    if (tolower((unsigned char)serialPositionToken[i])
+        != tolower((unsigned char)expected[i]))
+      return false;
+  }
+  return true;
+}
+
+static void failSerialPosition(const char *message, const char *token = nullptr) {
+  if (!serialPositionFailed) {
+    if (token)
+      Serial.printf("[SERIAL] ERROR: %s: '%s'\n", message, token);
+    else
+      Serial.printf("[SERIAL] ERROR: %s\n", message);
+  }
+  serialPositionFailed = true;
+}
+
+static void consumeSerialPositionToken() {
+  if (serialPositionFailed || !serialPositionTokenLength)
+    return;
+
+  serialPositionToken[serialPositionTokenLength] = '\0';
+
+  switch (serialPositionState) {
+    case SerialPositionState::ExpectFormat:
+      if (serialPositionTokenEquals("startpos")) {
+        serialPositionFenLength = sizeof(StartFen) - 1;
+        memcpy(serialPositionFen, StartFen, serialPositionFenLength + 1);
+        serialPositionState = SerialPositionState::ExpectMoves;
+      } else if (serialPositionTokenEquals("fen")) {
+        serialPositionState = SerialPositionState::FenFields;
+      } else {
+        failSerialPosition("expected 'startpos' or 'fen'", serialPositionToken);
+      }
+      break;
+
+    case SerialPositionState::FenFields: {
+      const size_t separatorLength = serialPositionFenFieldCount ? 1 : 0;
+      const size_t required = serialPositionFenLength + separatorLength
+                            + serialPositionTokenLength;
+      if (required > SavedGameMaxFenBytes) {
+        failSerialPosition("FEN exceeds the saved-game limit");
+        break;
+      }
+      if (separatorLength)
+        serialPositionFen[serialPositionFenLength++] = ' ';
+      memcpy(serialPositionFen + serialPositionFenLength,
+             serialPositionToken, serialPositionTokenLength);
+      serialPositionFenLength += serialPositionTokenLength;
+      serialPositionFen[serialPositionFenLength] = '\0';
+      if (++serialPositionFenFieldCount == 6)
+        serialPositionState = SerialPositionState::ExpectMoves;
+      break;
+    }
+
+    case SerialPositionState::ExpectMoves:
+      if (serialPositionTokenEquals("moves")) {
+        serialPositionState = SerialPositionState::Moves;
+      } else {
+        failSerialPosition("expected 'moves' after the position", serialPositionToken);
+      }
+      break;
+
+    case SerialPositionState::Moves:
+      if (!serialPositionHistory.appendUci(
+            std::string_view(serialPositionToken, serialPositionTokenLength)))
+        failSerialPosition("invalid UCI move or move-history limit reached",
+                           serialPositionToken);
+      break;
+
+    default:
+      failSerialPosition("invalid position parser state");
+      break;
+  }
+
+  serialPositionTokenLength = 0;
+}
+
+static void feedSerialPositionByte(char value) {
+  if (serialPositionFailed)
+    return;
+
+  if (isspace((unsigned char)value)) {
+    consumeSerialPositionToken();
+    return;
+  }
+
+  if (serialPositionTokenLength + 1 >= sizeof(serialPositionToken)) {
+    failSerialPosition("position token is too long");
+    return;
+  }
+
+  serialPositionToken[serialPositionTokenLength++] = value;
+}
+
+static void releaseSerialPositionHistory() {
+  GameHistory empty;
+  serialPositionHistory.swap(empty);
+}
+
+static void resetSerialPositionStream() {
+  serialPositionActive = false;
+  serialPositionFailed = false;
+  serialPositionState = SerialPositionState::Idle;
+  serialPositionTokenLength = 0;
+  serialPositionFenLength = 0;
+  serialPositionFenFieldCount = 0;
+  serialPositionFen[0] = '\0';
+  serialPositionHistory.clear();
+  releaseSerialPositionHistory();
+  serialCommandLength = 0;
+  serialCommandOverflow = false;
+}
+
+static void finishSerialPositionStream() {
+  if (!serialPositionFailed)
+    consumeSerialPositionToken();
+
+  if (!serialPositionFailed) {
+    if (serialPositionState == SerialPositionState::ExpectFormat)
+      failSerialPosition("usage: position startpos [moves ...] OR position fen <6 FEN fields> [moves ...]");
+    else if (serialPositionState == SerialPositionState::FenFields)
+      failSerialPosition("FEN requires all six fields");
+    else if (serialPositionState != SerialPositionState::ExpectMoves
+             && serialPositionState != SerialPositionState::Moves)
+      failSerialPosition("incomplete position command");
+  }
+
+  if (!serialPositionFailed) {
+    serialPositionFen[serialPositionFenLength] = '\0';
+    Serial.printf("[SERIAL] POSITION received; %u plies; loading\n",
+                  (unsigned)serialPositionHistory.size());
+    const std::string baseFen(serialPositionFen, serialPositionFenLength);
+    applySerialPosition(baseFen, serialPositionHistory);
+  }
+
+  resetSerialPositionStream();
+}
+
+static void beginSerialPositionStream(bool shorthandFen) {
+  serialPositionActive = true;
+  serialPositionFailed = false;
+  serialPositionState = shorthandFen ? SerialPositionState::FenFields
+                                     : SerialPositionState::ExpectFormat;
+  serialPositionTokenLength = 0;
+  serialPositionFenLength = 0;
+  serialPositionFenFieldCount = 0;
+  serialPositionFen[0] = '\0';
+  serialPositionHistory.clear();
+  serialCommandLength = 0;
+  serialCommandOverflow = false;
+  Serial.printf("[SERIAL] RX: %s (streaming)\n",
+                shorthandFen ? "fen" : "position");
+}
+
+static bool tryBeginSerialPositionStream() {
+  size_t first = 0;
+  while (first < serialCommandLength
+         && isspace((unsigned char)serialCommand[first]))
+    ++first;
+  if (first == serialCommandLength)
+    return false;
+
+  size_t end = first;
+  while (end < serialCommandLength
+         && !isspace((unsigned char)serialCommand[end]))
+    ++end;
+  if (end != serialCommandLength)
+    return false;
+
+  const size_t length = end - first;
+  const auto tokenIs = [&](const char *expected) {
+    const size_t expectedLength = strlen(expected);
+    if (length != expectedLength)
+      return false;
+    for (size_t i = 0; i < length; ++i)
+      if (tolower((unsigned char)serialCommand[first + i])
+          != tolower((unsigned char)expected[i]))
+        return false;
+    return true;
+  };
+
+  if (tokenIs("position")) {
+    beginSerialPositionStream(false);
+    return true;
+  }
+  if (tokenIs("fen")) {
+    beginSerialPositionStream(true);
+    return true;
+  }
+  return false;
 }
 
 static bool processPositionCommand(const std::string &line, bool shortFenCommand) {
@@ -2119,11 +2437,10 @@ static char pgnPieceLetter(Stockfish::PieceType pieceType) {
   }
 }
 
-static bool formatSanMove(Stockfish::Position &position, Stockfish::Move move,
-                          Stockfish::StateInfo &nextState, std::string &san) {
+static bool buildSanMove(Stockfish::Position &position, Stockfish::Move move,
+                          std::string &san) {
   if (!move.is_ok())
     return false;
-
   const Stockfish::Square from = move.from_sq();
   const Stockfish::Square to = move.to_sq();
   const Stockfish::Piece movingPiece = position.moved_piece(move);
@@ -2156,7 +2473,6 @@ static bool formatSanMove(Stockfish::Position &position, Stockfish::Move move,
         if (Stockfish::rank_of(alternative.from_sq()) == Stockfish::rank_of(from))
           alternativeOnSameRank = true;
       }
-
       if (alternativeFound) {
         if (!alternativeOnSameFile || (alternativeOnSameFile && alternativeOnSameRank))
           san.push_back(char('a' + int(Stockfish::file_of(from))));
@@ -2164,12 +2480,9 @@ static bool formatSanMove(Stockfish::Position &position, Stockfish::Move move,
           san.push_back(char('1' + int(Stockfish::rank_of(from))));
       }
     }
-
     if (capture)
       san.push_back('x');
-
     san += Stockfish::UCIEngine::square(to);
-
     if (move.type_of() == Stockfish::PROMOTION) {
       const char promotionLetter = pgnPieceLetter(move.promotion_type());
       if (!promotionLetter)
@@ -2178,7 +2491,13 @@ static bool formatSanMove(Stockfish::Position &position, Stockfish::Move move,
       san.push_back(promotionLetter);
     }
   }
+  return true;
+}
 
+static bool formatSanMove(Stockfish::Position &position, Stockfish::Move move,
+                          Stockfish::StateInfo &nextState, std::string &san) {
+  if (!buildSanMove(position, move, san))
+    return false;
   position.do_move(move, nextState);
   if (position.checkers()) {
     const Stockfish::MoveList<Stockfish::LEGAL> replies(position);
@@ -2186,7 +2505,6 @@ static bool formatSanMove(Stockfish::Position &position, Stockfish::Move move,
   }
   return true;
 }
-
 static bool streamPgnMoves(bool emitOutput) {
   std::istringstream fenInput(gameBaseFen);
   std::string placement, sideField, castlingField, epField, halfmoveField, fullmoveField;
@@ -2319,10 +2637,426 @@ static void exportPgn() {
   Serial.println(result);
 }
 
+
+static bool parsePgnTag(const std::string &tagText, std::string &name,
+                        std::string &value, std::string &error) {
+  size_t pos = 0;
+  while (pos < tagText.size() && isspace((unsigned char)tagText[pos]))
+    ++pos;
+  const size_t nameStart = pos;
+  while (pos < tagText.size() && !isspace((unsigned char)tagText[pos]))
+    ++pos;
+  if (pos == nameStart) {
+    error = "empty PGN tag name";
+    return false;
+  }
+  name.assign(tagText, nameStart, pos - nameStart);
+  while (pos < tagText.size() && isspace((unsigned char)tagText[pos]))
+    ++pos;
+  if (pos >= tagText.size() || tagText[pos] != '"') {
+    error = "PGN tag value must be quoted";
+    return false;
+  }
+  ++pos;
+  value.clear();
+  bool closed = false;
+  while (pos < tagText.size()) {
+    const char ch = tagText[pos++];
+    if (ch == '\\' && pos < tagText.size())
+      value.push_back(tagText[pos++]);
+    else if (ch == '"') {
+      closed = true;
+      break;
+    } else
+      value.push_back(ch);
+  }
+  if (!closed) {
+    error = "unterminated quoted PGN tag value";
+    return false;
+  }
+  while (pos < tagText.size() && isspace((unsigned char)tagText[pos]))
+    ++pos;
+  if (pos != tagText.size()) {
+    error = "unexpected text after PGN tag value";
+    return false;
+  }
+  return true;
+}
+
+static bool normalizePgnSan(std::string &token) {
+  while (!token.empty() && (token.back() == '!' || token.back() == '?'))
+    token.pop_back();
+  if (token.size() >= 4) {
+    std::string suffix = token.substr(token.size() - 4);
+    std::transform(suffix.begin(), suffix.end(), suffix.begin(),
+                   [](unsigned char ch) { return char(tolower(ch)); });
+    if (suffix == "e.p.") {
+      token.resize(token.size() - 4);
+      while (!token.empty() && (token.back() == '!' || token.back() == '?'))
+        token.pop_back();
+    }
+  }
+  while (!token.empty() && (token.back() == '+' || token.back() == '#'
+                            || token.back() == '!' || token.back() == '?'))
+    token.pop_back();
+  if (!token.empty() && token[0] == '0') {
+    for (char &ch : token)
+      if (ch == '0')
+        ch = 'O';
+  }
+  return !token.empty();
+}
+
+static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
+                           GameHistory &candidateHistory, char &candidatePlayerColor,
+                           std::string &error) {
+  std::string startingFen = StartFen;
+  bool hasFenTag = false;
+  candidatePlayerColor = playerColor;
+  std::string whiteName;
+  std::string blackName;
+  std::string setupValue;
+  std::string moveText;
+  int variationDepth = 0;
+  bool inBraceComment = false;
+  bool inLineComment = false;
+  bool movetextStarted = false;
+
+  for (size_t i = 0; i < pgn.size(); ++i) {
+    const char ch = pgn[i];
+    if (inBraceComment) {
+      if (ch == '}') inBraceComment = false;
+      continue;
+    }
+    if (inLineComment) {
+      if (ch == '\n' || ch == '\r') inLineComment = false;
+      continue;
+    }
+    if (ch == '{') { inBraceComment = true; continue; }
+    if (ch == ';') { inLineComment = true; continue; }
+    if (ch == '(') { ++variationDepth; continue; }
+    if (ch == ')') {
+      if (variationDepth == 0) {
+        error = "unmatched ')' in PGN variation";
+        return false;
+      }
+      --variationDepth;
+      continue;
+    }
+    if (variationDepth > 0)
+      continue;
+
+    // PGN tag pairs are only valid before the movetext section. A
+    // serial-monitor capture may append UCI/FEN diagnostics after the game
+    // result; do not mistake a later "[FEN] ..." log line for a PGN tag.
+    if (ch == '[' && !movetextStarted) {
+      size_t end = i + 1;
+      bool quoted = false;
+      bool escaped = false;
+      for (; end < pgn.size(); ++end) {
+        const char tagChar = pgn[end];
+        if (escaped) { escaped = false; continue; }
+        if (quoted && tagChar == '\\') { escaped = true; continue; }
+        if (tagChar == '"') { quoted = !quoted; continue; }
+        if (!quoted && tagChar == ']') break;
+      }
+      if (end >= pgn.size()) {
+        error = "unterminated PGN tag";
+        return false;
+      }
+      const std::string tagText = pgn.substr(i + 1, end - i - 1);
+      std::string tagName, tagValue;
+      if (!parsePgnTag(tagText, tagName, tagValue, error))
+        return false;
+      if (tagName == "FEN") {
+        startingFen = tagValue;
+        hasFenTag = true;
+      } else if (tagName == "SetUp") setupValue = tagValue;
+      else if (tagName == "White") whiteName = tagValue;
+      else if (tagName == "Black") blackName = tagValue;
+      i = end;
+      continue;
+    }
+    if (!isspace((unsigned char)ch))
+      movetextStarted = true;
+    moveText.push_back(ch);
+  }
+
+  if (inBraceComment) {
+    error = "unterminated PGN brace comment";
+    return false;
+  }
+  if (variationDepth != 0) {
+    error = "unterminated PGN variation";
+    return false;
+  }
+  if (setupValue == "1" && !hasFenTag) {
+    error = "PGN SetUp tag requires a FEN tag";
+    return false;
+  }
+  if (startingFen.empty() || startingFen.size() > SavedGameMaxFenBytes) {
+    error = "PGN FEN is empty or exceeds the saved-game limit";
+    return false;
+  }
+  if (whiteName == "Player" && blackName != "Player") candidatePlayerColor = 'w';
+  else if (blackName == "Player" && whiteName != "Player") candidatePlayerColor = 'b';
+
+  baseFen = startingFen;
+  Stockfish::Position position;
+  Stockfish::StateInfo currentState;
+  Stockfish::StateInfo nextState;
+  auto fenError = position.set(baseFen, false, &currentState);
+  if (fenError.has_value()) {
+    error = std::string("invalid PGN starting FEN: ") + fenError->what();
+    return false;
+  }
+  std::string currentFen = baseFen;
+  std::istringstream tokens(moveText);
+  std::string token;
+  size_t ply = 0;
+  std::string san;
+
+  while (tokens >> token) {
+    if (token.empty()) continue;
+    size_t digits = 0;
+    while (digits < token.size() && isdigit((unsigned char)token[digits]))
+      ++digits;
+    if (digits > 0 && digits < token.size() && token[digits] == '.') {
+      size_t prefixEnd = digits;
+      while (prefixEnd < token.size() && token[prefixEnd] == '.')
+        ++prefixEnd;
+      token.erase(0, prefixEnd);
+    } else if (token.compare(0, 3, "...") == 0) {
+      token.erase(0, 3);
+    }
+    if (token.empty()) continue;
+    if (token[0] == char(0x24)) continue; // Numeric annotation glyph.
+    if (token == "1-0" || token == "0-1" || token == "1/2-1/2" || token == "*")
+      break;
+
+    std::string lowerToken = token;
+    std::transform(lowerToken.begin(), lowerToken.end(), lowerToken.begin(),
+                   [](unsigned char ch) { return char(tolower(ch)); });
+    if (lowerToken == "e.p." || lowerToken == "ep")
+      continue;
+    if (token == "!" || token == "?" || token == "!!" || token == "??"
+        || token == "!?" || token == "?!")
+      continue;
+    if (!normalizePgnSan(token))
+      continue;
+
+    fenError = position.set(currentFen, false, &currentState);
+    if (fenError.has_value()) {
+      error = std::string("invalid position before ply ") + std::to_string(ply + 1)
+            + ": " + fenError->what();
+      return false;
+    }
+
+    Stockfish::Move matchedMove = Stockfish::Move::none();
+    unsigned matches = 0;
+    for (const Stockfish::Move legalMove : Stockfish::MoveList<Stockfish::LEGAL>(position)) {
+      if (buildSanMove(position, legalMove, san) && san == token) {
+        matchedMove = legalMove;
+        ++matches;
+      }
+    }
+    if (matches != 1) {
+      char message[112];
+      snprintf(message, sizeof(message), "%s SAN at ply %u: '%s'",
+               matches == 0 ? "illegal" : "ambiguous",
+               unsigned(ply + 1), token.c_str());
+      error = message;
+      return false;
+    }
+
+    const std::string uciMove = Stockfish::UCIEngine::move(matchedMove, false);
+    if (!candidateHistory.appendUci(uciMove)) {
+      error = "too many PGN moves or insufficient memory for move history";
+      return false;
+    }
+    position.do_move(matchedMove, nextState);
+    currentFen = position.fen();
+    ++ply;
+  }
+
+  if (ply == 0) {
+    error = "PGN contains no movetext moves";
+    return false;
+  }
+  return true;
+}
+
+static bool importPgn(const std::string &pgn) {
+  if (!engine) {
+    Serial.println("[PGN] ERROR: engine is not ready");
+    return false;
+  }
+  std::string baseFen;
+  std::string error;
+  GameHistory candidateHistory;
+  char candidatePlayerColor = playerColor;
+  if (!parsePgnImport(pgn, baseFen, candidateHistory, candidatePlayerColor, error)) {
+    Serial.printf("[PGN] IMPORT FAILED: %s\n", error.c_str());
+    return false;
+  }
+
+  const std::string previousBaseFen = gameBaseFen;
+  const char previousPlayerColor = playerColor;
+  const bool previousHadGame = hasGame;
+  stopSearch();
+  const auto positionError = engine->set_position(baseFen, &candidateHistory,
+                                                   candidateHistory.size(), readGameHistoryMove);
+  if (positionError.has_value()) {
+    Serial.printf("[PGN] IMPORT FAILED: Stockfish rejected the game: %s\n",
+                  positionError->what());
+    const auto restoreError = engine->set_position(previousBaseFen, &gameHistory,
+                                                     gameHistory.size(), readGameHistoryMove);
+    if (restoreError.has_value())
+      Serial.printf("[PGN] WARNING: previous engine position could not be restored: %s\n",
+                    restoreError->what());
+    if (previousHadGame) showCurrentGame();
+    else renderMenu();
+    return false;
+  }
+
+  gameBaseFen = baseFen;
+  gameHistory.swap(candidateHistory);
+  playerColor = candidatePlayerColor;
+  currentFen = engine->fen();
+  if (!loadFenBoard(currentFen)) {
+    Serial.println("[PGN] IMPORT FAILED: could not render imported board");
+    gameBaseFen = previousBaseFen;
+    gameHistory.swap(candidateHistory);
+    playerColor = previousPlayerColor;
+    engine->set_position(previousBaseFen, &gameHistory,
+                         gameHistory.size(), readGameHistoryMove);
+    currentFen = engine->fen();
+    loadFenBoard(currentFen);
+    if (previousHadGame) showCurrentGame();
+    else renderMenu();
+    return false;
+  }
+
+  hasGame = true;
+  selectedSquare = -1;
+  lastFrom = lastTo = -1;
+  hintFrom = hintTo = -1;
+  hintText[0] = '\0';
+  pendingPromotion.clear();
+  clearLegalDestinations(false);
+  gameOver = updateGameStatusFromPosition();
+  setStatus("PGN imported");
+  saveGameToNvs();
+  Serial.printf("[PGN] Imported %u plies; %s to move; player is %s\n",
+                unsigned(gameHistory.size()),
+                sideToMove() == 'w' ? "White" : "Black",
+                playerColor == 'w' ? "White" : "Black");
+  printBoardAscii();
+  showCurrentGame();
+  return true;
+}
+
+static bool pgnHasResultMarker(const std::string &pgn) {
+  bool inTag = false;
+  bool tagQuoted = false;
+  bool tagEscaped = false;
+  bool inBraceComment = false;
+  bool inLineComment = false;
+  bool movetextStarted = false;
+  unsigned variationDepth = 0;
+  std::string token;
+
+  const auto isResultToken = [](const std::string &value) {
+    return value == "1-0" || value == "0-1"
+        || value == "1/2-1/2" || value == "*";
+  };
+  const auto finishToken = [&]() {
+    const bool found = isResultToken(token);
+    token.clear();
+    return found;
+  };
+
+  for (const char ch : pgn) {
+    if (inTag) {
+      if (tagEscaped) {
+        tagEscaped = false;
+        continue;
+      }
+      if (tagQuoted && ch == '\\') {
+        tagEscaped = true;
+        continue;
+      }
+      if (ch == '"') {
+        tagQuoted = !tagQuoted;
+        continue;
+      }
+      if (!tagQuoted && ch == ']')
+        inTag = false;
+      continue;
+    }
+    if (inBraceComment) {
+      if (ch == '}')
+        inBraceComment = false;
+      continue;
+    }
+    if (inLineComment) {
+      if (ch == '\n' || ch == '\r')
+        inLineComment = false;
+      continue;
+    }
+
+    if (ch == '{') {
+      if (finishToken()) return true;
+      inBraceComment = true;
+      continue;
+    }
+    if (ch == ';') {
+      if (finishToken()) return true;
+      inLineComment = true;
+      continue;
+    }
+    if (ch == '[' && !movetextStarted && variationDepth == 0) {
+      if (finishToken()) return true;
+      inTag = true;
+      tagQuoted = false;
+      tagEscaped = false;
+      continue;
+    }
+    if (ch == '(') {
+      if (finishToken()) return true;
+      ++variationDepth;
+      continue;
+    }
+    if (ch == ')') {
+      if (variationDepth > 0)
+        --variationDepth;
+      continue;
+    }
+    if (variationDepth > 0)
+      continue;
+
+    if (isspace((unsigned char)ch)) {
+      if (finishToken()) return true;
+      continue;
+    }
+
+    movetextStarted = true;
+    token.push_back(ch);
+  }
+
+  return finishToken();
+}
+
 static void executeSerialCommand() {
   if (serialCommandOverflow) {
-    Serial.printf("[SERIAL] ERROR: command exceeded %u bytes; discarded\n",
-                  (unsigned)(SerialCommandCapacity - 1));
+    if (pgnImportActive) {
+      pgnImportActive = false;
+      pgnImportBuffer.clear();
+      Serial.println("[PGN] ERROR: input line exceeded the serial line buffer; import cancelled");
+    } else {
+      Serial.printf("[SERIAL] ERROR: command exceeded %u bytes; discarded\n",
+                    (unsigned)(SerialCommandCapacity - 1));
+    }
     serialCommandLength = 0;
     serialCommandOverflow = false;
     return;
@@ -2330,6 +3064,43 @@ static void executeSerialCommand() {
 
   serialCommand[serialCommandLength] = '\0';
   const std::string line(serialCommand, serialCommandLength);
+  if (pgnImportActive) {
+    std::string control = line;
+    control.erase(0, control.find_first_not_of(" \t\r\n"));
+    const size_t last = control.find_last_not_of(" \t\r\n");
+    if (last == std::string::npos) control.clear();
+    else control.erase(last + 1);
+    std::transform(control.begin(), control.end(), control.begin(),
+                   [](unsigned char ch) { return char(tolower(ch)); });
+    if (control == "endpgn" || control == "pgn end") {
+      pgnImportActive = false;
+      Serial.printf("[PGN] Received %u bytes; validating...\n",
+                    unsigned(pgnImportBuffer.size()));
+      importPgn(pgnImportBuffer);
+      pgnImportBuffer.clear();
+    } else if (control == "cancelpgn" || control == "pgn cancel") {
+      pgnImportActive = false;
+      pgnImportBuffer.clear();
+      Serial.println("[PGN] Import cancelled");
+    } else if (pgnImportBuffer.size() + line.size() + 1 > PgnImportMaxBytes) {
+      pgnImportActive = false;
+      pgnImportBuffer.clear();
+      Serial.printf("[PGN] ERROR: import exceeds %u bytes; cancelled\n",
+                    unsigned(PgnImportMaxBytes));
+    } else {
+      pgnImportBuffer += line;
+      pgnImportBuffer.push_back('\n');
+      if (pgnHasResultMarker(pgnImportBuffer)) {
+        pgnImportActive = false;
+        Serial.printf("[PGN] Result marker received; validating %u bytes...\n",
+                      unsigned(pgnImportBuffer.size()));
+        importPgn(pgnImportBuffer);
+        pgnImportBuffer.clear();
+      }
+    }
+    serialCommandLength = 0;
+    return;
+  }
   if (!line.empty())
     Serial.printf("[SERIAL] RX (%u bytes): %s\n",
                   (unsigned)line.size(), line.c_str());
@@ -2339,7 +3110,9 @@ static void executeSerialCommand() {
   std::transform(command.begin(), command.end(), command.begin(),
                  [](unsigned char ch) { return char(tolower(ch)); });
 
-  if (command == "moves" || command == "uci") {
+  if (command == "print") {
+    printBoardAscii();
+  } else if (command == "moves" || command == "uci") {
     printGameUciPosition();
   } else if (command == "undo") {
     if (!hasGame) {
@@ -2364,15 +3137,14 @@ static void executeSerialCommand() {
       Serial.println("[SERIAL] ERROR: it is not the player's turn");
     else
       startSearch(SearchMode::Hint);
-  } else if (command == "stop") {
-    if (!searchInFlight)
-      Serial.println("[SERIAL] No search is running");
-    else {
+  } else if (command == "calibration") {
+    std::string extra;
+    if (input >> extra) {
+      Serial.println("[SERIAL] Usage: CALIBRATION");
+    } else {
       stopSearch();
-      setStatus("Search stopped");
-      if (screen == Screen::Game)
-        drawGamePanelInfo();
-      Serial.println("[SERIAL] Search stopped");
+      beginTouchCalibration();
+      Serial.println("[GUI] Touch calibration started");
     }
   } else if (command == "level") {
     std::string levelText;
@@ -2420,7 +3192,24 @@ static void executeSerialCommand() {
       }
     }
   } else if (command == "pgn" || command == "exportpgn") {
-    exportPgn();
+    std::string action;
+    std::string extra;
+    if (!(input >> action)) {
+      exportPgn();
+    } else {
+      std::transform(action.begin(), action.end(), action.begin(),
+                     [](unsigned char ch) { return char(tolower(ch)); });
+      if (action == "import" && !(input >> extra)) {
+        pgnImportBuffer.clear();
+        pgnImportActive = true;
+        Serial.println("[PGN] Import mode active. Paste the PGN; import starts at its result marker.");
+        Serial.println("[PGN] ENDPGN also finishes manually; CANCELPGN aborts.");
+      } else if (action == "export" && !(input >> extra)) {
+        exportPgn();
+      } else {
+        Serial.println("[SERIAL] Usage: PGN [EXPORT|IMPORT]");
+      }
+    }
   } else if (command == "position") {
     processPositionCommand(line, false);
   } else if (command == "fen") {
@@ -2482,22 +3271,35 @@ static void executeSerialCommand() {
     }
   } else if (command == "help") {
     Serial.println("Commands:");
-    Serial.println("  position startpos [moves e2e4 ...]");
-    Serial.println("  position fen <6 FEN fields> [moves e2e4 ...]");
-    Serial.println("  fen <6 FEN fields>  (shorthand)");
+    Serial.println("  position startpos [moves e2e4 ...] (streamed; up to 4096 plies)");
+    Serial.println("  position fen <6 FEN fields> [moves ...] (streamed)");
+    Serial.println("  fen <6 FEN fields>  (streamed shorthand)");
+    Serial.println("  print  print the current board in Stockfish ASCII format");
     Serial.println("  moves (or uci)  print current position as a UCI command");
-    Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move to the current game");
+    Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move; O-O / 0-0 = short castle");
     Serial.println("  UNDO  undo the last move pair (or the only move)");
     Serial.println("  HINT  ask Stockfish for a move suggestion");
-    Serial.println("  STOP  stop the current search");
+    Serial.println("  CALIBRATION  start touch calibration");
     Serial.println("  LEVEL [1..20]  show/set skill for the next game");
     Serial.println("  BOOK [ON|OFF]  show or set opening-book usage");
-    Serial.println("  PGN  export the current game in PGN/SAN format");
+    Serial.println("  PGN [EXPORT|IMPORT]  export or import a PGN game");
+    Serial.println("      PGN IMPORT: auto-finishes at result; ENDPGN is optional");
     Serial.println("  NEWGAME [1..20] [WHITE|BLACK]  start a new game");
     Serial.println("  NEWGAME BLACK  start as Black (or use WHITE)");
     Serial.println("FEN piece-letter case is preserved. Invalid positions leave the current game unchanged.");
   } else if (!command.empty()) {
-    if (command.size() == 4 || command.size() == 5)
+    // Accept short castling notation as an alias for the standard UCI king move.
+    if (command == "o-o" || command == "0-0")
+      command = sideToMove() == 'w' ? "e1g1" : "e8g8";
+
+    const bool uciShape = (command.size() == 4 || command.size() == 5)
+      && command[0] >= 'a' && command[0] <= 'h'
+      && command[1] >= '1' && command[1] <= '8'
+      && command[2] >= 'a' && command[2] <= 'h'
+      && command[3] >= '1' && command[3] <= '8'
+      && (command.size() == 4 || command[4] == 'q' || command[4] == 'r'
+                              || command[4] == 'b' || command[4] == 'n');
+    if (uciShape)
       processSingleUciMove(command);
     else
       Serial.printf("[SERIAL] Unknown command: %s\n", command.c_str());
@@ -2509,6 +3311,23 @@ static void pollSerialCommands() {
   while (Serial.available() > 0) {
     const int value = Serial.read();
     if (value == '\r') continue;
+
+    if (serialPositionActive) {
+      if (value == '\n')
+        finishSerialPositionStream();
+      else
+        feedSerialPositionByte(char(value));
+      continue;
+    }
+
+    if (!pgnImportActive && !serialCommandOverflow
+        && (value == ' ' || value == '\t' || value == '\n')
+        && tryBeginSerialPositionStream()) {
+      if (value == '\n')
+        finishSerialPositionStream();
+      continue;
+    }
+
     if (value == '\n') { executeSerialCommand(); continue; }
     if (serialCommandOverflow)
       continue; // Discard the rest of an overlong line up to its newline.
@@ -2523,7 +3342,18 @@ static void pollSerialCommands() {
 
 static void initializeDisplayAndTouch() {
   pinMode(LCD_BL, OUTPUT);
-  digitalWrite(LCD_BL, 1);
+  backlightPwmReady = ledcAttach(LCD_BL, BacklightPwmFrequencyHz,
+                                 BacklightPwmResolution);
+  if (backlightPwmReady
+      && ledcWrite(LCD_BL, BacklightFullBrightness)) {
+    Serial.printf("[GUI] Backlight PWM ready: %lu Hz, %u-bit\n",
+                  (unsigned long)BacklightPwmFrequencyHz,
+                  BacklightPwmResolution);
+  } else {
+    backlightPwmReady = false;
+    digitalWrite(LCD_BL, 1);
+    Serial.println("[GUI] WARNING: backlight PWM unavailable; using full brightness");
+  }
 
   tft.init();
   tft.setRotation(1);
@@ -2684,6 +3514,7 @@ void setup() {
 void loop() {
   pollSerialCommands();
   pollSearchMailbox();
+  pollPendingBookMove();
 
   uint16_t rawX = 0;
   uint16_t rawY = 0;
@@ -2699,5 +3530,6 @@ void loop() {
   }
   previousTouchDown = down;
 
+  updateInputLockIndicator();
   delay(12);
 }

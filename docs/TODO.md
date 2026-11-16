@@ -27,3 +27,10 @@ This file contains future development work that is intentionally not part of the
   - Check `fc_1` and `fc_2` first: their post-activation inputs are the most promising candidates for signed 8-bit dot products, subject to a measured range proof.
   - Treat `fc_0` separately: the feature-transformer output can reach 255 while weights are signed, so neither signed×signed nor unsigned×unsigned multiply-accumulate is a drop-in replacement. Any mixed-sign correction/repacking must be proven exact.
   - Verify accumulator width/overflow behaviour, instruction semantics and scalar parity before enabling a new kernel.
+
+## GUI and user interaction
+
+- [x] Remove the serial-console `STOP` command from the user-facing command parser and help text. Keep the internal `stopSearch()` functionality where it is required to manage searches safely.
+- [x] Add a serial-console `CALIBRATION` command to start touch calibration again on demand.
+- [x] Implement PGN import so a game can be loaded from PGN notation, including move parsing and validation before replacing the current game.
+- [x] Review the right-hand information panel for text that is too long and currently overlaps or extends into the chessboard. Clip text to the panel bounds.

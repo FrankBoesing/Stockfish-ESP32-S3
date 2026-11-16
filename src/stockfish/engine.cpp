@@ -167,6 +167,36 @@ Engine::perft(const std::string& fen, Depth depth, bool isChess960) {
     return Benchmark::perft(fen, depth, isChess960);
 }
 
+std::optional<PositionSetError> Engine::set_position(const std::string& fen,
+                                                               const void* moveContext,
+                                                               std::size_t moveCount,
+                                                               PositionMoveReader readMove) {
+    if (moveCount && !readMove)
+        return PositionSetError("Missing move reader");
+
+    states = StateListPtr(new std::deque<StateInfo>(1));
+    auto err = pos.set(fen, options["UCI_Chess960"], &states->back());
+    if (err.has_value())
+        return err;
+
+    char moveText[6];
+    for (std::size_t i = 0; i < moveCount; ++i)
+    {
+        moveText[0] = '\0';
+        if (!readMove(moveContext, i, moveText) || moveText[0] == '\0')
+            return PositionSetError("Invalid move data at ply " + std::to_string(i + 1));
+
+        auto m = UCIEngine::to_move(pos, std::string(moveText));
+        if (m == Move::none())
+            return PositionSetError("Illegal move: " + std::string(moveText));
+
+        states->emplace_back();
+        pos.do_move(m, states->back());
+    }
+
+    return std::nullopt;
+}
+
 void Engine::go(Search::LimitsType& limits) {
     assert(limits.perft == 0);
     verify_network();

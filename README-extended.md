@@ -67,18 +67,24 @@ checksummed NVS blob after each accepted human move, engine move, undo and
 new-game initialization. When a saved game is restored, its original strength
 is restored independently of the next-game menu selection.
 
-The serial monitor logs each received command as [SERIAL] RX and each accepted
+The serial command `PRINT` displays the current board using Stockfish's ASCII representation. The board is also printed automatically after loading a position with `POSITION`, `FEN` or `PGN IMPORT`. The serial monitor logs each received command as [SERIAL] RX and each accepted
 move in UCI notation as [MOVE], distinguishing the player from Stockfish and
 showing the moving colour. A single UCI move such as e2e4 or a promotion such
-as e7e8q can be entered directly. Additional commands are UNDO (takeback),
-HINT (Stockfish suggestion), STOP (cancel the current search), LEVEL [1..20]
-(set the next game's strength), BOOK [ON|OFF] (show or change opening-book use),
-PGN (export the current game in SAN/PGN form), and NEWGAME [Level] [WHITE|BLACK].
+as e7e8q can be entered directly. Short castling is also accepted as O-O, o-o
+or 0-0 and is converted to the corresponding UCI king move. Additional commands
+are UNDO (takeback),
+HINT (Stockfish suggestion), CALIBRATION (restart touchscreen calibration),
+LEVEL [1..20] (set the next game's strength), BOOK [ON|OFF] (show or change
+opening-book use), PGN (export) and PGN IMPORT (load a PGN game), and
+NEWGAME [Level] [WHITE|BLACK]. During PGN import, paste the complete PGN;
+the importer automatically starts when it reaches a result marker (1-0, 0-1,
+1/2-1/2 or *). ENDPGN remains available as a manual finish for PGNs without a
+result marker; CANCELPGN aborts the import.
 The opening-book preference is saved separately in NVS and restored at boot;
 installations without a saved value default to BOOK ON. PGN export includes the appropriate move
 numbering, check/checkmate suffixes, result and a SetUp/FEN pair for custom
 starting positions. Type moves (or uci) to print the current UCI position
-command and FEN. Positions can also be loaded through the serial monitor:
+command and FEN. Long POSITION and FEN commands are streamed token by token, and UCI moves are stored directly in the compact 16-bit game history rather than in a full command-line string. Positions can also be loaded through the serial monitor:
 ```text
 position startpos moves e2e4 e7e5
 position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
@@ -90,7 +96,7 @@ The UCI form accepts an optional `moves` sequence after either starting
 position. The original FEN and move list are persisted, so a custom test
 position also survives a reset. FEN piece-letter case is preserved. Invalid
 FENs or move sequences are rejected without replacing the current game.
-PGN export is implemented for serial output, including SAN movetext, move numbering, check/checkmate suffixes, game result and SetUp/FEN tags for custom starting positions.
+PGN export and import are implemented for serial use. Import resolves SAN against Stockfish's legal moves, supports custom starting positions through FEN/SetUp tags, and ignores comments, NAGs and parenthesized variations. The current game is replaced only after the complete move sequence validates.
 
 Search callbacks only publish compact status/best-move data; drawing and
 position updates remain in the Arduino loop task. The GUI deliberately avoids
