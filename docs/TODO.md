@@ -34,4 +34,3 @@ This file contains future development work that is intentionally not part of the
 - [ ] Add a serial-console `CALIBRATION` command to start touch calibration again on demand.
 - [ ] Implement PGN import so a game can be loaded from PGN notation, including move parsing and validation before replacing the current game.
 - [ ] Review the right-hand information panel for text that is too long and currently overlaps or extends into the chessboard. Shorten, wrap, clip or otherwise constrain those labels to the panel width.
-- [ ] Make opening-book use dependent on the selected Stockfish skill level: use the book only at or above a configurable minimum level. Decide the threshold before implementation.
