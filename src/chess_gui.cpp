@@ -241,6 +241,7 @@ uint32_t lastPanelRefresh = 0;
 static constexpr size_t SerialCommandCapacity = 2048;
 static char serialCommand[SerialCommandCapacity] = {};
 static size_t serialCommandLength = 0;
+static bool serialCommandOverflow = false;
 
 static void setStatus(const char *message) {
   snprintf(statusText, sizeof(statusText), "%s", message ? message : "");
@@ -2253,10 +2254,19 @@ static void exportPgn() {
 }
 
 static void executeSerialCommand() {
+  if (serialCommandOverflow) {
+    Serial.printf("[SERIAL] ERROR: command exceeded %u bytes; discarded\n",
+                  (unsigned)(SerialCommandCapacity - 1));
+    serialCommandLength = 0;
+    serialCommandOverflow = false;
+    return;
+  }
+
   serialCommand[serialCommandLength] = '\0';
   const std::string line(serialCommand, serialCommandLength);
   if (!line.empty())
-    Serial.printf("[SERIAL] RX: %s\n", line.c_str());
+    Serial.printf("[SERIAL] RX (%u bytes): %s\n",
+                  (unsigned)line.size(), line.c_str());
   std::istringstream input(line);
   std::string command;
   input >> command;
@@ -2416,9 +2426,14 @@ static void pollSerialCommands() {
     const int value = Serial.read();
     if (value == '\r') continue;
     if (value == '\n') { executeSerialCommand(); continue; }
+    if (serialCommandOverflow)
+      continue; // Discard the rest of an overlong line up to its newline.
     if (serialCommandLength + 1 < sizeof(serialCommand))
       serialCommand[serialCommandLength++] = char(value);
-    else { serialCommandLength = 0; Serial.println("[SERIAL] Command too long"); }
+    else {
+      serialCommandLength = 0;
+      serialCommandOverflow = true;
+    }
   }
 }
 
@@ -2545,7 +2560,17 @@ static void initializeEngine() {
 } // namespace
 
 void setup() {
+  // USB-CDC defaults to a 256-byte RX queue. Position commands can be longer;
+  // size the queue before begin() so a burst is not lost while the GUI loop
+  // is servicing touch or display work.
+  const size_t serialRxBuffer = Serial.setRxBufferSize(SerialCommandCapacity);
   Serial.begin(115200);
+  if (serialRxBuffer < SerialCommandCapacity)
+    Serial.printf("[SERIAL] WARNING: USB-CDC RX buffer is %u bytes (requested %u)\n",
+                  (unsigned)serialRxBuffer, (unsigned)SerialCommandCapacity);
+  else
+    Serial.printf("[SERIAL] USB-CDC RX buffer: %u bytes\n",
+                  (unsigned)serialRxBuffer);
   delay(1200);
   Serial.println();
   Serial.println("Stockfish ESP32-S3 touchscreen GUI");
