@@ -20,6 +20,7 @@
 #define ENGINE_H_INCLUDED
 
 #include <functional>
+#include <cstddef>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -83,8 +84,15 @@ class Engine {
     // blocking call to wait for search to finish
     void wait_for_search_finished();
     // set a new position, moves are in UCI format
+    using PositionMoveReader = bool (*)(const void* context, std::size_t index, char* out);
+
     std::optional<PositionSetError> set_position(const std::string&              fen,
                                                  const std::vector<std::string>& moves);
+    // Read UCI moves on demand to avoid materializing a vector of strings.
+    std::optional<PositionSetError> set_position(const std::string& fen,
+                                                 const void* moveContext,
+                                                 std::size_t moveCount,
+                                                 PositionMoveReader readMove);
 
     // modifiers
 
