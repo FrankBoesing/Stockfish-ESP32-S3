@@ -66,6 +66,7 @@ Connect the board to a computer and open a serial monitor at **115200 baud**. Th
 | Command | Description |
 |---|---|
 | `help` | Show available commands |
+| `print` | Print the current board in Stockfish ASCII format |
 | `moves` or `uci` | Print the current move sequence / UCI position |
 | `fen` | Print the current FEN |
 | `undo` | Undo the previous move |
@@ -80,7 +81,7 @@ Connect the board to a computer and open a serial monitor at **115200 baud**. Th
 | `position startpos [moves ...]` | Load a start position and optional moves |
 | `position fen <FEN> [moves ...]` | Load a FEN position and optional moves |
 
-A single move can also be entered directly in UCI notation, for example `e2e4` or `e7e8q` for a promotion. Short castling can be entered as `O-O`, `o-o` or `0-0`; it is converted to the normal UCI move for the side to move.
+A single move can also be entered directly in UCI notation, for example `e2e4` or `e7e8q` for a promotion. The current board is printed automatically after importing a position with `position`, `fen` or `pgn import`; use `print` to display it again. Short castling can be entered as `O-O`, `o-o` or `0-0`; it is converted to the normal UCI move for the side to move.
 
 To import a game, enter `pgn import` and paste the complete PGN (including optional tag pairs and SAN movetext). Import starts automatically when the movetext reaches a result marker (`1-0`, `0-1`, `1/2-1/2` or `*`). `ENDPGN` can be used as a manual finish for PGNs without a result marker; send `CANCELPGN` to abort. The importer validates every SAN move against Stockfish's legal-move list before replacing the current game. Comments, numeric annotations and parenthesized variations are ignored.
 
