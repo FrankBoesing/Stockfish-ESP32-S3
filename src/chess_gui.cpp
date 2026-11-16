@@ -24,6 +24,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include "stockfish/position.h"
 #include "stockfish/movegen.h"
 #include "stockfish/uci.h"
+#include "stockfish/score.h"
 #include "stockfish/esp_trace.h"
 #include "gui/pieces.h"
 #include "gui/game_history.h"
@@ -38,6 +39,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <esp_heap_caps.h>
@@ -99,6 +101,9 @@ constexpr uint16_t ColorButton     = rgb(51, 77, 128);
 constexpr uint16_t ColorDisabled   = rgb(48, 54, 68);
 constexpr uint16_t ColorSelected   = rgb(235, 220, 111);
 constexpr uint16_t ColorTargetDot  = rgb(40, 40, 40);
+constexpr uint16_t ColorEvalWhite    = rgb(230, 230, 235);
+constexpr uint16_t ColorEvalBlack    = rgb(34, 39, 52);
+constexpr uint16_t ColorEvalTextDark = rgb(43, 49, 64);
 constexpr uint16_t ColorLastMove   = rgb(224, 204, 91);
 constexpr uint16_t ColorHint       = rgb(69, 190, 184);
 constexpr uint16_t ColorCheck      = rgb(217, 65, 65);
@@ -180,10 +185,21 @@ char hintText[16] = "";
 ChessGuiRules::PromotionRequest pendingPromotion;
 bool legalDestinations[64] = {};
 
+enum class SearchScoreKind : uint8_t { None, Centipawns, Mate, Tablebase };
+
 struct SearchMailbox {
   int depth;
   uint32_t nps;
   uint64_t nodes;
+  char scoreSide;
+  SearchScoreKind scoreKind;
+  int scoreValue;
+  bool tablebaseWin;
+  bool scoreValid;
+  int wdlWin;
+  int wdlDraw;
+  int wdlLoss;
+  bool wdlValid;
   bool infoDirty;
   bool bestMoveReady;
   char bestMove[16];
@@ -191,6 +207,12 @@ struct SearchMailbox {
 
 SearchMailbox searchMailbox{};
 portMUX_TYPE searchMux = portMUX_INITIALIZER_UNLOCKED;
+
+static bool evalBarValid = false;
+static int evalBarWdlWin = 0;
+static int evalBarWdlDraw = 0;
+static int evalBarWdlLoss = 0;
+static char evalBarScoreSide = 'w';
 
 struct TouchCalibration {
   uint32_t magic;
@@ -646,6 +668,38 @@ static void drawBoard() {
     drawBoardSquare(square);
 }
 
+static int evaluationWhiteSharePermille() {
+  const int whiteWin = evalBarScoreSide == 'w' ? evalBarWdlWin : evalBarWdlLoss;
+  return constrain(whiteWin + evalBarWdlDraw / 2, 0, 1000);
+}
+
+static int evaluationWhiteHeight() {
+  return evalBarValid ? BoardSize * evaluationWhiteSharePermille() / 1000 : 0;
+}
+
+static void drawEvaluationBar() {
+  // The bar occupies the existing rank-label strip and is drawn first;
+  // coordinate labels are painted over it afterwards.
+  tft.fillRect(0, BoardY, BoardX, BoardSize, ColorBackground);
+  if (!evalBarValid)
+    return;
+
+  const int whiteHeight = evaluationWhiteHeight();
+  if (playerColor == 'w') {
+    const int whiteTop = BoardY + BoardSize - whiteHeight;
+    if (whiteTop > BoardY)
+      tft.fillRect(0, BoardY, BoardX, whiteTop - BoardY, ColorEvalBlack);
+    if (whiteHeight > 0)
+      tft.fillRect(0, whiteTop, BoardX, whiteHeight, ColorEvalWhite);
+  } else {
+    if (whiteHeight > 0)
+      tft.fillRect(0, BoardY, BoardX, whiteHeight, ColorEvalWhite);
+    const int blackTop = BoardY + whiteHeight;
+    if (blackTop < BoardY + BoardSize)
+      tft.fillRect(0, blackTop, BoardX, BoardY + BoardSize - blackTop, ColorEvalBlack);
+  }
+}
+
 static void drawBoardCoordinates() {
   static constexpr char Files[] = "abcdefgh";
   static constexpr char Ranks[] = "87654321";
@@ -659,12 +713,29 @@ static void drawBoardCoordinates() {
                      ColorMuted, &fonts::Font0);
   }
 
+  const int whiteHeight = evaluationWhiteHeight();
+  const int whiteBoundary = playerColor == 'w'
+                          ? BoardY + BoardSize - whiteHeight
+                          : BoardY + whiteHeight;
   for (int row = 0; row < 8; ++row) {
     const int rank = playerColor == 'w' ? 7 - row : row;
+    const int centerY = BoardY + row * SquareSize + SquareSize / 2;
+    uint16_t labelColor = ColorMuted;
+    if (evalBarValid) {
+      const bool whiteSegment = playerColor == 'w'
+                              ? centerY >= whiteBoundary
+                              : centerY < whiteBoundary;
+      labelColor = whiteSegment ? ColorEvalTextDark : ColorText;
+    }
     char label[2] = { Ranks[rank], '\0' };
     drawCenteredText(label, 0, BoardY + row * SquareSize, BoardX, SquareSize,
-                     ColorMuted, &fonts::Font0);
+                     labelColor, &fonts::Font0);
   }
+}
+
+static void refreshEvaluationBar() {
+  drawEvaluationBar();
+  drawBoardCoordinates();
 }
 
 static void drawPanelText(const char *text, int x, int y, int w, int h,
@@ -710,6 +781,31 @@ static void drawGamePanelInfo() {
              &fonts::FreeSansBold9pt7b, 2);
 
   drawGamePanelSearchStats();
+  refreshEvaluationBar();
+}
+
+static bool parseWdl(std::string_view text, int &win, int &draw, int &loss) {
+  size_t pos = 0;
+  auto parseValue = [&text, &pos](int &value) {
+    while (pos < text.size() && isspace((unsigned char)text[pos]))
+      ++pos;
+    if (pos >= text.size() || !isdigit((unsigned char)text[pos]))
+      return false;
+    value = 0;
+    while (pos < text.size() && isdigit((unsigned char)text[pos])) {
+      value = value * 10 + (text[pos] - '0');
+      if (value > 1000)
+        return false;
+      ++pos;
+    }
+    return true;
+  };
+
+  if (!parseValue(win) || !parseValue(draw) || !parseValue(loss))
+    return false;
+  while (pos < text.size() && isspace((unsigned char)text[pos]))
+    ++pos;
+  return pos == text.size() && win + draw + loss == 1000;
 }
 
 static void drawGamePanelSearchStats() {
@@ -1108,10 +1204,25 @@ static void startSearch(SearchMode mode) {
   searchMailbox.depth = 0;
   searchMailbox.nps = 0;
   searchMailbox.nodes = 0;
+  searchMailbox.scoreSide = sideToMove();
+  searchMailbox.scoreKind = SearchScoreKind::None;
+  searchMailbox.scoreValue = 0;
+  searchMailbox.tablebaseWin = false;
+  searchMailbox.scoreValid = false;
+  searchMailbox.wdlWin = 0;
+  searchMailbox.wdlDraw = 0;
+  searchMailbox.wdlLoss = 0;
+  searchMailbox.wdlValid = false;
   searchMailbox.infoDirty = true;
   searchMailbox.bestMoveReady = false;
   searchMailbox.bestMove[0] = '\0';
   portEXIT_CRITICAL(&searchMux);
+
+  // Clear the previous position's evaluation immediately. An opening-book
+  // move does not run Stockfish search and must not leave a stale bar behind.
+  evalBarValid = false;
+  if (screen == Screen::Game)
+    refreshEvaluationBar();
 
   if (mode == SearchMode::EngineMove && openingBook.ready()) {
     // Use Engine's live root position, not a FEN round-trip. Stockfish's FEN
@@ -1235,6 +1346,49 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
   }
 }
 
+static void logSearchEvaluation(const SearchMailbox &result) {
+  if (!result.scoreValid)
+    return;
+
+  const int whiteSign = result.scoreSide == 'w' ? 1 : -1;
+  char scoreText[40] = {};
+
+  switch (result.scoreKind) {
+    case SearchScoreKind::Centipawns: {
+      const int whiteCp = result.scoreValue * whiteSign;
+      snprintf(scoreText, sizeof(scoreText), "%+.2f", whiteCp / 100.0);
+      break;
+    }
+    case SearchScoreKind::Mate: {
+      const int whiteMatePlies = result.scoreValue * whiteSign;
+      const int mateMoves = whiteMatePlies > 0 ? (whiteMatePlies + 1) / 2
+                                               : whiteMatePlies / 2;
+      snprintf(scoreText, sizeof(scoreText), "mate %+#d", mateMoves);
+      break;
+    }
+    case SearchScoreKind::Tablebase: {
+      const bool whiteWins = result.scoreSide == 'w'
+                           ? result.tablebaseWin : !result.tablebaseWin;
+      snprintf(scoreText, sizeof(scoreText), "TB %s",
+               whiteWins ? "win for White" : "win for Black");
+      break;
+    }
+    default:
+      return;
+  }
+
+  Serial.printf("[SEARCH] depth=%d score=%s (White POV) nodes=%llu nps=%lu",
+                result.depth, scoreText,
+                (unsigned long long)result.nodes,
+                (unsigned long)result.nps);
+  if (result.wdlValid) {
+    const int whiteWin = result.scoreSide == 'w' ? result.wdlWin : result.wdlLoss;
+    const int blackWin = result.scoreSide == 'w' ? result.wdlLoss : result.wdlWin;
+    Serial.printf(" WDL(W/D/B)=%d/%d/%d", whiteWin, result.wdlDraw, blackWin);
+  }
+  Serial.println();
+}
+
 static void pollSearchMailbox() {
   bool infoDirty = false;
   bool bestMoveReady = false;
@@ -1253,12 +1407,25 @@ static void pollSearchMailbox() {
   portEXIT_CRITICAL(&searchMux);
 
   if (infoDirty && screen == Screen::Game) {
+    evalBarValid = searchMailbox.wdlValid;
+    evalBarWdlWin = searchMailbox.wdlWin;
+    evalBarWdlDraw = searchMailbox.wdlDraw;
+    evalBarWdlLoss = searchMailbox.wdlLoss;
+    evalBarScoreSide = searchMailbox.scoreSide;
     drawGamePanelSearchStats();
+    refreshEvaluationBar();
   }
 
   if (bestMoveReady) {
     engine->wait_for_search_finished();
     searchInFlight = false;
+
+    SearchMailbox finalResult{};
+    portENTER_CRITICAL(&searchMux);
+    finalResult = searchMailbox;
+    portEXIT_CRITICAL(&searchMux);
+    logSearchEvaluation(finalResult);
+
     handleSearchResult(bestMove);
   }
 }
@@ -2237,6 +2404,10 @@ static void initializeEngine() {
   static Stockfish::Engine stockfish;
   engine = &stockfish;
 
+  std::istringstream wdlOption("name UCI_ShowWDL value true");
+  engine->get_options().setoption(wdlOption);
+  Serial.println("[GUI] Stockfish WDL output enabled for advantage bar");
+
   engine->set_on_verify_network([](std::string_view message) {
     Serial.printf("[NNUE] %.*s\n", (int)message.size(), message.data());
   });
@@ -2257,10 +2428,39 @@ static void initializeEngine() {
   });
 
   engine->set_on_update_full([](const Stockfish::Engine::InfoFull &info) {
+    SearchScoreKind scoreKind = SearchScoreKind::None;
+    int scoreValue = 0;
+    bool tablebaseWin = false;
+
+    if (info.score.is<Stockfish::Score::InternalUnits>()) {
+      scoreKind = SearchScoreKind::Centipawns;
+      scoreValue = info.score.get<Stockfish::Score::InternalUnits>().value;
+    } else if (info.score.is<Stockfish::Score::Mate>()) {
+      scoreKind = SearchScoreKind::Mate;
+      scoreValue = info.score.get<Stockfish::Score::Mate>().plies;
+    } else if (info.score.is<Stockfish::Score::Tablebase>()) {
+      const Stockfish::Score::Tablebase tablebase =
+        info.score.get<Stockfish::Score::Tablebase>();
+      scoreKind = SearchScoreKind::Tablebase;
+      scoreValue = tablebase.plies;
+      tablebaseWin = tablebase.win;
+    }
+
+    int wdlWin = 0, wdlDraw = 0, wdlLoss = 0;
+    const bool wdlValid = parseWdl(info.wdl, wdlWin, wdlDraw, wdlLoss);
+
     portENTER_CRITICAL(&searchMux);
     searchMailbox.depth = info.depth;
     searchMailbox.nps = (uint32_t)info.nps;
     searchMailbox.nodes = (uint64_t)info.nodes;
+    searchMailbox.scoreKind = scoreKind;
+    searchMailbox.scoreValue = scoreValue;
+    searchMailbox.tablebaseWin = tablebaseWin;
+    searchMailbox.scoreValid = scoreKind != SearchScoreKind::None;
+    searchMailbox.wdlWin = wdlWin;
+    searchMailbox.wdlDraw = wdlDraw;
+    searchMailbox.wdlLoss = wdlLoss;
+    searchMailbox.wdlValid = wdlValid;
     searchMailbox.infoDirty = true;
     portEXIT_CRITICAL(&searchMux);
   });
