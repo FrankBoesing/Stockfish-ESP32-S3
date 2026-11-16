@@ -1029,7 +1029,7 @@ static bool saveOpeningBookSettingToNvs() {
     Serial.println("[SETTINGS] ERROR: opening-book setting was not saved to NVS");
     return false;
   }
-  Serial.printf("[SETTINGS] Saved opening book %s to NVS\\n",
+  Serial.printf("[SETTINGS] Saved opening book %s to NVS\n",
                 openingBookEnabled ? "ON" : "OFF");
   return true;
 }
@@ -1045,16 +1045,18 @@ static bool loadOpeningBookSettingFromNvs() {
   openingBookEnabled = found ? preferences.getBool("book", true) : true;
   preferences.end();
 
-  Serial.printf("[SETTINGS] %s opening book\\n",
-                found ? (openingBookEnabled ? "Restored ON for" : "Restored OFF for")
-                      : "No saved setting; default ON for");
+  if (found)
+    Serial.printf("[SETTINGS] Restored opening book %s from NVS\n",
+                  openingBookEnabled ? "ON" : "OFF");
+  else
+    Serial.println("[SETTINGS] No saved opening-book setting; default is ON");
   return found;
 }
 
 static void setOpeningBookEnabled(bool enabled) {
   openingBookEnabled = enabled;
   const bool saved = saveOpeningBookSettingToNvs();
-  Serial.printf("[BOOK] Opening book %s; %s\\n",
+  Serial.printf("[BOOK] Opening book %s; %s\n",
                 openingBookEnabled ? "ENABLED" : "DISABLED",
                 saved ? "setting applies to the next engine move"
                       : "NVS save failed; current runtime setting still applies");
@@ -2404,7 +2406,7 @@ static void executeSerialCommand() {
     std::string requestedState;
     std::string extra;
     if (!(input >> requestedState)) {
-      Serial.printf("[BOOK] Opening book is %s%s\\n",
+      Serial.printf("[BOOK] Opening book is %s%s\n",
                     openingBookEnabled ? "ON" : "OFF",
                     openingBookEnabled && !openingBook.ready()
                       ? " (image unavailable; Stockfish fallback)" : "");
