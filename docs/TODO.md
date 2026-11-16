@@ -30,7 +30,7 @@ This file contains future development work that is intentionally not part of the
 
 ## GUI and user interaction
 
-- [ ] Remove the serial-console `STOP` command from the user-facing command parser and help text. Keep the internal `stopSearch()` functionality where it is required to manage searches safely.
-- [ ] Add a serial-console `CALIBRATION` command to start touch calibration again on demand.
-- [ ] Implement PGN import so a game can be loaded from PGN notation, including move parsing and validation before replacing the current game.
-- [ ] Review the right-hand information panel for text that is too long and currently overlaps or extends into the chessboard. Shorten, wrap, clip or otherwise constrain those labels to the panel width.
+- [x] Remove the serial-console `STOP` command from the user-facing command parser and help text. Keep the internal `stopSearch()` functionality where it is required to manage searches safely.
+- [x] Add a serial-console `CALIBRATION` command to start touch calibration again on demand.
+- [x] Implement PGN import so a game can be loaded from PGN notation, including move parsing and validation before replacing the current game.
+- [x] Review the right-hand information panel for text that is too long and currently overlaps or extends into the chessboard. Clip text to the panel bounds.
