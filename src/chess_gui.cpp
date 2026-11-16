@@ -1199,12 +1199,13 @@ static void startSearch(SearchMode mode) {
     drawBoardSquare(previousHintTo);
   }
   searchMode = mode;
+  const char searchSide = sideToMove();
 
   portENTER_CRITICAL(&searchMux);
   searchMailbox.depth = 0;
   searchMailbox.nps = 0;
   searchMailbox.nodes = 0;
-  searchMailbox.scoreSide = sideToMove();
+  searchMailbox.scoreSide = searchSide;
   searchMailbox.scoreKind = SearchScoreKind::None;
   searchMailbox.scoreValue = 0;
   searchMailbox.tablebaseWin = false;
@@ -1363,7 +1364,7 @@ static void logSearchEvaluation(const SearchMailbox &result) {
       const int whiteMatePlies = result.scoreValue * whiteSign;
       const int mateMoves = whiteMatePlies > 0 ? (whiteMatePlies + 1) / 2
                                                : whiteMatePlies / 2;
-      snprintf(scoreText, sizeof(scoreText), "mate %+#d", mateMoves);
+      snprintf(scoreText, sizeof(scoreText), "mate %+d", mateMoves);
       break;
     }
     case SearchScoreKind::Tablebase: {
