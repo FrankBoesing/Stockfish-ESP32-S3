@@ -75,10 +75,11 @@ struct SavedGameHeader {
 static_assert(sizeof(SavedGameHeaderV1) == 16, "Unexpected v1 saved-game header layout");
 static_assert(sizeof(SavedGameHeader) == 20, "Unexpected v2 saved-game header layout");
 
-constexpr int BoardX = 4;
+constexpr int BoardX = 10;  // Reserve 10px for rank labels; board remains 208px wide.
 constexpr int BoardY = 16;  // Center the 208px board vertically on the 240px display.
 constexpr int SquareSize = 26;
 constexpr int BoardSize = SquareSize * 8;
+constexpr int PanelX = 218; // Keep the information panel at its existing screen position.
 static_assert(PIECE_ICON_SIZE == SquareSize, "Piece icon size must match a board square");
 static uint16_t pieceTile[SquareSize * SquareSize];
 
@@ -497,8 +498,7 @@ static int pieceIconIndex(char piece) {
     case 'b': return 2;
     case 'r': return 3;
     case 'q': return 4;
-    case 'k': return 5;
-    default: return -1;
+    case 'k': return 5;    default: return -1;
   }
 }
 
@@ -622,6 +622,27 @@ static void drawBoard() {
     drawBoardSquare(square);
 }
 
+static void drawBoardCoordinates() {
+  static constexpr char Files[] = "abcdefgh";
+  static constexpr char Ranks[] = "87654321";
+
+  // Font0 is deliberately small and unobtrusive. Labels occupy the existing
+  // 16px top margin and the 10px strip to the left of the board.
+  for (int col = 0; col < 8; ++col) {
+    const int file = playerColor == 'w' ? col : 7 - col;
+    char label[2] = { Files[file], '\0' };
+    drawCenteredText(label, BoardX + col * SquareSize, 0, SquareSize, BoardY,
+                     ColorMuted, &fonts::Font0);
+  }
+
+  for (int row = 0; row < 8; ++row) {
+    const int rank = playerColor == 'w' ? 7 - row : row;
+    char label[2] = { Ranks[rank], '\0' };
+    drawCenteredText(label, 0, BoardY + row * SquareSize, BoardX, SquareSize,
+                     ColorMuted, &fonts::Font0);
+  }
+}
+
 static void drawPanelText(const char *text, int x, int y, int w, int h,
                            uint16_t color, const lgfx::IFont *font) {
   tft.fillRect(x, y, w, h, ColorPanel);
@@ -631,7 +652,7 @@ static void drawPanelText(const char *text, int x, int y, int w, int h,
 static void drawGamePanelSearchStats();
 
 static void drawGamePanelInfo() {
-  const int x = BoardX + BoardSize + 6;
+  const int x = PanelX;
   const int w = 320 - x - 4;
 
   // Clear the complete changing information area, including font overhang.
@@ -668,7 +689,7 @@ static void drawGamePanelInfo() {
 }
 
 static void drawGamePanelSearchStats() {
-  const int x = BoardX + BoardSize + 6;
+  const int x = PanelX;
   const int w = 320 - x - 4;
 
   // Clear both changing search rows together; FreeSans glyphs have vertical
@@ -695,7 +716,7 @@ static void drawGamePanelSearchStats() {
 }
 
 static void drawGamePanel() {
-  const int x = BoardX + BoardSize + 6;
+  const int x = PanelX;
   const int w = 320 - x - 4;
   tft.fillRect(x, BoardY, w, 224, ColorPanel);
 
@@ -712,6 +733,7 @@ static void renderGame() {
   screen = Screen::Game;
   tft.fillScreen(ColorBackground);
   drawBoard();
+  drawBoardCoordinates();
   drawGamePanel();
 }
 
@@ -997,8 +1019,7 @@ static bool loadSavedGameFromNvs(bool hasSavedSkillSetting) {
     if (error.has_value()) {
       Serial.printf("[GAME] Saved position rejected: %s\n", error->what());
       valid = false;
-    }
-  }
+    }  }
 
   if (!valid) {
     gameHistory.clear();
@@ -1425,7 +1446,7 @@ static void handleBoardTouch(int x, int y) {
   if (searchInFlight)
     return;
 
-  const int panelX = BoardX + BoardSize + 6;
+  const int panelX = PanelX;
 
   if (x >= panelX && y >= 147 && y < 173) {
     if (sideToMove() == playerColor)
@@ -1497,8 +1518,7 @@ static void handleMenuTouch(int x, int y) {
   if (y >= 87 && y < 129) {
     if (x >= 28 && x < 156) {
       playerColor = 'w';
-      renderMenu();
-    } else if (x >= 164 && x < 292) {
+      renderMenu();    } else if (x >= 164 && x < 292) {
       playerColor = 'b';
       renderMenu();
     }
@@ -1997,8 +2017,7 @@ static void executeSerialCommand() {
   } else if (command == "undo") {
     if (!hasGame) {
       Serial.println("[SERIAL] ERROR: no active game");
-    } else {
-      const size_t previousPlies = gameHistory.size();
+    } else {      const size_t previousPlies = gameHistory.size();
       undoMove();
       const size_t removedPlies = previousPlies - gameHistory.size();
       if (removedPlies)
