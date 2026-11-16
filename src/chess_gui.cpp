@@ -895,9 +895,8 @@ static void drawGamePanel() {
 
   drawCenteredText("Stockfish", x, 25, w, 18,
                    ColorText, &fonts::FreeSansBold9pt7b);
-  char levelText[28];
-  snprintf(levelText, sizeof(levelText), "L%d  Book %s", skillLevel,
-           openingBookEnabled ? "ON" : "OFF");
+  char levelText[8];
+  snprintf(levelText, sizeof(levelText), "L%d", skillLevel);
   drawCenteredText(levelText, x, 44, w, 14,
                    ColorOrange, &fonts::FreeSansBold9pt7b);
   drawGamePanelInfo();
