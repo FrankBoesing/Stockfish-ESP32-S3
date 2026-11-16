@@ -84,7 +84,7 @@ The opening-book preference is saved separately in NVS and restored at boot;
 installations without a saved value default to BOOK ON. PGN export includes the appropriate move
 numbering, check/checkmate suffixes, result and a SetUp/FEN pair for custom
 starting positions. Type moves (or uci) to print the current UCI position
-command and FEN. Positions can also be loaded through the serial monitor:
+command and FEN. Long POSITION and FEN commands are streamed token by token, and UCI moves are stored directly in the compact 16-bit game history rather than in a full command-line string. Positions can also be loaded through the serial monitor:
 ```text
 position startpos moves e2e4 e7e5
 position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
