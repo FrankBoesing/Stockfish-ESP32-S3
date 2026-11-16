@@ -2090,6 +2090,204 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
   return true;
 }
 
+static bool serialPositionTokenEquals(const char *expected) {
+  const size_t expectedLength = strlen(expected);
+  if (serialPositionTokenLength != expectedLength)
+    return false;
+  for (size_t i = 0; i < expectedLength; ++i) {
+    if (tolower((unsigned char)serialPositionToken[i])
+        != tolower((unsigned char)expected[i]))
+      return false;
+  }
+  return true;
+}
+
+static void failSerialPosition(const char *message, const char *token = nullptr) {
+  if (!serialPositionFailed) {
+    if (token)
+      Serial.printf("[SERIAL] ERROR: %s: '%s'\n", message, token);
+    else
+      Serial.printf("[SERIAL] ERROR: %s\n", message);
+  }
+  serialPositionFailed = true;
+}
+
+static void consumeSerialPositionToken() {
+  if (serialPositionFailed || !serialPositionTokenLength)
+    return;
+
+  serialPositionToken[serialPositionTokenLength] = '\0';
+
+  switch (serialPositionState) {
+    case SerialPositionState::ExpectFormat:
+      if (serialPositionTokenEquals("startpos")) {
+        serialPositionFenLength = sizeof(StartFen) - 1;
+        memcpy(serialPositionFen, StartFen, serialPositionFenLength + 1);
+        serialPositionState = SerialPositionState::ExpectMoves;
+      } else if (serialPositionTokenEquals("fen")) {
+        serialPositionState = SerialPositionState::FenFields;
+      } else {
+        failSerialPosition("expected 'startpos' or 'fen'", serialPositionToken);
+      }
+      break;
+
+    case SerialPositionState::FenFields: {
+      const size_t separatorLength = serialPositionFenFieldCount ? 1 : 0;
+      const size_t required = serialPositionFenLength + separatorLength
+                            + serialPositionTokenLength;
+      if (required > SavedGameMaxFenBytes) {
+        failSerialPosition("FEN exceeds the saved-game limit");
+        break;
+      }
+      if (separatorLength)
+        serialPositionFen[serialPositionFenLength++] = ' ';
+      memcpy(serialPositionFen + serialPositionFenLength,
+             serialPositionToken, serialPositionTokenLength);
+      serialPositionFenLength += serialPositionTokenLength;
+      serialPositionFen[serialPositionFenLength] = '\0';
+      if (++serialPositionFenFieldCount == 6)
+        serialPositionState = SerialPositionState::ExpectMoves;
+      break;
+    }
+
+    case SerialPositionState::ExpectMoves:
+      if (serialPositionTokenEquals("moves")) {
+        serialPositionState = SerialPositionState::Moves;
+      } else {
+        failSerialPosition("expected 'moves' after the position", serialPositionToken);
+      }
+      break;
+
+    case SerialPositionState::Moves:
+      if (!serialPositionHistory.appendUci(
+            std::string_view(serialPositionToken, serialPositionTokenLength)))
+        failSerialPosition("invalid UCI move or move-history limit reached",
+                           serialPositionToken);
+      break;
+
+    default:
+      failSerialPosition("invalid position parser state");
+      break;
+  }
+
+  serialPositionTokenLength = 0;
+}
+
+static void feedSerialPositionByte(char value) {
+  if (serialPositionFailed)
+    return;
+
+  if (isspace((unsigned char)value)) {
+    consumeSerialPositionToken();
+    return;
+  }
+
+  if (serialPositionTokenLength + 1 >= sizeof(serialPositionToken)) {
+    failSerialPosition("position token is too long");
+    return;
+  }
+
+  serialPositionToken[serialPositionTokenLength++] = value;
+}
+
+static void releaseSerialPositionHistory() {
+  GameHistory empty;
+  serialPositionHistory.swap(empty);
+}
+
+static void resetSerialPositionStream() {
+  serialPositionActive = false;
+  serialPositionFailed = false;
+  serialPositionState = SerialPositionState::Idle;
+  serialPositionTokenLength = 0;
+  serialPositionFenLength = 0;
+  serialPositionFenFieldCount = 0;
+  serialPositionFen[0] = '\0';
+  serialPositionHistory.clear();
+  releaseSerialPositionHistory();
+  serialCommandLength = 0;
+  serialCommandOverflow = false;
+}
+
+static void finishSerialPositionStream() {
+  if (!serialPositionFailed)
+    consumeSerialPositionToken();
+
+  if (!serialPositionFailed) {
+    if (serialPositionState == SerialPositionState::ExpectFormat)
+      failSerialPosition("usage: position startpos [moves ...] OR position fen <6 FEN fields> [moves ...]");
+    else if (serialPositionState == SerialPositionState::FenFields)
+      failSerialPosition("FEN requires all six fields");
+    else if (serialPositionState != SerialPositionState::ExpectMoves
+             && serialPositionState != SerialPositionState::Moves)
+      failSerialPosition("incomplete position command");
+  }
+
+  if (!serialPositionFailed) {
+    serialPositionFen[serialPositionFenLength] = '\0';
+    Serial.printf("[SERIAL] POSITION received; %u plies; loading\n",
+                  (unsigned)serialPositionHistory.size());
+    const std::string baseFen(serialPositionFen, serialPositionFenLength);
+    applySerialPosition(baseFen, serialPositionHistory);
+  }
+
+  resetSerialPositionStream();
+}
+
+static void beginSerialPositionStream(bool shorthandFen) {
+  serialPositionActive = true;
+  serialPositionFailed = false;
+  serialPositionState = shorthandFen ? SerialPositionState::FenFields
+                                     : SerialPositionState::ExpectFormat;
+  serialPositionTokenLength = 0;
+  serialPositionFenLength = 0;
+  serialPositionFenFieldCount = 0;
+  serialPositionFen[0] = '\0';
+  serialPositionHistory.clear();
+  serialCommandLength = 0;
+  serialCommandOverflow = false;
+  Serial.printf("[SERIAL] RX: %s (streaming)\n",
+                shorthandFen ? "fen" : "position");
+}
+
+static bool tryBeginSerialPositionStream() {
+  size_t first = 0;
+  while (first < serialCommandLength
+         && isspace((unsigned char)serialCommand[first]))
+    ++first;
+  if (first == serialCommandLength)
+    return false;
+
+  size_t end = first;
+  while (end < serialCommandLength
+         && !isspace((unsigned char)serialCommand[end]))
+    ++end;
+  if (end != serialCommandLength)
+    return false;
+
+  const size_t length = end - first;
+  const auto tokenIs = [&](const char *expected) {
+    const size_t expectedLength = strlen(expected);
+    if (length != expectedLength)
+      return false;
+    for (size_t i = 0; i < length; ++i)
+      if (tolower((unsigned char)serialCommand[first + i])
+          != tolower((unsigned char)expected[i]))
+        return false;
+    return true;
+  };
+
+  if (tokenIs("position")) {
+    beginSerialPositionStream(false);
+    return true;
+  }
+  if (tokenIs("fen")) {
+    beginSerialPositionStream(true);
+    return true;
+  }
+  return false;
+}
+
 static bool processPositionCommand(const std::string &line, bool shortFenCommand) {
   std::istringstream input(line);
   std::string keyword;
@@ -3095,6 +3293,23 @@ static void pollSerialCommands() {
   while (Serial.available() > 0) {
     const int value = Serial.read();
     if (value == '\r') continue;
+
+    if (serialPositionActive) {
+      if (value == '\n')
+        finishSerialPositionStream();
+      else
+        feedSerialPositionByte(char(value));
+      continue;
+    }
+
+    if (!pgnImportActive && !serialCommandOverflow
+        && (value == ' ' || value == '\t' || value == '\n')
+        && tryBeginSerialPositionStream()) {
+      if (value == '\n')
+        finishSerialPositionStream();
+      continue;
+    }
+
     if (value == '\n') { executeSerialCommand(); continue; }
     if (serialCommandOverflow)
       continue; // Discard the rest of an overlong line up to its newline.
