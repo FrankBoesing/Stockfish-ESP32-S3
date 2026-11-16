@@ -154,12 +154,21 @@ when preserving the book is required.
 
 ## Current implementation status
 
-The initial raw `lichess_2100_rapid_2026-05.bin` was programmed before the
-reader's image header was introduced. That raw image is **not** accepted by
-the current reader. Repackage it with step 2 and flash the resulting
-`.sfbook` image with step 3 before the on-device reader test.
+The selected `lichess_2100_rapid_2026-05.sfbook` image has been flashed
+to the dedicated partition on the FNK0104B. The user confirmed that the
+opening book operates on the board and supplies book moves. The firmware
+validates the SFBK header, image length, CRC32 and sorted Polyglot keys before
+mapping the payload.
 
-Native tests now cover Polyglot hashing, move decoding (including castling,
-en-passant and promotion), binary search and weighted legal-move selection.
-The actual mmap, startup CRC validation and GUI fallback still require the
-hardware test on the FNK0104B.
+Opening-book use can be switched in the New Game menu or over the serial
+console:
+
+| Serial command | Action |
+|---|---|
+| `BOOK` | Show the current setting |
+| `BOOK ON` | Enable book lookup for engine moves |
+| `BOOK OFF` | Bypass book lookup and use Stockfish |
+
+The setting is stored separately in the `sf-gui` NVS namespace and restored
+at startup. A missing setting defaults to ON for compatibility with earlier
+firmware. A book miss also falls back to Stockfish; HINT always uses Stockfish.
