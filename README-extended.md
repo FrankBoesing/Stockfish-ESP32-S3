@@ -74,8 +74,10 @@ as e7e8q can be entered directly. Additional commands are UNDO (takeback),
 HINT (Stockfish suggestion), CALIBRATION (restart touchscreen calibration),
 LEVEL [1..20] (set the next game's strength), BOOK [ON|OFF] (show or change
 opening-book use), PGN (export) and PGN IMPORT (load a PGN game), and
-NEWGAME [Level] [WHITE|BLACK]. During PGN import, paste the PGN and finish
-with ENDPGN; CANCELPGN aborts the import.
+NEWGAME [Level] [WHITE|BLACK]. During PGN import, paste the complete PGN;
+the importer automatically starts when it reaches a result marker (1-0, 0-1,
+1/2-1/2 or *). ENDPGN remains available as a manual finish for PGNs without a
+result marker; CANCELPGN aborts the import.
 The opening-book preference is saved separately in NVS and restored at boot;
 installations without a saved value default to BOOK ON. PGN export includes the appropriate move
 numbering, check/checkmate suffixes, result and a SetUp/FEN pair for custom
