@@ -186,7 +186,7 @@ jobs:
           
           Example:
           esptool --chip esp32s3 --port COM12 --baud 460800 write-flash 0x10000 .\\stockfish_A_Os.bin
-EOF
+          EOF
 
       - name: Upload A/B/C optimization firmware
         uses: actions/upload-artifact@v7
