@@ -88,7 +88,8 @@ class Engine {
 
     std::optional<PositionSetError> set_position(const std::string&              fen,
                                                  const std::vector<std::string>& moves);
-    // Read UCI moves on demand to avoid materializing a vector of strings.
+    // The reader writes one null-terminated UCI move (maximum 5 chars) into a six-byte buffer.
+    // This avoids materializing a vector of per-move std::string objects.
     std::optional<PositionSetError> set_position(const std::string& fen,
                                                  const void* moveContext,
                                                  std::size_t moveCount,
