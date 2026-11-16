@@ -16,9 +16,13 @@ This file contains future development work that is intentionally not part of the
   - Check the exact ESP-IDF 5.5.5 API and its support status first. The low-level ROM/HAL preload interfaces may be internal or explicitly unsuitable for direct application use.
   - Confirm valid address ranges, cache-line/block alignment, maximum preload size, completion/wait semantics, and effects of the shared DCache and the other core.
   - Prototype only a narrowly bounded region with predictable near-future use; compare against ordinary cached access and the existing cache behaviour. Do not add unconditional or broad preloading without repeatable gains.
-- [ ] Audit the ESP32-S3 Xtensa LX7 compiler output for Stockfish's 64-bit bitboard and indexing primitives (`__builtin_popcountll`, `__builtin_ctzll`, `__builtin_clzll`, `mul_hi64()` and `Magic::index()`).
-  - Inspect the actual PlatformIO Xtensa GCC assembly/disassembly for use of native `NSA/NSAU`, `MULUH/MULSH` and `MAC16` instructions before writing inline assembly or replacing compiler builtins.
-  - Benchmark any candidate replacement in isolation and in complete search runs; retain the generic implementation as a reference/fallback.
+- [x] Inspect the ESP32-S3 Xtensa GCC code generation for Stockfish's 64-bit bitboard and indexing primitives (PlatformIO Xtensa GCC 14.2.0, `-O2`).
+  - `mul_hi64()` uses native `MULUH/MULL`; `Magic::index()` uses two `MULL` operations, XOR and shift.
+  - `lsb()` and `msb()` use native `NSAU` instructions.
+  - `popcountll()` resolves to the ROM helper `__popcountdi2` from the Magic-table initialization path; `__ctzdi2` calls in `position.cpp` are in `Position::set()` (position/FEN setup), not the normal move-generation path.
+  - The current `-DNO_PREFETCH` build emits no compiler-prefetch instruction. A simple scalar int16 dot-product did not auto-lower to `MAC16`.
+  - See [the measured code-generation notes](PORTING_ANALYSIS.md#11-tatsächliche-xtensa-codegenerierung-auf-dem-esp32-s3--2026-11-16).
+- [ ] Benchmark a custom bit-count or scan implementation only if a profiling result identifies a runtime hotspot; retain the generic/compiler implementation as the reference and verify exact parity.
 - [ ] Use the existing NNUE layer-cycle profiler to rank `fc_0`, `fc_1`, `fc_2` and activation costs on the ESP32-S3. The accumulator PIE kernel is already implemented and parity-validated; investigate a separate PIE/DSP implementation for the remaining affine layers only if profiling justifies it.
   - Check `fc_1` and `fc_2` first: their post-activation inputs are the most promising candidates for signed 8-bit dot products, subject to a measured range proof.
   - Treat `fc_0` separately: the feature-transformer output can reach 255 while weights are signed, so neither signed×signed nor unsigned×unsigned multiply-accumulate is a drop-in replacement. Any mixed-sign correction/repacking must be proven exact.

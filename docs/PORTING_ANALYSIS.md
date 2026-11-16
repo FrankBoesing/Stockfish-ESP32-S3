@@ -253,3 +253,22 @@ CI-Lauf 43436602815 für Commit 3eb89e2d535e85015b19f40924ec704991766cc5 ist erf
 Die wiederholten CORE_DEBUG_LEVEL-Re-definition-Warnungen sind nicht fatal; Compile, Link und Image-Erzeugung endeten mit SUCCESS. Der CI-Lauf führt die Firmware nicht aus. Die eigentliche Heap-Belegung nach Engine-Konstruktion muss daher auf dem Freenove-Board gemessen werden.
 
 Noch nicht verifiziert sind: Engine-Konstruktion auf echter Hardware, tatsächliche Heap-Reserven nach Engine-Start, sichere Thread-Stackgröße bei Suchläufen, valides Smallnet-NNUE-File/Hash, UCI-Ein-/Ausgabe, Suchkorrektheit und Spielstärke-Auswirkung der kompakten Historien.
+
+
+## 11. Tatsächliche Xtensa-Codegenerierung auf dem ESP32-S3 — 2026-11-16
+
+Die ESP32-S3-Codegenerierung wurde mit der PlatformIO-Toolchain des Firmware-Builds geprüft (Xtensa GCC 14.2.0, `-O2`, ESP-IDF 5.5.5). Dazu wurden separate, nicht aufgerufene Probe-Funktionen mit denselben Engine-Build-Flags kompiliert und das Objekt disassembliert. Zusätzlich wurden `position.cpp.o`, Relocations und die Symboltabelle des gelinkten ELF untersucht.
+
+Befunde aus dem tatsächlich erzeugten Maschinencode:
+
+- `mul_hi64()`: GCC verwendet zwei `MULUH`, ein `MULL`, Additionen und eine Carry-Behandlung. Die vorhandene 32-Bit-Implementierung wird bereits passend auf Xtensa abgebildet. Keine eigene Assemblerfassung ohne gegenteiligen Benchmark.
+- `Magic::index()`: zwei `MULL`, XOR und variabler Shift. Ebenfalls kompakt und ohne erkennbaren Grund für eine handgeschriebene Variante.
+- `lsb()` und `msb()`: Die Probe verwendet `NSAU` für die 32-Bit-Hälften. Die entsprechenden Builtins werden damit bereits auf die native Xtensa-Instruktion umgesetzt.
+- `popcountll()`: Die Probe enthält einen Aufruf von `__popcountdi2`. Die Linker-Map führt die Referenz auf `attacks.cpp.o` zurück. Im ELF ist das Symbol als absoluter Eintrag bei `0x400024CC` aufgelöst; der Funktionskörper liegt somit nicht als normaler Codeabschnitt im Firmware-ELF. Die betreffende Stockfish-Nutzung liegt beim Aufbau der Magic-Angriffstabellen und ist kein Beleg für einen Such-Hotpath.
+- `__ctzdi2`: Relocations in `position.cpp.o` zeigen drei Aufrufstellen innerhalb von `Stockfish::Position::set()`, also beim Setzen/Einlesen einer Stellung (unter anderem FEN-/En-passant-Verarbeitung). Der ELF-Symbolwert ist absolut (`0x4000222C`), nicht Teil eines normalen Firmware-Codeabschnitts. Die untersuchte Translation Unit zeigt keinen solchen Aufruf in `Position::set_check_info()`. Daher ist dies nach dem aktuellen Befund kein normaler Move-Generation-Hotpath.
+- `prefetch()`: Mit dem unveränderten `-DNO_PREFETCH` besteht die Probe-Funktion nur aus Prolog und Return. Es wird keine Prefetch-Instruktion erzeugt.
+- Ein einfacher C++-Dot-Product über vier `int16_t)-Elemente erzeugte `MUL16S` und Additionen, aber keine `MAC16)-Instruktion. Das zeigt nur, dass GCC diese konkrete skalare Schleife nicht automatisch in MAC16 umsetzt; eine gezielte PIE-/MAC16-Implementierung kann separat untersucht werden.
+
+**Konsequenz:** `mul_hi64()`, `Magic::index()`, `lsb()` und `msb()` sollten vorerst unverändert bleiben. Ein eigener Popcount-Pfad ist wegen der ermittelten Verwendung beim Magic-Tabellenaufbau nicht prioritär. Der nächste relevante Assembler-/Intrinsic-Schwerpunkt bleibt die profilbasierte NNUE-Arbeit, insbesondere `fc_1` und `fc_2`. `-DNO_PREFETCH` bleibt aktiv.
+
+**Grenze dieser Prüfung:** Die Probe belegt die Compiler-Codegenerierung, nicht die Laufzeitkosten oder NPS-Auswirkung. Die ROM-Helfer selbst wurden nicht aus dem Firmware-ELF disassembliert, weil ihre Symbole auf absolute ROM-Adressen zeigen. Für eine Optimierungsentscheidung sind weiterhin Mikrobenchmarks und vollständige Suchmessungen erforderlich. Die temporären Probe-Quellen und CI-Schritte wurden nach der Untersuchung wieder entfernt.

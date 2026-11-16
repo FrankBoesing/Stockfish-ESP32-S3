@@ -116,40 +116,6 @@ jobs:
           done
 
 
-      - name: Disassemble focused Xtensa code-generation probes
-        shell: bash
-        run: |
-          set -euo pipefail
-          object=".pio/build/freenove_stockfish_compile/src/xtensa_codegen_probe.cpp.o"
-          test -f "$object" || {
-            echo "Code-generation probe object missing: $object"
-            find .pio/build/freenove_stockfish_compile -name '*codegen*' -o -name '*probe*.o' | sort
-            exit 1
-          }
-          objdump="$(find "$HOME/.platformio/packages" -type f -name 'xtensa-esp32s3-elf-objdump' -print -quit)"
-          test -n "$objdump" && test -x "$objdump" || {
-            echo "Could not locate xtensa-esp32s3-elf-objdump."
-            find "$HOME/.platformio/packages" -type f -name '*objdump' | head -n 30
-            exit 1
-          }
-          "$objdump" -d -C "$object" > s3-codegen.txt
-          echo "===== Xtensa S3 focused code-generation disassembly ====="
-          cat s3-codegen.txt
-
-          position_object=".pio/build/freenove_stockfish_compile/src/stockfish/position.cpp.o"
-          elf=".pio/build/freenove_stockfish_compile/firmware.elf"
-          test -f "$position_object" && test -f "$elf" || {
-            echo "Missing linked ELF or Stockfish position object."
-            exit 1
-          }
-          "$objdump" -dr -C "$position_object" > position-codegen.txt
-          "$objdump" -d -C --disassemble=__popcountdi2 "$elf" > s3-libgcc-helpers.txt
-          "$objdump" -d -C --disassemble=__ctzdi2 "$elf" >> s3-libgcc-helpers.txt
-          echo "===== Stockfish position.cpp object (including relocations) ====="
-          grep -n -B 5 -A 8 -E '__ctzdi2|callx|pop_lsb|lsb' position-codegen.txt | head -n 240
-          echo "===== Linked libgcc helper implementations ====="
-          cat s3-libgcc-helpers.txt
-
       - name: Upload default PIE, profiler and validation artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -164,11 +130,5 @@ jobs:
             .pio/build/freenove_stockfish_nnubench/firmware.map
             .pio/build/freenove_stockfish_pievalidate/firmware.bin
             .pio/build/freenove_stockfish_pievalidate/firmware.map
-            .pio/build/freenove_stockfish_compile/src/xtensa_codegen_probe.cpp.o
-            .pio/build/freenove_stockfish_compile/src/stockfish/position.cpp.o
-            .pio/build/freenove_stockfish_compile/firmware.elf
-            s3-codegen.txt
-            position-codegen.txt
-            s3-libgcc-helpers.txt
           if-no-files-found: warn
           retention-days: 7
