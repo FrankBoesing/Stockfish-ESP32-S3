@@ -108,7 +108,7 @@ The book image is prepared and flashed separately. See [Flashing an opening book
 
 ## Project status
 
-The touchscreen application and Stockfish engine are running on the target board. This remains an experimental project rather than a general-purpose, production-ready chess product. The exact board configuration and the opening-book flash procedure are the main hardware constraints.
+The touchscreen application, Stockfish engine and optional Polyglot opening book are running on the target board. This remains an experimental project rather than a general-purpose, production-ready chess product. The firmware is tailored to the FNK0104B; the opening-book image is flashed separately from the application.
 
 For implementation details, benchmark results, build environments, NNUE/PIE validation and development history, see the [extended technical README](README-extended.md).
 
