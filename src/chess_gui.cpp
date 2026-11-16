@@ -158,6 +158,7 @@ public:
 BoardDisplay tft;
 Stockfish::Engine *engine = nullptr;
 PolyglotBook::FlashPolyglotBook openingBook;
+bool openingBookEnabled = true;
 
 enum class Screen : uint8_t { Calibration, Menu, Game, Promotion };
 enum class SearchMode : uint8_t { None, EngineMove, Hint, Evaluation };
@@ -856,8 +857,9 @@ static void drawGamePanel() {
 
   drawCenteredText("Stockfish", x, 25, w, 18,
                    ColorText, &fonts::FreeSansBold9pt7b);
-  char levelText[20];
-  snprintf(levelText, sizeof(levelText), "Level %d", skillLevel);
+  char levelText[28];
+  snprintf(levelText, sizeof(levelText), "L%d  Book %s", skillLevel,
+           openingBookEnabled ? "ON" : "OFF");
   drawCenteredText(levelText, x, 44, w, 14,
                    ColorOrange, &fonts::FreeSansBold9pt7b);
   drawGamePanelInfo();
@@ -905,18 +907,23 @@ static void renderMenu() {
                    ColorOrange, &fonts::FreeSansBold12pt7b);
   drawTextAt("Play as", 31, 59, ColorMuted, &fonts::FreeSans9pt7b);
 
-  drawButton(28, 87, 128, 42, "White", playerColor == 'w');
-  drawButton(164, 87, 128, 42, "Black", playerColor == 'b');
+  drawButton(28, 87, 128, 36, "White", playerColor == 'w');
+  drawButton(164, 87, 128, 36, "Black", playerColor == 'b');
 
-  drawTextAt("Stockfish level", 31, 142,
+  char bookText[32];
+  snprintf(bookText, sizeof(bookText), "Opening book: %s",
+           openingBookEnabled ? "ON" : "OFF");
+  drawButton(28, 127, 264, 27, bookText, openingBookEnabled);
+
+  drawTextAt("Stockfish level", 31, 157,
              ColorMuted, &fonts::FreeSans9pt7b);
 
-  drawButton(30, 164, 50, 38, "-");
+  drawButton(30, 175, 50, 29, "-");
   char levelText[12];
   snprintf(levelText, sizeof(levelText), "%d", selectedSkillLevel);
-  drawCenteredText(levelText, 94, 164, 132, 38,
+  drawCenteredText(levelText, 94, 175, 132, 29,
                    ColorText, &fonts::FreeSansBold12pt7b);
-  drawButton(240, 164, 50, 38, "+");
+  drawButton(240, 175, 50, 29, "+");
 
   drawButton(28, 207, 128, 30, "Start");
   drawButton(164, 207, 128, 30, "Cancel");
@@ -1008,6 +1015,53 @@ static bool loadSkillSettingFromNvs() {
   selectedSkillLevel = storedSkill;
   Serial.printf("[SETTINGS] Restored next-game skill level %d from NVS\n", selectedSkillLevel);
   return true;
+}
+
+static bool saveOpeningBookSettingToNvs() {
+  Preferences preferences;
+  if (!preferences.begin("sf-gui", false)) {
+    Serial.println("[SETTINGS] ERROR: could not open NVS namespace sf-gui");
+    return false;
+  }
+  const size_t written = preferences.putBool("book", openingBookEnabled);
+  preferences.end();
+  if (written != sizeof(uint8_t)) {
+    Serial.println("[SETTINGS] ERROR: opening-book setting was not saved to NVS");
+    return false;
+  }
+  Serial.printf("[SETTINGS] Saved opening book %s to NVS\\n",
+                openingBookEnabled ? "ON" : "OFF");
+  return true;
+}
+
+static bool loadOpeningBookSettingFromNvs() {
+  Preferences preferences;
+  if (!preferences.begin("sf-gui", true)) {
+    Serial.println("[SETTINGS] NVS namespace unavailable; using default opening-book setting ON");
+    openingBookEnabled = true;
+    return false;
+  }
+  const bool found = preferences.isKey("book");
+  openingBookEnabled = found ? preferences.getBool("book", true) : true;
+  preferences.end();
+
+  Serial.printf("[SETTINGS] %s opening book\\n",
+                found ? (openingBookEnabled ? "Restored ON for" : "Restored OFF for")
+                      : "No saved setting; default ON for");
+  return found;
+}
+
+static void setOpeningBookEnabled(bool enabled) {
+  openingBookEnabled = enabled;
+  const bool saved = saveOpeningBookSettingToNvs();
+  Serial.printf("[BOOK] Opening book %s; %s\\n",
+                openingBookEnabled ? "ENABLED" : "DISABLED",
+                saved ? "setting applies to the next engine move"
+                      : "NVS save failed; current runtime setting still applies");
+  if (screen == Screen::Menu)
+    renderMenu();
+  else if (screen == Screen::Game)
+    drawGamePanel();
 }
 
 static bool saveGameToNvs() {
@@ -1239,7 +1293,10 @@ static void startSearch(SearchMode mode) {
   if (screen == Screen::Game)
     refreshEvaluationBar();
 
-  if (mode == SearchMode::EngineMove && openingBook.ready()) {
+  if (mode == SearchMode::EngineMove && !openingBookEnabled)
+    Serial.println("[BOOK] Disabled; using Stockfish search");
+
+  if (mode == SearchMode::EngineMove && openingBookEnabled && openingBook.ready()) {
     // Use Engine's live root position, not a FEN round-trip. Stockfish's FEN
     // omits en-passant squares that are pseudo-legal but pinned; Polyglot
     // deliberately hashes those files. This also avoids rebuilding a Position.
@@ -1762,17 +1819,24 @@ static void handleBoardTouch(int x, int y) {
 }
 
 static void handleMenuTouch(int x, int y) {
-  if (y >= 87 && y < 129) {
+  if (y >= 87 && y < 123) {
     if (x >= 28 && x < 156) {
       playerColor = 'w';
-      renderMenu();    } else if (x >= 164 && x < 292) {
+      renderMenu();
+    } else if (x >= 164 && x < 292) {
       playerColor = 'b';
       renderMenu();
     }
     return;
   }
 
-  if (y >= 164 && y < 202) {
+  if (y >= 127 && y < 154) {
+    if (x >= 28 && x < 292)
+      setOpeningBookEnabled(!openingBookEnabled);
+    return;
+  }
+
+  if (y >= 175 && y < 204) {
     if (x >= 30 && x < 80 && selectedSkillLevel > 1) {
       --selectedSkillLevel;
       saveSkillSettingToNvs();
@@ -2336,6 +2400,23 @@ static void executeSerialCommand() {
           Serial.printf("[SETTINGS] Next game will use Level %d\n", selectedSkillLevel);
       }
     }
+  } else if (command == "book") {
+    std::string requestedState;
+    std::string extra;
+    if (!(input >> requestedState)) {
+      Serial.printf("[BOOK] Opening book is %s%s\\n",
+                    openingBookEnabled ? "ON" : "OFF",
+                    openingBookEnabled && !openingBook.ready()
+                      ? " (image unavailable; Stockfish fallback)" : "");
+    } else {
+      std::transform(requestedState.begin(), requestedState.end(), requestedState.begin(),
+                     [](unsigned char ch) { return char(tolower(ch)); });
+      if ((requestedState != "on" && requestedState != "off") || (input >> extra)) {
+        Serial.println("[SERIAL] Usage: BOOK [ON|OFF]");
+      } else {
+        setOpeningBookEnabled(requestedState == "on");
+      }
+    }
   } else if (command == "pgn" || command == "exportpgn") {
     exportPgn();
   } else if (command == "position") {
@@ -2408,6 +2489,7 @@ static void executeSerialCommand() {
     Serial.println("  HINT  ask Stockfish for a move suggestion");
     Serial.println("  STOP  stop the current search");
     Serial.println("  LEVEL [1..20]  show/set skill for the next game");
+    Serial.println("  BOOK [ON|OFF]  show or set opening-book usage");
     Serial.println("  PGN  export the current game in PGN/SAN format");
     Serial.println("  NEWGAME [1..20] [WHITE|BLACK]  start a new game");
     Serial.println("  NEWGAME BLACK  start as Black (or use WHITE)");
@@ -2582,6 +2664,7 @@ void setup() {
   initializeDisplayAndTouch();
   renderLoading();
   initializeEngine();
+  loadOpeningBookSettingFromNvs();
   initializeOpeningBook();
 
   loadTouchCalibration();
