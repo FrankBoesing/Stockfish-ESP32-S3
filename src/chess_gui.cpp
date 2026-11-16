@@ -2481,6 +2481,7 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
   int variationDepth = 0;
   bool inBraceComment = false;
   bool inLineComment = false;
+  bool movetextStarted = false;
 
   for (size_t i = 0; i < pgn.size(); ++i) {
     const char ch = pgn[i];
@@ -2506,7 +2507,10 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
     if (variationDepth > 0)
       continue;
 
-    if (ch == '[') {
+    // PGN tag pairs are only valid before the movetext section. A
+    // serial-monitor capture may append UCI/FEN diagnostics after the game
+    // result; do not mistake a later "[FEN] ..." log line for a PGN tag.
+    if (ch == '[' && !movetextStarted) {
       size_t end = i + 1;
       bool quoted = false;
       bool escaped = false;
@@ -2534,6 +2538,8 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
       i = end;
       continue;
     }
+    if (!isspace((unsigned char)ch))
+      movetextStarted = true;
     moveText.push_back(ch);
   }
 
