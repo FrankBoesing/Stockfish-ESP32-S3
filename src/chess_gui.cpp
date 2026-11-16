@@ -209,10 +209,9 @@ SearchMailbox searchMailbox{};
 portMUX_TYPE searchMux = portMUX_INITIALIZER_UNLOCKED;
 
 static bool evalBarValid = false;
-static int evalBarWdlWin = 0;
-static int evalBarWdlDraw = 0;
-static int evalBarWdlLoss = 0;
-static char evalBarScoreSide = 'w';
+static SearchScoreKind evalBarScoreKind = SearchScoreKind::None;
+static int evalBarWhiteCp = 0;
+static bool evalBarWhiteWins = false;
 
 struct TouchCalibration {
   uint32_t magic;
@@ -669,8 +668,21 @@ static void drawBoard() {
 }
 
 static int evaluationWhiteSharePermille() {
-  const int whiteWin = evalBarScoreSide == 'w' ? evalBarWdlWin : evalBarWdlLoss;
-  return constrain(whiteWin + evalBarWdlDraw / 2, 0, 1000);
+  if (!evalBarValid)
+    return 0;
+
+  if (evalBarScoreKind == SearchScoreKind::Centipawns) {
+    // Match Lichess' published winning-chance model:
+    // Win% = 100 / (1 + exp(-0.00368208 * centipawns)).
+    // Stockfish's Score::InternalUnits already contains centipawns.
+    const double exponent = -0.00368208 * (double)evalBarWhiteCp;
+    const double whiteWinPercent = 100.0 / (1.0 + exp(exponent));
+    return constrain((int)lround(whiteWinPercent * 10.0), 0, 1000);
+  }
+
+  // Mate and decisive tablebase scores are represented as a certain win
+  // for the side indicated by the score, so the bar reaches the matching end.
+  return evalBarWhiteWins ? 1000 : 0;
 }
 
 static int evaluationWhiteHeight() {
@@ -1252,8 +1264,15 @@ static void startSearch(SearchMode mode) {
   }
 
   Stockfish::Search::LimitsType limits;
-  limits.movetime = mode == SearchMode::Hint ? 1400
-                  : mode == SearchMode::Evaluation ? 1000 : 2400;
+  // Each search owns a fresh clock. The 1s display-refresh search happens
+  // only on the human's turn; it is completed before a later engine move.
+  // A regular engine move always receives its unchanged 2400ms budget.
+  constexpr Stockfish::TimePoint EngineMoveTimeMs = 2400;
+  constexpr Stockfish::TimePoint HintTimeMs = 1400;
+  constexpr Stockfish::TimePoint EvaluationTimeMs = 1000;
+  limits.movetime = mode == SearchMode::Hint ? HintTimeMs
+                  : mode == SearchMode::Evaluation ? EvaluationTimeMs
+                                                   : EngineMoveTimeMs;
   limits.startTime = Stockfish::now();
 
   searchInFlight = true;
@@ -1431,11 +1450,19 @@ static void pollSearchMailbox() {
   portEXIT_CRITICAL(&searchMux);
 
   if (infoDirty && screen == Screen::Game) {
-    evalBarValid = infoSnapshot.wdlValid;
-    evalBarWdlWin = infoSnapshot.wdlWin;
-    evalBarWdlDraw = infoSnapshot.wdlDraw;
-    evalBarWdlLoss = infoSnapshot.wdlLoss;
-    evalBarScoreSide = infoSnapshot.scoreSide;
+    evalBarValid = infoSnapshot.scoreValid;
+    evalBarScoreKind = infoSnapshot.scoreKind;
+    evalBarWhiteCp = 0;
+    evalBarWhiteWins = false;
+    const int whiteSign = infoSnapshot.scoreSide == 'w' ? 1 : -1;
+    if (infoSnapshot.scoreKind == SearchScoreKind::Centipawns) {
+      evalBarWhiteCp = infoSnapshot.scoreValue * whiteSign;
+    } else if (infoSnapshot.scoreKind == SearchScoreKind::Mate) {
+      evalBarWhiteWins = infoSnapshot.scoreValue * whiteSign > 0;
+    } else if (infoSnapshot.scoreKind == SearchScoreKind::Tablebase) {
+      evalBarWhiteWins = infoSnapshot.scoreSide == 'w'
+                       ? infoSnapshot.tablebaseWin : !infoSnapshot.tablebaseWin;
+    }
     drawGamePanelSearchStats();
     refreshEvaluationBar();
   }
@@ -1876,12 +1903,17 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
 
   if (moveActor && uciMove)
     logAcceptedMove(moveActor, movingSide, uciMove);
-  if (moveActor)
-    Serial.printf("[SERIAL] Move accepted; %u plies, side to move %c\n",
-                  (unsigned)gameHistory.size(), sideToMove());
-  else
-    Serial.printf("[SERIAL] Loaded position; %u moves, side to move %c\n",
-                  (unsigned)gameHistory.size(), sideToMove());
+  if (moveActor) {
+    Serial.printf("[SERIAL] Move accepted; %u plies, %s to move\n",
+                  (unsigned)gameHistory.size(),
+                  sideToMove() == 'w' ? "White" : "Black");
+  } else {
+    Serial.printf("[SERIAL] POSITION ACCEPTED: %s; %u plies; %s to move\n",
+                  baseFen == StartFen ? "startpos" : "FEN",
+                  (unsigned)gameHistory.size(),
+                  sideToMove() == 'w' ? "White" : "Black");
+  }
+  Serial.printf("[FEN] %s\n", currentFen.c_str());
   if (touchCalibrated)
     showCurrentGame();
   else
