@@ -3026,7 +3026,7 @@ static void executeSerialCommand() {
     Serial.println("  position fen <6 FEN fields> [moves e2e4 ...]");
     Serial.println("  fen <6 FEN fields>  (shorthand)");
     Serial.println("  moves (or uci)  print current position as a UCI command");
-    Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move to the current game");
+    Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move; O-O / 0-0 = short castle");
     Serial.println("  UNDO  undo the last move pair (or the only move)");
     Serial.println("  HINT  ask Stockfish for a move suggestion");
     Serial.println("  CALIBRATION  start touch calibration");
@@ -3038,6 +3038,10 @@ static void executeSerialCommand() {
     Serial.println("  NEWGAME BLACK  start as Black (or use WHITE)");
     Serial.println("FEN piece-letter case is preserved. Invalid positions leave the current game unchanged.");
   } else if (!command.empty()) {
+    // Accept short castling notation as an alias for the standard UCI king move.
+    if (command == "o-o" || command == "0-0")
+      command = sideToMove() == 'w' ? "e1g1" : "e8g8";
+
     const bool uciShape = (command.size() == 4 || command.size() == 5)
       && command[0] >= 'a' && command[0] <= 'h'
       && command[1] >= '1' && command[1] <= '8'
