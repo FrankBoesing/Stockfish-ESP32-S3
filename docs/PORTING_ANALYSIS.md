@@ -113,6 +113,28 @@ Wichtige Feststellungen:
 
 Für den ersten Build ist die skalare NNUE-Variante ohne x86-, ARM- oder RISC-V-SIMD-Defines vorgesehen. Prefetch sollte zunächst deaktiviert werden, bis die Xtensa-Codegenerierung geprüft ist.
 
+### Umsetzungsstand auf `main` — 2026-11-16
+
+Die Empfehlung ist im aktuellen PlatformIO-Build umgesetzt:
+
+- `[env:freenove_stockfish_compile]` definiert `-DNO_PREFETCH`.
+- `freenove_stockfish_gui`, `freenove_stockfish_nnubench` und
+  `freenove_stockfish_pievalidate` übernehmen diese Build-Flags.
+- In `src/stockfish/misc.h` ersetzt `NO_PREFETCH` die Stockfish-Funktion
+  `prefetch()` durch eine leere Funktion. Der `__builtin_prefetch()`-
+  Implementierungspfad wird dadurch nicht kompiliert.
+- Die betreffenden Stockfish-Hinweise zielen auf Suchdaten wie TT-Einträge,
+  Continuation-History sowie Pawn-/Correction-History. Das ist nicht das
+  ESP-IDF-Flash-Cache-Subsystem und auch keine Cache-Invalidierung oder
+  Cache-Synchronisation für DMA/PSRAM.
+- Für die spätere Optimierung ist zuerst die Xtensa-Assemblerausgabe bei
+  aktiviertem Prefetch zu prüfen. Erst danach sollte ein kontrollierter
+  A/B-Benchmark mit und ohne Prefetch auf dem FNK0104B erfolgen.
+
+Der aktuelle Stand und der geplante spätere Prüfpunkt sind außerdem in
+[README-extended.md](../README-extended.md) und
+[docs/TODO.md](TODO.md) vermerkt.
+
 ## 5. Speicheraufteilung und Allokation
 
 ### Transposition-Table
