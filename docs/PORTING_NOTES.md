@@ -17,37 +17,29 @@ Freenove's documentation identifies:
 - Native panel resolution: 240 x 320 (landscape operation can rotate the panel)
 - Capacitive touch: touch variant FNK0104B
 
-## Hardware configuration caveat
+## Confirmed hardware configuration
 
-Do not confuse the FNK0104B display board with the generic PlatformIO board
-`freenove_esp32_s3_wroom`, which is documented as an N8R8 board (8 MB flash /
-8 MB PSRAM). Other FNK0104B hardware references identify an N16R8 configuration
-(16 MB flash / 8 MB PSRAM). The exact module marking and actual flash/PSRAM
-configuration must be read from the user's physical unit before finalizing the
-PlatformIO board manifest and flash settings.
+The physical FNK0104B unit has 16 MiB flash and 8 MiB OPI PSRAM. The GUI uses
+the ILI9341 at 320 × 240 in landscape orientation with the FT6336U touch
+controller. The active PlatformIO configuration targets the Freenove board
+and uses QIO flash mode plus the project-specific 16 MiB partition table.
+The old generic DevKit/temporary-profile warning was superseded by the
+validated board configuration and no longer applies.
 
-The current PlatformIO environment therefore uses a generic ESP32-S3 DevKit
-profile strictly as a temporary compile baseline. It is not a validated
-FNK0104B configuration.
+## Scope of these notes
 
-## Initial investigation checklist
+This file records initial porting principles and target-specific constraints
+established during bring-up. It is not an active task checklist. Completed
+hardware, engine and GUI validation milestones are recorded in
+[README-extended.md](../README-extended.md) and the dated
+[development log](STATUS-2026-11-14.md).
 
-- [ ] Read the module marking and determine exact flash/PSRAM configuration.
-- [ ] Confirm physical flash size and mode using `esptool flash_id` and a runtime flash-size probe; current PlatformIO settings assume 16 MiB.
-- [x] Confirm PSRAM capacity with runtime heap diagnostics: 8 MiB OPI PSRAM is present.
-- [ ] Record the exact Stockfish upstream commit and network filenames.
-- [ ] Inspect Stockfish's current C++ language requirements and compiler assumptions.
-- [ ] Inspect SIMD use in NNUE and determine whether a scalar fallback is available.
-- [ ] Inspect thread implementation and available ESP-IDF/FreeRTOS primitives.
-- [ ] Inspect memory allocation and alignment requirements.
-- [ ] Determine whether the embedded NNUE network fits in flash and how it is accessed.
-- [ ] Build a minimal serial UCI target before display integration.
+## PlatformIO configuration
 
-## PlatformIO caution
-
-The target board definition must match the actual module, not just the display
-product name. Avoid forcing QIO/OPI, octal PSRAM, partition layout, or flash size
-until these have been verified.
+The checked-in target configuration is specific to the confirmed FNK0104B
+hardware. Changes to QIO flash mode, OPI PSRAM settings or the 16 MiB partition
+layout must be validated against the physical board and the existing NVS/book
+partition requirements.
 
 ## Baseline validation
 
