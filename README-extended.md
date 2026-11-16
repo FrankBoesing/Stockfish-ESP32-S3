@@ -26,6 +26,14 @@ The Stockfish 19 Smallnet engine, ESP32-S3 PIE accumulator path, touchscreen app
 
 Stockfish 19 Smallnet P_hm is running on the Freenove ESP32-S3 display board. The regular `freenove_stockfish_compile` build enables the ESP32-S3 PIE accumulator kernel, guarded by a network-load-time int16 range proof and automatic scalar fallback. The current network passed an on-device scalar-vs-PIE comparison across 82,976 updates (84,967,424 accumulator lanes) with no mismatches or out-of-range intermediate values. The latest documented QIO hardware run measured 1,552 NPS in the start position, 1,600 NPS in Kiwipete and 2,075 NPS in the 5-second search; these are results from one run, not a statistically controlled benchmark. The GUI, game persistence, serial controls and native rule/Polyglot regression tests are implemented. The user has confirmed opening-book operation on the physical FNK0104B, including the new persistent ON/OFF setting through both input paths. See [the development log](docs/STATUS-2026-11-14.md) for measurements and constraints.
 
+Stockfish's explicit memory-prefetch hints are currently disabled in the
+ESP32-S3 PlatformIO builds with `-DNO_PREFETCH`. This makes Stockfish's
+`prefetch()` helper a no-op, so the compiler does not emit its
+`__builtin_prefetch()` path. These hints target search data such as
+transposition-table and history entries; this does **not** disable the ESP32
+hardware caches or ESP-IDF cache maintenance. See
+[the porting analysis](docs/PORTING_ANALYSIS.md) before changing this setting.
+
 ## Touchscreen GUI prototype
 
 The interactive GUI is built separately from the diagnostic engine probe:
