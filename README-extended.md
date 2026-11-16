@@ -70,7 +70,9 @@ is restored independently of the next-game menu selection.
 The serial monitor logs each received command as [SERIAL] RX and each accepted
 move in UCI notation as [MOVE], distinguishing the player from Stockfish and
 showing the moving colour. A single UCI move such as e2e4 or a promotion such
-as e7e8q can be entered directly. Additional commands are UNDO (takeback),
+as e7e8q can be entered directly. Short castling is also accepted as O-O, o-o
+or 0-0 and is converted to the corresponding UCI king move. Additional commands
+are UNDO (takeback),
 HINT (Stockfish suggestion), CALIBRATION (restart touchscreen calibration),
 LEVEL [1..20] (set the next game's strength), BOOK [ON|OFF] (show or change
 opening-book use), PGN (export) and PGN IMPORT (load a PGN game), and
