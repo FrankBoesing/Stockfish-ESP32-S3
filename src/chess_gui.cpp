@@ -103,6 +103,8 @@ constexpr uint16_t ColorSelected   = rgb(235, 220, 111);
 constexpr uint16_t ColorTargetDot  = rgb(40, 40, 40);
 constexpr uint16_t ColorEvalWhite    = rgb(230, 230, 235);
 constexpr uint16_t ColorEvalBlack    = rgb(34, 39, 52);
+constexpr uint16_t ColorEvalDividerWhite = rgb(194, 194, 199);
+constexpr uint16_t ColorEvalDividerBlack = rgb(45, 50, 63);
 constexpr uint16_t ColorEvalTextDark = rgb(43, 49, 64);
 constexpr uint16_t ColorLastMove   = rgb(224, 204, 91);
 constexpr uint16_t ColorHint       = rgb(69, 190, 184);
@@ -764,6 +766,21 @@ static void drawEvaluationBar() {
     const int blackTop = BoardY + whiteHeight;
     if (blackTop < BoardY + BoardSize)
       tft.fillRect(0, blackTop, BoardX, BoardY + BoardSize - blackTop, ColorEvalBlack);
+  }
+
+  // Subtle rank separators, like the Lichess evaluation bar. Keep the
+  // separators low-contrast and choose their shade for the segment below.
+  const int whiteBoundary = playerColor == 'w'
+                          ? BoardY + BoardSize - whiteHeight
+                          : BoardY + whiteHeight;
+  for (int rank = 1; rank < 8; ++rank) {
+    const int y = BoardY + rank * SquareSize;
+    const bool whiteSegment = playerColor == 'w'
+                            ? y >= whiteBoundary
+                            : y < whiteBoundary;
+    const uint16_t divider = whiteSegment ? ColorEvalDividerWhite
+                                          : ColorEvalDividerBlack;
+    tft.fillRect(0, y, BoardX, 1, divider);
   }
 }
 
