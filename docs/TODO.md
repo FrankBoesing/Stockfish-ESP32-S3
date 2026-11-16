@@ -18,7 +18,8 @@ This list tracks features and verification work that remain outstanding for the 
 - [x] **GUI: Legal move indicators** — mark empty legal destinations with a small center dot and capture destinations with corner markers instead of recoloring the entire square. Keep the separate Stockfish `HINT` source/destination highlights.
 - [x] **GUI: Evaluation advantage bar** — map the White-perspective centipawn score to winning chances with the published Lichess logistic model, rather than Stockfish's WDL model, so a score around +4.4 does not saturate the bar. Keep WDL in the Serial diagnostics. Clear the bar for opening-book moves. Run a separate 1,000 ms evaluation-only search after restoring a saved game, starting a game as White, and undoing to a human-to-move position; this search has its own fresh time limit and does not reduce the 2,400 ms allotted to a later regular Stockfish move.
 - [x] **Serial: Confirm loaded positions** — explicitly acknowledge successful position commands, including accepted ply count, side to move and resulting FEN. Increase the USB-CDC RX queue to 2,048 bytes before `Serial.begin()`, report received line length, and discard overlong lines cleanly rather than executing a truncated suffix.
-- [ ] Verify Lichess-style evaluation-bar values, orientation, label readability and serial confirmation on the FNK0104B.
+- [x] Verify Lichess-style evaluation-bar values and long serial position-command reception on the FNK0104B (89-ply position accepted; evaluation and bar visually match Lichess, 2026-11-16).
+- [ ] Verify coordinate-label readability and bar orientation in both White-at-bottom and Black-at-bottom layouts.
 
 - [ ] **Opening book — hardware validation remains**
   - [x] Select the initial licensed book: `lichess_2100_rapid_2026-05.bin` (CC0 release, 1,601,616 bytes).
