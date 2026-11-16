@@ -16,8 +16,9 @@ This list tracks features and verification work that remain outstanding for the 
 
 - [x] **GUI: Add chessboard coordinates** — files `a–h` above the board and ranks `8–1` along its left edge, centered on each square in a subtle small font. Both sequences follow the board orientation when Black is at the bottom. The board remains 208 × 208 px; piece icons and the right-hand information panel are unchanged.
 - [x] **GUI: Legal move indicators** — mark empty legal destinations with a small center dot and capture destinations with corner markers instead of recoloring the entire square. Keep the separate Stockfish `HINT` source/destination highlights.
-- [x] **GUI: Evaluation advantage bar** — show Stockfish WDL-based White/Black advantage in the existing left coordinate strip, behind the rank labels and aligned with board orientation. Clear the bar for opening-book moves. Log the final search score (White perspective), WDL, depth, nodes and NPS to Serial. Run an evaluation-only search after restoring a saved game, starting a game as White, and undoing to a human-to-move position; ignore its best move so it cannot alter the game.
-- [ ] Verify advantage-bar orientation, label readability and serial score output on the FNK0104B.
+- [x] **GUI: Evaluation advantage bar** — map the White-perspective centipawn score to winning chances with the published Lichess logistic model, rather than Stockfish's WDL model, so a score around +4.4 does not saturate the bar. Keep WDL in the Serial diagnostics. Clear the bar for opening-book moves. Run a separate 1,000 ms evaluation-only search after restoring a saved game, starting a game as White, and undoing to a human-to-move position; this search has its own fresh time limit and does not reduce the 2,400 ms allotted to a later regular Stockfish move.
+- [x] **Serial: Confirm loaded positions** — explicitly acknowledge successful position commands, including accepted ply count, side to move and resulting FEN.
+- [ ] Verify Lichess-style evaluation-bar values, orientation, label readability and serial confirmation on the FNK0104B.
 
 - [ ] **Opening book — hardware validation remains**
   - [x] Select the initial licensed book: `lichess_2100_rapid_2026-05.bin` (CC0 release, 1,601,616 bytes).
