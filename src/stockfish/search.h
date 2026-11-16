@@ -396,7 +396,13 @@ class Worker {
     RelaxedAtomic<u64> nodes, tbHits, bestMoveChanges;
     int                selDepth, nmpMinPly;
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // This ESP32 target currently supports one search worker (MaxThreads = 1).
+    // Keep this tiny, frequently accessed value outside the PSRAM Worker.
+    static Value optimism[COLOR_NB];
+#else
     Value optimism[COLOR_NB];
+#endif
 
     Position  rootPos;
     StateInfo rootState;
@@ -410,7 +416,12 @@ class Worker {
     NumaReplicatedAccessToken numaAccessToken;
 
     // Reductions lookup table initialized at startup
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // Shared with the single ESP32 search worker and placed in internal DRAM.
+    static std::array<int, MAX_MOVES> reductions;
+#else
     std::array<int, MAX_MOVES> reductions;  // [depth or moveNumber]
+#endif
 
     // The main thread has a SearchManager, the others have a NullSearchManager
     std::unique_ptr<ISearchManager> manager;
