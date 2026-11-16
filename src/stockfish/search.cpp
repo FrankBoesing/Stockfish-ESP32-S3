@@ -36,6 +36,7 @@
 #include <utility>
 
 #if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    #include <esp_attr.h>
     #include <freertos/FreeRTOS.h>
     #include <freertos/task.h>
 #endif
@@ -72,6 +73,13 @@ void syzygy_extend_pv(const OptionsMap&            options,
                       const usize                  multiPV);
 
 using namespace Search;
+
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+// The ESP32-S3 build has MaxThreads = 1. Place the two small, hot search
+// values in internal DRAM instead of inside the PSRAM-allocated Worker.
+DRAM_ATTR Value Search::Worker::optimism[COLOR_NB] = {};
+DRAM_ATTR std::array<int, MAX_MOVES> Search::Worker::reductions{};
+#endif
 
 namespace {
 
