@@ -2715,6 +2715,97 @@ static bool importPgn(const std::string &pgn) {
   return true;
 }
 
+static bool pgnHasResultMarker(const std::string &pgn) {
+  bool inTag = false;
+  bool tagQuoted = false;
+  bool tagEscaped = false;
+  bool inBraceComment = false;
+  bool inLineComment = false;
+  bool movetextStarted = false;
+  unsigned variationDepth = 0;
+  std::string token;
+
+  const auto isResultToken = [](const std::string &value) {
+    return value == "1-0" || value == "0-1"
+        || value == "1/2-1/2" || value == "*";
+  };
+  const auto finishToken = [&]() {
+    const bool found = isResultToken(token);
+    token.clear();
+    return found;
+  };
+
+  for (const char ch : pgn) {
+    if (inTag) {
+      if (tagEscaped) {
+        tagEscaped = false;
+        continue;
+      }
+      if (tagQuoted && ch == '\\') {
+        tagEscaped = true;
+        continue;
+      }
+      if (ch == '"') {
+        tagQuoted = !tagQuoted;
+        continue;
+      }
+      if (!tagQuoted && ch == ']')
+        inTag = false;
+      continue;
+    }
+    if (inBraceComment) {
+      if (ch == '}')
+        inBraceComment = false;
+      continue;
+    }
+    if (inLineComment) {
+      if (ch == '\n' || ch == '\r')
+        inLineComment = false;
+      continue;
+    }
+
+    if (ch == '{') {
+      if (finishToken()) return true;
+      inBraceComment = true;
+      continue;
+    }
+    if (ch == ';') {
+      if (finishToken()) return true;
+      inLineComment = true;
+      continue;
+    }
+    if (ch == '[' && !movetextStarted && variationDepth == 0) {
+      if (finishToken()) return true;
+      inTag = true;
+      tagQuoted = false;
+      tagEscaped = false;
+      continue;
+    }
+    if (ch == '(') {
+      if (finishToken()) return true;
+      ++variationDepth;
+      continue;
+    }
+    if (ch == ')') {
+      if (variationDepth > 0)
+        --variationDepth;
+      continue;
+    }
+    if (variationDepth > 0)
+      continue;
+
+    if (isspace((unsigned char)ch)) {
+      if (finishToken()) return true;
+      continue;
+    }
+
+    movetextStarted = true;
+    token.push_back(ch);
+  }
+
+  return finishToken();
+}
+
 static void executeSerialCommand() {
   if (serialCommandOverflow) {
     if (pgnImportActive) {
@@ -2758,6 +2849,13 @@ static void executeSerialCommand() {
     } else {
       pgnImportBuffer += line;
       pgnImportBuffer.push_back('\n');
+      if (pgnHasResultMarker(pgnImportBuffer)) {
+        pgnImportActive = false;
+        Serial.printf("[PGN] Result marker received; validating %u bytes...\n",
+                      unsigned(pgnImportBuffer.size()));
+        importPgn(pgnImportBuffer);
+        pgnImportBuffer.clear();
+      }
     }
     serialCommandLength = 0;
     return;
@@ -2861,8 +2959,8 @@ static void executeSerialCommand() {
       if (action == "import" && !(input >> extra)) {
         pgnImportBuffer.clear();
         pgnImportActive = true;
-        Serial.println("[PGN] Import mode active. Paste the PGN, then send ENDPGN.");
-        Serial.println("[PGN] Send CANCELPGN to abort.");
+        Serial.println("[PGN] Import mode active. Paste the PGN; import starts at its result marker.");
+        Serial.println("[PGN] ENDPGN also finishes manually; CANCELPGN aborts.");
       } else if (action == "export" && !(input >> extra)) {
         exportPgn();
       } else {
@@ -2941,7 +3039,7 @@ static void executeSerialCommand() {
     Serial.println("  LEVEL [1..20]  show/set skill for the next game");
     Serial.println("  BOOK [ON|OFF]  show or set opening-book usage");
     Serial.println("  PGN [EXPORT|IMPORT]  export or import a PGN game");
-    Serial.println("      PGN IMPORT: paste PGN lines, finish with ENDPGN");
+    Serial.println("      PGN IMPORT: auto-finishes at result; ENDPGN is optional");
     Serial.println("  NEWGAME [1..20] [WHITE|BLACK]  start a new game");
     Serial.println("  NEWGAME BLACK  start as Black (or use WHITE)");
     Serial.println("FEN piece-letter case is preserved. Invalid positions leave the current game unchanged.");
