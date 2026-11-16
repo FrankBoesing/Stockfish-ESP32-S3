@@ -71,9 +71,11 @@ The serial monitor logs each received command as [SERIAL] RX and each accepted
 move in UCI notation as [MOVE], distinguishing the player from Stockfish and
 showing the moving colour. A single UCI move such as e2e4 or a promotion such
 as e7e8q can be entered directly. Additional commands are UNDO (takeback),
-HINT (Stockfish suggestion), STOP (cancel the current search), LEVEL [1..20]
-(set the next game's strength), BOOK [ON|OFF] (show or change opening-book use),
-PGN (export the current game in SAN/PGN form), and NEWGAME [Level] [WHITE|BLACK].
+HINT (Stockfish suggestion), CALIBRATION (restart touchscreen calibration),
+LEVEL [1..20] (set the next game's strength), BOOK [ON|OFF] (show or change
+opening-book use), PGN (export) and PGN IMPORT (load a PGN game), and
+NEWGAME [Level] [WHITE|BLACK]. During PGN import, paste the PGN and finish
+with ENDPGN; CANCELPGN aborts the import.
 The opening-book preference is saved separately in NVS and restored at boot;
 installations without a saved value default to BOOK ON. PGN export includes the appropriate move
 numbering, check/checkmate suffixes, result and a SetUp/FEN pair for custom
@@ -90,7 +92,7 @@ The UCI form accepts an optional `moves` sequence after either starting
 position. The original FEN and move list are persisted, so a custom test
 position also survives a reset. FEN piece-letter case is preserved. Invalid
 FENs or move sequences are rejected without replacing the current game.
-PGN export is implemented for serial output, including SAN movetext, move numbering, check/checkmate suffixes, game result and SetUp/FEN tags for custom starting positions.
+PGN export and import are implemented for serial use. Import resolves SAN against Stockfish's legal moves, supports custom starting positions through FEN/SetUp tags, and ignores comments, NAGs and parenthesized variations. The current game is replaced only after the complete move sequence validates.
 
 Search callbacks only publish compact status/best-move data; drawing and
 position updates remain in the Arduino loop task. The GUI deliberately avoids
