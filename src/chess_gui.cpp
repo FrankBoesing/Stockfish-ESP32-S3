@@ -251,6 +251,17 @@ static bool serialCommandOverflow = false;
 static bool pgnImportActive = false;
 static std::string pgnImportBuffer;
 
+enum class SerialPositionState : uint8_t { Idle, ExpectFormat, FenFields, ExpectMoves, Moves };
+static bool serialPositionActive = false;
+static bool serialPositionFailed = false;
+static SerialPositionState serialPositionState = SerialPositionState::Idle;
+static char serialPositionToken[96] = {};
+static size_t serialPositionTokenLength = 0;
+static char serialPositionFen[SavedGameMaxFenBytes + 1] = {};
+static size_t serialPositionFenLength = 0;
+static uint8_t serialPositionFenFieldCount = 0;
+static GameHistory serialPositionHistory;
+
 static void setStatus(const char *message) {
   snprintf(statusText, sizeof(statusText), "%s", message ? message : "");
 }
@@ -492,11 +503,17 @@ static void updateLastMove() {
   lastTo = squareFromUci(move + 2);
 }
 
+static bool readGameHistoryMove(const void *context, size_t index, char *out) {
+  if (!context || !out)
+    return false;
+  return static_cast<const GameHistory *>(context)->formatMoveAt(index, out);
+}
+
 static bool syncEnginePosition() {
   if (!engine)
     return false;
-  const std::vector<std::string> moves = gameHistory.toUciMoves();
-  const auto error = engine->set_position(gameBaseFen, moves);
+  const auto error = engine->set_position(gameBaseFen, &gameHistory,
+                                          gameHistory.size(), readGameHistoryMove);
   if (error.has_value()) {
     Serial.printf("[GUI] Position rejected: %s\n", error->what());
     return false;
@@ -1241,8 +1258,8 @@ static bool loadSavedGameFromNvs(bool hasSavedSkillSetting) {
   heap_caps_free(blob);
 
   if (valid) {
-    const std::vector<std::string> moves = candidateHistory.toUciMoves();
-    const auto error = engine->set_position(candidateFen, moves);
+    const auto error = engine->set_position(candidateFen, &candidateHistory,
+                                            candidateHistory.size(), readGameHistoryMove);
     if (error.has_value()) {
       Serial.printf("[GAME] Saved position rejected: %s\n", error->what());
       valid = false;
@@ -1251,8 +1268,7 @@ static bool loadSavedGameFromNvs(bool hasSavedSkillSetting) {
   if (!valid) {
     gameHistory.clear();
     gameBaseFen = StartFen;
-    const std::vector<std::string> noMoves;
-    engine->set_position(StartFen, noMoves);
+    engine->set_position(StartFen, nullptr, 0, nullptr);
     syncEnginePosition();
     discardSavedGame();
     Serial.println("[GAME] Saved game validation failed; discarded");
@@ -2006,16 +2022,16 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
     return false;
   }
 
-  const std::vector<std::string> candidateMoves = candidateHistory.toUciMoves();
   const std::string previousBaseFen = gameBaseFen;
-  const std::vector<std::string> previousMoves = gameHistory.toUciMoves();
   const bool previousHadGame = hasGame;
 
   stopSearch();
-  const auto error = engine->set_position(baseFen, candidateMoves);
+  const auto error = engine->set_position(baseFen, &candidateHistory,
+                                          candidateHistory.size(), readGameHistoryMove);
   if (error.has_value()) {
     Serial.printf("[SERIAL] Position rejected: %s\n", error->what());
-    const auto restoreError = engine->set_position(previousBaseFen, previousMoves);
+    const auto restoreError = engine->set_position(previousBaseFen, &gameHistory,
+                                                   gameHistory.size(), readGameHistoryMove);
     if (restoreError.has_value()) {
       Serial.printf("[SERIAL] CRITICAL: cannot restore previous position: %s\n",
                     restoreError->what());
@@ -2668,17 +2684,17 @@ static bool importPgn(const std::string &pgn) {
     return false;
   }
 
-  const std::vector<std::string> candidateMoves = candidateHistory.toUciMoves();
   const std::string previousBaseFen = gameBaseFen;
-  const std::vector<std::string> previousMoves = gameHistory.toUciMoves();
   const char previousPlayerColor = playerColor;
   const bool previousHadGame = hasGame;
   stopSearch();
-  const auto positionError = engine->set_position(baseFen, candidateMoves);
+  const auto positionError = engine->set_position(baseFen, &candidateHistory,
+                                                   candidateHistory.size(), readGameHistoryMove);
   if (positionError.has_value()) {
     Serial.printf("[PGN] IMPORT FAILED: Stockfish rejected the game: %s\n",
                   positionError->what());
-    const auto restoreError = engine->set_position(previousBaseFen, previousMoves);
+    const auto restoreError = engine->set_position(previousBaseFen, &gameHistory,
+                                                     gameHistory.size(), readGameHistoryMove);
     if (restoreError.has_value())
       Serial.printf("[PGN] WARNING: previous engine position could not be restored: %s\n",
                     restoreError->what());
@@ -2696,7 +2712,8 @@ static bool importPgn(const std::string &pgn) {
     gameBaseFen = previousBaseFen;
     gameHistory.swap(candidateHistory);
     playerColor = previousPlayerColor;
-    engine->set_position(previousBaseFen, previousMoves);
+    engine->set_position(previousBaseFen, &gameHistory,
+                         gameHistory.size(), readGameHistoryMove);
     currentFen = engine->fen();
     loadFenBoard(currentFen);
     if (previousHadGame) showCurrentGame();
