@@ -11,6 +11,7 @@ The project combines a complete chess game interface with the Stockfish engine o
 - Play against Stockfish on the integrated touchscreen.
 - Choose to play as White or Black.
 - Adjust the engine strength from Level 1 to Level 20.
+- Enable or disable the optional Polyglot opening book in the new-game menu.
 - Legal destination squares are highlighted when selecting a piece.
 - Pawn promotion is handled with an on-screen piece selector.
 - Undo the previous move, request a hint, or start a new game.
@@ -44,8 +45,9 @@ On the first boot, the display starts a three-point touch calibration. Tap each 
 
 1. Open **New Game**.
 2. Choose **White** or **Black**.
-3. Set the Stockfish level with the minus and plus controls.
-4. Tap **Start**.
+3. Enable or disable **Opening book** as required.
+4. Set the Stockfish level with the minus and plus controls.
+5. Tap **Start**.
 
 ### Make moves
 
@@ -70,6 +72,8 @@ Connect the board to a computer and open a serial monitor at **115200 baud**. Th
 | `hint` | Ask Stockfish for a suggested move |
 | `stop` | Stop the current search |
 | `level 1..20` | Set the strength for the next game |
+| `book` | Show whether the opening book is enabled |
+| `book on` / `book off` | Enable or disable opening-book use |
 | `pgn` | Export the current game in PGN/SAN format |
 | `newgame [level] [white\|black]` | Start a new game |
 | `position startpos [moves ...]` | Load a start position and optional moves |
@@ -98,9 +102,9 @@ GitHub Actions runs the native regression suite and the firmware build matrix fo
 
 ## Opening book
 
-The firmware contains a reader for an optional Polyglot opening book stored in a separate flash partition. The book image must be prepared and flashed separately. This part of the project is still awaiting final hardware validation, so opening-book operation should be considered experimental.
+The firmware can use a Polyglot opening book stored in a separate, read-only flash partition. The book is checked when the firmware starts; if no legal book move is available, Stockfish searches normally. Opening-book use can be toggled in the **New Game** menu or with the serial commands `book on` and `book off`. The setting is stored in NVS and remains in effect after reboot. The book defaults to enabled on installations without a saved setting.
 
-See [Flashing an opening book](docs/FLASHING-OPENING-BOOK.md) for the image format and procedure.
+The book image is prepared and flashed separately. See [Flashing an opening book](docs/FLASHING-OPENING-BOOK.md) for the image format and procedure.
 
 ## Project status
 
