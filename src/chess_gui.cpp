@@ -281,11 +281,6 @@ static void updateInputLockIndicator() {
     }
   }
 
-  const char *brightnessState = backlightPwmReady
-                               ? (locked ? "dimmed" : "full")
-                               : "unchanged (PWM unavailable)";
-  Serial.printf("[GUI] Touch input %s; backlight %s\n",
-                locked ? "LOCKED" : "ENABLED", brightnessState);
 }
 
 static bool touchReadRaw(uint16_t &x, uint16_t &y, uint8_t &points) {
