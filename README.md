@@ -78,8 +78,10 @@ Connect the board to a computer and open a serial monitor at **115200 baud**. Th
 | `pgn` / `pgn export` | Export the current game in PGN/SAN format |
 | `pgn import` | Start a multi-line PGN import (auto-finishes at result marker) |
 | `newgame [level] [white\|black]` | Start a new game |
-| `position startpos [moves ...]` | Load a start position and optional moves |
-| `position fen <FEN> [moves ...]` | Load a FEN position and optional moves |
+| `position startpos [moves ...]` | Load a start position and optional moves (streamed) |
+| `position fen <FEN> [moves ...]` | Load a FEN position and optional moves (streamed) |
+
+Long `position` and `fen` commands are received token by token; the complete command line is not stored in the 2048-byte serial line buffer. Moves are appended directly to the compact 16-bit move history (maximum 4096 plies), with the normal Stockfish position validation performed after the line ends.
 
 A single move can also be entered directly in UCI notation, for example `e2e4` or `e7e8q` for a promotion. The current board is printed automatically after importing a position with `position`, `fen` or `pgn import`; use `print` to display it again. Short castling can be entered as `O-O`, `o-o` or `0-0`; it is converted to the normal UCI move for the side to move.
 
