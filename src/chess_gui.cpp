@@ -1984,6 +1984,17 @@ static void processTouch(int x, int y, uint16_t rawX, uint16_t rawY) {
   }
 }
 
+static void printBoardAscii() {
+  if (!engine) {
+    Serial.println("[BOARD] ERROR: engine is not ready");
+    return;
+  }
+
+  const std::string boardText = engine->visualize();
+  Serial.print(boardText.c_str());
+  Serial.println();
+}
+
 static bool applySerialPosition(const std::string &baseFen, GameHistory &candidateHistory,
                                 const char *moveActor = nullptr, const char *uciMove = nullptr,
                                 char movingSide = '\0') {
@@ -2054,6 +2065,8 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
                   sideToMove() == 'w' ? "White" : "Black");
   }
   Serial.printf("[FEN] %s\n", currentFen.c_str());
+  if (!moveActor)
+    printBoardAscii();
   if (touchCalibrated)
     showCurrentGame();
   else
@@ -2705,6 +2718,7 @@ static bool importPgn(const std::string &pgn) {
                 unsigned(gameHistory.size()),
                 sideToMove() == 'w' ? "White" : "Black",
                 playerColor == 'w' ? "White" : "Black");
+  printBoardAscii();
   showCurrentGame();
   return true;
 }
@@ -2863,7 +2877,9 @@ static void executeSerialCommand() {
   std::transform(command.begin(), command.end(), command.begin(),
                  [](unsigned char ch) { return char(tolower(ch)); });
 
-  if (command == "moves" || command == "uci") {
+  if (command == "print") {
+    printBoardAscii();
+  } else if (command == "moves" || command == "uci") {
     printGameUciPosition();
   } else if (command == "undo") {
     if (!hasGame) {
@@ -3025,6 +3041,7 @@ static void executeSerialCommand() {
     Serial.println("  position startpos [moves e2e4 ...]");
     Serial.println("  position fen <6 FEN fields> [moves e2e4 ...]");
     Serial.println("  fen <6 FEN fields>  (shorthand)");
+    Serial.println("  print  print the current board in Stockfish ASCII format");
     Serial.println("  moves (or uci)  print current position as a UCI command");
     Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move; O-O / 0-0 = short castle");
     Serial.println("  UNDO  undo the last move pair (or the only move)");
