@@ -248,6 +248,38 @@ static void setStatus(const char *message) {
   snprintf(statusText, sizeof(statusText), "%s", message ? message : "");
 }
 
+constexpr uint32_t BacklightPwmFrequencyHz = 5000;
+constexpr uint8_t BacklightPwmResolution = 8;
+constexpr uint8_t BacklightFullBrightness = 255;
+constexpr uint8_t BacklightLockedBrightness = 115; // About 45%; still readable.
+bool backlightPwmReady = false;
+bool backlightInputLocked = false;
+
+static void updateInputLockIndicator() {
+  // The game screen rejects every touch while a Stockfish search is active.
+  // Make that state visible without redrawing or covering the chessboard.
+  const bool locked = screen == Screen::Game && searchInFlight;
+  if (locked == backlightInputLocked)
+    return;
+
+  backlightInputLocked = locked;
+  if (backlightPwmReady) {
+    const uint8_t brightness = locked ? BacklightLockedBrightness
+                                      : BacklightFullBrightness;
+    if (!ledcWrite(LCD_BL, brightness)) {
+      ledcDetach(LCD_BL);
+      backlightPwmReady = false;
+      digitalWrite(LCD_BL, 1); // Fail safe: keep the display fully illuminated.
+      Serial.println("[GUI] WARNING: backlight PWM update failed; using full brightness");
+    }
+  }
+
+  Serial.printf("[GUI] Touch input %s; backlight %s%s\\n",
+                locked ? "LOCKED" : "ENABLED",
+                locked ? "dimmed" : "full",
+                backlightPwmReady ? "" : " (PWM unavailable)");
+}
+
 static bool touchReadRaw(uint16_t &x, uint16_t &y, uint8_t &points) {
   Wire.beginTransmission(TOUCH_I2C_ADDR);
   Wire.write(0x02);
@@ -2523,7 +2555,18 @@ static void pollSerialCommands() {
 
 static void initializeDisplayAndTouch() {
   pinMode(LCD_BL, OUTPUT);
-  digitalWrite(LCD_BL, 1);
+  backlightPwmReady = ledcAttach(LCD_BL, BacklightPwmFrequencyHz,
+                                 BacklightPwmResolution);
+  if (backlightPwmReady
+      && ledcWrite(LCD_BL, BacklightFullBrightness)) {
+    Serial.printf("[GUI] Backlight PWM ready: %lu Hz, %u-bit\\n",
+                  (unsigned long)BacklightPwmFrequencyHz,
+                  BacklightPwmResolution);
+  } else {
+    backlightPwmReady = false;
+    digitalWrite(LCD_BL, 1);
+    Serial.println("[GUI] WARNING: backlight PWM unavailable; using full brightness");
+  }
 
   tft.init();
   tft.setRotation(1);
@@ -2699,5 +2742,6 @@ void loop() {
   }
   previousTouchDown = down;
 
+  updateInputLockIndicator();
   delay(12);
 }
