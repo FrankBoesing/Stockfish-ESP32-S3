@@ -88,6 +88,11 @@ jobs:
               exit 1
             }
             echo "$command"
+            actual_opt="$(grep -oE -- '-O(s|[0-3])' <<<"$command" | tail -n 1 || true)"
+            if [[ "$actual_opt" != "-O2" ]]; then
+              echo "Expected -O2 for every firmware environment in $env, got '$actual_opt'."
+              exit 1
+            fi
             if [[ "$env" == "freenove_stockfish_compile" || "$env" == "freenove_stockfish_nnubench" || "$env" == "freenove_stockfish_pievalidate" ]]; then
               grep -q -- '-DSTOCKFISH_ESP32_S3_PIE=1' <<<"$command" || {
                 echo "PIE was not enabled in $env."
