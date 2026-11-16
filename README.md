@@ -18,7 +18,7 @@ The project combines a complete chess game interface with the Stockfish engine o
 - The board automatically rotates when you play as Black.
 - Detects check, checkmate, stalemate, the 50-move rule, threefold repetition and supported insufficient-material draws.
 - Touchscreen calibration is performed on first start and stored in flash.
-- The current game, player colour and game strength are saved automatically and restored after a reboot.
+- The current game, player colour and game strength are saved automatically and restored after a reboot. The opening-book enable/disable preference is stored separately in NVS.
 
 ## Hardware
 
