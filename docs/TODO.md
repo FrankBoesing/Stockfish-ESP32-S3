@@ -20,4 +20,6 @@ This file contains future development work that is intentionally not part of the
   - Inspect the actual PlatformIO Xtensa GCC assembly/disassembly for use of native `NSA/NSAU`, `MULUH/MULSH` and `MAC16` instructions before writing inline assembly or replacing compiler builtins.
   - Benchmark any candidate replacement in isolation and in complete search runs; retain the generic implementation as a reference/fallback.
 - [ ] Use the existing NNUE layer-cycle profiler to rank `fc_0`, `fc_1`, `fc_2` and activation costs on the ESP32-S3. The accumulator PIE kernel is already implemented and parity-validated; investigate a separate PIE/DSP implementation for the remaining affine layers only if profiling justifies it.
-  - Verify signed/unsigned input ranges, accumulator width/overflow behaviour, instruction semantics and scalar parity before enabling a new kernel.
+  - Check `fc_1` and `fc_2` first: their post-activation inputs are the most promising candidates for signed 8-bit dot products, subject to a measured range proof.
+  - Treat `fc_0` separately: the feature-transformer output can reach 255 while weights are signed, so neither signed×signed nor unsigned×unsigned multiply-accumulate is a drop-in replacement. Any mixed-sign correction/repacking must be proven exact.
+  - Verify accumulator width/overflow behaviour, instruction semantics and scalar parity before enabling a new kernel.
