@@ -385,7 +385,7 @@ void setup() {
 
   Serial.println();
   Serial.println("Stockfish 19 Smallnet ESP32-S3 engine memory probe");
-  Serial.println("Compiler optimization = -Os");
+  Serial.println("Compiler optimization = -O2");
   Serial.printf("ESP reset reason = %d\n", (int) esp_reset_reason());
   Serial.printf("Arduino loop task stack = %u bytes; current free stack ~= %u bytes\n",
                 (unsigned)getArduinoLoopTaskStackSize(),
