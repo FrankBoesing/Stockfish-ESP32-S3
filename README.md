@@ -75,14 +75,14 @@ Connect the board to a computer and open a serial monitor at **115200 baud**. Th
 | `book` | Show whether the opening book is enabled |
 | `book on` / `book off` | Enable or disable opening-book use |
 | `pgn` / `pgn export` | Export the current game in PGN/SAN format |
-| `pgn import` | Start a multi-line PGN import |
+| `pgn import` | Start a multi-line PGN import (auto-finishes at result marker) |
 | `newgame [level] [white\|black]` | Start a new game |
 | `position startpos [moves ...]` | Load a start position and optional moves |
 | `position fen <FEN> [moves ...]` | Load a FEN position and optional moves |
 
 A single move can also be entered directly in UCI notation, for example `e2e4` or `e7e8q` for a promotion.
 
-To import a game, enter `pgn import`, paste the complete PGN (including optional tag pairs and SAN movetext), then send `ENDPGN` on a line by itself. Send `CANCELPGN` to abort. The importer validates every SAN move against Stockfish's legal-move list before replacing the current game. Comments, numeric annotations and parenthesized variations are ignored.
+To import a game, enter `pgn import` and paste the complete PGN (including optional tag pairs and SAN movetext). Import starts automatically when the movetext reaches a result marker (`1-0`, `0-1`, `1/2-1/2` or `*`). `ENDPGN` can be used as a manual finish for PGNs without a result marker; send `CANCELPGN` to abort. The importer validates every SAN move against Stockfish's legal-move list before replacing the current game. Comments, numeric annotations and parenthesized variations are ignored.
 
 ## Build and upload
 
