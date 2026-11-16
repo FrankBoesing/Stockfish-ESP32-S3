@@ -385,7 +385,18 @@ void setup() {
 
   Serial.println();
   Serial.println("Stockfish 19 Smallnet ESP32-S3 engine memory probe");
+#ifndef STOCKFISH_OPT_LEVEL
+  #define STOCKFISH_OPT_LEVEL 1
+#endif
+#if STOCKFISH_OPT_LEVEL == 1
   Serial.println("Compiler optimization = -Os");
+#elif STOCKFISH_OPT_LEVEL == 2
+  Serial.println("Compiler optimization = -O2");
+#elif STOCKFISH_OPT_LEVEL == 3
+  Serial.println("Compiler optimization = -O3");
+#else
+  Serial.printf("Compiler optimization = unknown (STOCKFISH_OPT_LEVEL=%d)\\n", STOCKFISH_OPT_LEVEL);
+#endif
   Serial.printf("ESP reset reason = %d\n", (int) esp_reset_reason());
   Serial.printf("Arduino loop task stack = %u bytes; current free stack ~= %u bytes\n",
                 (unsigned)getArduinoLoopTaskStackSize(),
