@@ -160,7 +160,7 @@ Stockfish::Engine *engine = nullptr;
 PolyglotBook::FlashPolyglotBook openingBook;
 
 enum class Screen : uint8_t { Calibration, Menu, Game, Promotion };
-enum class SearchMode : uint8_t { None, EngineMove, Hint };
+enum class SearchMode : uint8_t { None, EngineMove, Hint, Evaluation };
 
 Screen screen = Screen::Menu;
 SearchMode searchMode = SearchMode::None;
@@ -755,7 +755,8 @@ static void drawGamePanelInfo() {
   tft.fillRect(x, 60, w, 85, ColorPanel);
 
   const char *turnText = gameOver ? "Game over"
-                       : searchInFlight ? "Thinking"
+                       : searchInFlight
+                           ? (searchMode == SearchMode::Evaluation ? "Evaluating" : "Thinking")
                        : sideToMove() == playerColor ? "Your move" : "Engine";
   drawPanelText(turnText, x + 1, 62, w - 2, 16,
                 searchInFlight ? ColorOrange : ColorText,
@@ -1251,11 +1252,13 @@ static void startSearch(SearchMode mode) {
   }
 
   Stockfish::Search::LimitsType limits;
-  limits.movetime = mode == SearchMode::Hint ? 1400 : 2400;
+  limits.movetime = mode == SearchMode::Hint ? 1400
+                  : mode == SearchMode::Evaluation ? 1000 : 2400;
   limits.startTime = Stockfish::now();
 
   searchInFlight = true;
-  setStatus(mode == SearchMode::Hint ? "Finding hint" : "Thinking");
+  setStatus(mode == SearchMode::Hint ? "Finding hint"
+            : mode == SearchMode::Evaluation ? "Evaluating" : "Thinking");
   engine->go(limits);
   if (screen == Screen::Game)
     drawGamePanelInfo();
@@ -1263,8 +1266,13 @@ static void startSearch(SearchMode mode) {
 
 static void showCurrentGame() {
   renderGame();
-  if (!gameOver && sideToMove() != playerColor)
+  if (gameOver)
+    return;
+
+  if (sideToMove() != playerColor)
     startSearch(SearchMode::EngineMove);
+  else
+    startSearch(SearchMode::Evaluation);
 }
 
 static void stopSearch() {
@@ -1291,6 +1299,16 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
     searchMode = SearchMode::None;
     if (!updateGameStatusFromPosition())
       setStatus("Search ended");
+    if (screen == Screen::Game)
+      drawGamePanelInfo();
+    return;
+  }
+
+  if (searchMode == SearchMode::Evaluation) {
+    // This search exists only to refresh the static evaluation. Its best move
+    // is intentionally ignored; the current game position and history remain
+    // untouched.
+    searchMode = SearchMode::None;
     if (screen == Screen::Game)
       drawGamePanelInfo();
     return;
@@ -1465,6 +1483,8 @@ static void startNewGame() {
   // When the human chooses Black, Stockfish makes the opening move.
   if (playerColor == 'b')
     startSearch(SearchMode::EngineMove);
+  else
+    startSearch(SearchMode::Evaluation);
 }
 
 static void undoMove() {
@@ -1509,6 +1529,8 @@ static void undoMove() {
 
   if (sideToMove() != playerColor)
     startSearch(SearchMode::EngineMove);
+  else
+    startSearch(SearchMode::Evaluation);
 }
 
 static void uciSquareName(int square, char *out) {
