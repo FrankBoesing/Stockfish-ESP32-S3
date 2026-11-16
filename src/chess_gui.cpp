@@ -82,6 +82,10 @@ constexpr int BoardY = 16;  // Center the 208px board vertically on the 240px di
 constexpr int SquareSize = 26;
 constexpr int BoardSize = SquareSize * 8;
 constexpr int PanelX = 218; // Keep the information panel at its existing screen position.
+constexpr int PanelHintY = 160;
+constexpr int PanelUndoY = 187;
+constexpr int PanelNewY = 214;
+constexpr int PanelButtonHeight = 23;
 static_assert(PIECE_ICON_SIZE == SquareSize, "Piece icon size must match a board square");
 static uint16_t pieceTile[SquareSize * SquareSize];
 
@@ -825,8 +829,10 @@ static void refreshEvaluationBar() {
 static void drawPanelText(const char *text, int x, int y, int w, int h,
                            uint16_t color, const lgfx::IFont *font) {
   tft.fillRect(x, y, w, h, ColorPanel);
-  // Keep long status strings and font overhang inside the narrow information panel.
-  tft.setClipRect(x, y, w, h);
+  // Clip horizontally to the panel, but keep the full panel height available.
+  // FreeSans glyphs extend above/below their nominal line box; clipping to
+  // the row rectangle cuts off ascenders and descenders.
+  tft.setClipRect(x, BoardY, w, tft.height() - BoardY);
   drawCenteredText(text, x, y, w, h, color, font);
   tft.clearClipRect();
 }
@@ -837,36 +843,36 @@ static void drawGamePanelInfo() {
   const int x = PanelX;
   const int w = 320 - x - 4;
 
-  // Clear the complete changing information area, including font overhang.
-  // The depth/NPS strip is redrawn separately immediately afterwards.
-  tft.fillRect(x, 60, w, 85, ColorPanel);
+  // Reserve a little more vertical room for every font line. The text helper
+  // clips only to the panel bounds, not to these nominal row rectangles.
+  tft.fillRect(x, 55, w, 104, ColorPanel);
 
   const char *turnText = gameOver ? "Game over"
                        : searchInFlight
                            ? (searchMode == SearchMode::Evaluation ? "Evaluating" : "Thinking")
                        : sideToMove() == playerColor ? "Your move" : "Engine";
-  drawPanelText(turnText, x + 1, 62, w - 2, 16,
+  drawPanelText(turnText, x + 1, 56, w - 2, 20,
                 searchInFlight ? ColorOrange : ColorText,
                 &fonts::FreeSansBold9pt7b);
 
   const int material = materialBalanceForPlayer();
   char materialText[20];
   snprintf(materialText, sizeof(materialText), "Material %+d", material);
-  drawPanelText(materialText, x, 113, w, 14,
+  drawPanelText(materialText, x, 117, w, 20,
                 material > 0 ? ColorOrange : ColorText,
                 &fonts::FreeSansBold9pt7b);
 
-  drawPanelText(statusText, x + 1, 129, w - 2, 14,
+  drawPanelText(statusText, x + 1, 139, w - 2, 18,
                 ColorMuted, &fonts::FreeSans9pt7b);
-  drawButton(x + 2, 147, w - 4, 25, "HINT", false,
+  drawButton(x + 2, PanelHintY, w - 4, PanelButtonHeight, "HINT", false,
               ChessGuiRules::hintEnabled(
                 searchInFlight, gameOver, sideToMove(), playerColor),
               &fonts::FreeSansBold9pt7b, 2);
-  drawButton(x + 2, 177, w - 4, 25, "UNDO", false,
+  drawButton(x + 2, PanelUndoY, w - 4, PanelButtonHeight, "UNDO", false,
               ChessGuiRules::undoEnabled(gameHistory.size()),
-             &fonts::FreeSansBold9pt7b, 2);
-  drawButton(x + 2, 207, w - 4, 25, "NEW", false, true,
-             &fonts::FreeSansBold9pt7b, 2);
+              &fonts::FreeSansBold9pt7b, 2);
+  drawButton(x + 2, PanelNewY, w - 4, PanelButtonHeight, "NEW", false, true,
+              &fonts::FreeSansBold9pt7b, 2);
 
   drawGamePanelSearchStats();
   refreshEvaluationBar();
@@ -900,10 +906,6 @@ static void drawGamePanelSearchStats() {
   const int x = PanelX;
   const int w = 320 - x - 4;
 
-  // Clear both changing search rows together; FreeSans glyphs have vertical
-  // overhang beyond the nominal row height.
-  tft.fillRect(x, 80, w, 33, ColorPanel);
-
   int uiDepth;
   uint32_t uiNps;
   portENTER_CRITICAL(&searchMux);
@@ -913,14 +915,14 @@ static void drawGamePanelSearchStats() {
 
   char depthText[24];
   snprintf(depthText, sizeof(depthText), "Depth %d", uiDepth);
-  drawPanelText(depthText, x, 82, w, 14, ColorMuted, &fonts::FreeSans9pt7b);
+  drawPanelText(depthText, x, 78, w, 18, ColorMuted, &fonts::FreeSans9pt7b);
 
   char npsText[24];
   if (uiNps >= 1000)
     snprintf(npsText, sizeof(npsText), "%.1fk N/s", uiNps / 1000.0f);
   else
     snprintf(npsText, sizeof(npsText), "%lu N/s", (unsigned long)uiNps);
-  drawPanelText(npsText, x, 97, w, 14, ColorMuted, &fonts::FreeSans9pt7b);
+  drawPanelText(npsText, x, 97, w, 18, ColorMuted, &fonts::FreeSans9pt7b);
 }
 
 static void drawGamePanel() {
@@ -928,11 +930,13 @@ static void drawGamePanel() {
   const int w = 320 - x - 4;
   tft.fillRect(x, BoardY, w, 224, ColorPanel);
 
-  drawCenteredText("Stockfish", x, 25, w, 18,
+  // Use the otherwise empty top margin for the title and give both
+  // heading lines enough vertical space for the complete glyph height.
+  drawCenteredText("Stockfish", x, 16, w, 20,
                    ColorText, &fonts::FreeSansBold9pt7b);
   char levelText[8];
   snprintf(levelText, sizeof(levelText), "L%d", skillLevel);
-  drawCenteredText(levelText, x, 44, w, 14,
+  drawCenteredText(levelText, x, 37, w, 18,
                    ColorOrange, &fonts::FreeSansBold9pt7b);
   drawGamePanelInfo();
 }
@@ -1861,16 +1865,16 @@ static void handleBoardTouch(int x, int y) {
 
   const int panelX = PanelX;
 
-  if (x >= panelX && y >= 147 && y < 173) {
+  if (x >= panelX && y >= PanelHintY && y < PanelHintY + PanelButtonHeight) {
     if (sideToMove() == playerColor)
       startSearch(SearchMode::Hint);
     return;
   }
-  if (x >= panelX && y >= 177 && y < 203) {
+  if (x >= panelX && y >= PanelUndoY && y < PanelUndoY + PanelButtonHeight) {
     undoMove();
     return;
   }
-  if (x >= panelX && y >= 207 && y < 235) {
+  if (x >= panelX && y >= PanelNewY && y < PanelNewY + PanelButtonHeight) {
     renderMenu();
     return;
   }
