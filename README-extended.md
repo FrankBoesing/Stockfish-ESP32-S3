@@ -4,7 +4,7 @@ An experimental, native port of the official Stockfish chess engine to the Espre
 
 ## Development checkpoint
 
-The Stockfish 19 Smallnet engine, ESP32-S3 PIE accumulator path and touchscreen chess application are implemented on the Freenove FNK0104B target. QIO is the configured flash mode. The Polyglot reader and native regression tests are also integrated; the remaining book-specific step is to package and flash the `SFBK` image and verify the mapped book on the physical board. This file contains detailed implementation and benchmark notes; [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md) is a chronological development log, not a statement that GUI work is still pending. See [the book flashing guide](docs/FLASHING-OPENING-BOOK.md) and [the project TODO](docs/TODO.md).
+The Stockfish 19 Smallnet engine, ESP32-S3 PIE accumulator path, touchscreen application and Polyglot opening-book reader are implemented on the Freenove FNK0104B target. QIO is the configured flash mode. The user has confirmed that the packaged opening book operates on the physical board and that its persistent enable/disable controls work from the GUI and serial console. This file contains detailed implementation and benchmark notes; [docs/STATUS-2026-11-14.md](docs/STATUS-2026-11-14.md) is a chronological development log, with the latest state recorded at its end. See [the book flashing guide](docs/FLASHING-OPENING-BOOK.md).
 
 ## Project goals
 
@@ -24,7 +24,7 @@ The Stockfish 19 Smallnet engine, ESP32-S3 PIE accumulator path and touchscreen 
 
 ## Current status
 
-Stockfish 19 Smallnet P_hm is running on the Freenove ESP32-S3 display board. The regular `freenove_stockfish_compile` build enables the ESP32-S3 PIE accumulator kernel, guarded by a network-load-time int16 range proof and automatic scalar fallback. The current network passed an on-device scalar-vs-PIE comparison across 82,976 updates (84,967,424 accumulator lanes) with no mismatches or out-of-range intermediate values. The latest documented QIO hardware run measured 1,552 NPS in the start position, 1,600 NPS in Kiwipete and 2,075 NPS in the 5-second search; these are results from one run, not a statistically controlled benchmark. The GUI, game persistence, serial controls and native rule/Polyglot regression tests are implemented. Actual opening-book mmap/CRC and book-move operation on the physical board remain to be verified. See [the development log](docs/STATUS-2026-11-14.md) for measurements and constraints.
+Stockfish 19 Smallnet P_hm is running on the Freenove ESP32-S3 display board. The regular `freenove_stockfish_compile` build enables the ESP32-S3 PIE accumulator kernel, guarded by a network-load-time int16 range proof and automatic scalar fallback. The current network passed an on-device scalar-vs-PIE comparison across 82,976 updates (84,967,424 accumulator lanes) with no mismatches or out-of-range intermediate values. The latest documented QIO hardware run measured 1,552 NPS in the start position, 1,600 NPS in Kiwipete and 2,075 NPS in the 5-second search; these are results from one run, not a statistically controlled benchmark. The GUI, game persistence, serial controls and native rule/Polyglot regression tests are implemented. The user has confirmed opening-book operation on the physical FNK0104B, including the new persistent ON/OFF setting through both input paths. See [the development log](docs/STATUS-2026-11-14.md) for measurements and constraints.
 
 ## Touchscreen GUI prototype
 
@@ -64,8 +64,10 @@ move in UCI notation as [MOVE], distinguishing the player from Stockfish and
 showing the moving colour. A single UCI move such as e2e4 or a promotion such
 as e7e8q can be entered directly. Additional commands are UNDO (takeback),
 HINT (Stockfish suggestion), STOP (cancel the current search), LEVEL [1..20]
-(set the next game's strength), PGN (export the current game in SAN/PGN form),
-and NEWGAME [Level] [WHITE|BLACK]. PGN export includes the appropriate move
+(set the next game's strength), BOOK [ON|OFF] (show or change opening-book use),
+PGN (export the current game in SAN/PGN form), and NEWGAME [Level] [WHITE|BLACK].
+The opening-book preference is saved separately in NVS and restored at boot;
+installations without a saved value default to BOOK ON. PGN export includes the appropriate move
 numbering, check/checkmate suffixes, result and a SetUp/FEN pair for custom
 starting positions. Type moves (or uci) to print the current UCI position
 command and FEN. Positions can also be loaded through the serial monitor:
@@ -86,7 +88,7 @@ Search callbacks only publish compact status/best-move data; drawing and
 position updates remain in the Arduino loop task. The GUI deliberately avoids
 a full-screen framebuffer.
 
-The touchscreen application is now the project's interactive target. It has been exercised on the FNK0104B; remaining limitations and the separate opening-book hardware validation are recorded in the development log and flashing guide.
+The touchscreen application is now the project's interactive target and has been exercised on the FNK0104B. The board's coordinate labels have been confirmed readable, and the opening-book control has been checked on hardware.
 
 ## Opening book
 
@@ -96,31 +98,32 @@ at offset `0x410000`. The selected book is
 Keep the raw `.bin` and generated `.sfbook` image local; neither belongs in
 the firmware repository.
 
-The GUI reader is implemented. It validates a 24-byte `SFBK` image header,
-CRC32 and sorted Polyglot keys, maps only the actual payload with
-`esp_partition_mmap()`, and selects a weighted legal book move before the
-normal Stockfish search. A miss falls back to Stockfish; HINT continues to
-use Stockfish.
+The GUI reader validates a 24-byte `SFBK` image header, CRC32 and sorted
+Polyglot keys, maps only the actual payload with `esp_partition_mmap()`, and
+selects a weighted legal book move before the normal Stockfish search. A miss
+falls back to Stockfish; HINT continues to use Stockfish. The book can be
+enabled or disabled in the New Game menu or with `BOOK ON` / `BOOK OFF`;
+`BOOK` reports the current setting. The preference is stored separately in
+NVS, defaults to enabled on first use, and survives reboot.
 
-The original raw `.bin` was flashed before the `SFBK` wrapper was introduced
-and is not accepted by the current reader. Prepare the image with:
+The raw `.bin` format is not accepted by the current reader. To prepare a
+replacement image, run:
 
 ```powershell
 python scripts/prepare_polyglot_book.py .\lichess_2100_rapid_2026-05.bin
 ```
 
-Then flash the resulting `.sfbook` at `0x410000`. See
-[Flashing an opening book](docs/FLASHING-OPENING-BOOK.md) for the full procedure.
-Native regression tests and the QIO firmware CI build pass; mmap/header and
-book-move behavior still require verification on the physical FNK0104B board.
+Flash the resulting `.sfbook` at `0x410000`. The selected image has already
+been flashed and the user has confirmed working book moves on the FNK0104B.
+See [Flashing an opening book](docs/FLASHING-OPENING-BOOK.md) for the repeatable
+procedure.
 
-## Remaining work
+## Further development
 
-- Package the selected Polyglot opening book with the `SFBK` header, flash it to the dedicated read-only partition and validate mmap, CRC, legal book-move selection and Stockfish fallback on the physical board.
-- Continue targeted GUI hardware checks for saved-game recovery, game-end rules, promotion, touch responsiveness and serial command interaction.
-- Resume engine/NNUE performance optimization from the validated PIE baseline when the GUI and opening-book checks are complete.
-
-The original engine bring-up, NNUE validation, single-worker search integration, native GUI rule tests and serial PGN export are completed; they are not outstanding milestones.
+The current touchscreen and opening-book feature set has been exercised on the
+FNK0104B. Future work can return to engine/NNUE performance optimization from
+the validated PIE baseline or add further chess features. These are development
+directions rather than outstanding hardware-validation requirements.
 
 ## Memory access benchmark
 
