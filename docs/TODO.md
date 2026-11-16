@@ -27,3 +27,11 @@ This file contains future development work that is intentionally not part of the
   - Check `fc_1` and `fc_2` first: their post-activation inputs are the most promising candidates for signed 8-bit dot products, subject to a measured range proof.
   - Treat `fc_0` separately: the feature-transformer output can reach 255 while weights are signed, so neither signed×signed nor unsigned×unsigned multiply-accumulate is a drop-in replacement. Any mixed-sign correction/repacking must be proven exact.
   - Verify accumulator width/overflow behaviour, instruction semantics and scalar parity before enabling a new kernel.
+
+## GUI and user interaction
+
+- [ ] Remove the serial-console `STOP` command from the user-facing command parser and help text. Keep the internal `stopSearch()` functionality where it is required to manage searches safely.
+- [ ] Add a serial-console `CALIBRATION` command to start touch calibration again on demand.
+- [ ] Implement PGN import so a game can be loaded from PGN notation, including move parsing and validation before replacing the current game.
+- [ ] Review the right-hand information panel for text that is too long and currently overlaps or extends into the chessboard. Shorten, wrap, clip or otherwise constrain those labels to the panel width.
+- [ ] Make opening-book use dependent on the selected Stockfish skill level: use the book only at or above a configurable minimum level. Decide the threshold before implementation.
