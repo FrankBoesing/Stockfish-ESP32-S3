@@ -2472,6 +2472,7 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
                            GameHistory &candidateHistory, char &candidatePlayerColor,
                            std::string &error) {
   std::string startingFen = StartFen;
+  bool hasFenTag = false;
   candidatePlayerColor = playerColor;
   std::string whiteName;
   std::string blackName;
@@ -2524,8 +2525,10 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
       std::string tagName, tagValue;
       if (!parsePgnTag(tagText, tagName, tagValue, error))
         return false;
-      if (tagName == "FEN") startingFen = tagValue;
-      else if (tagName == "SetUp") setupValue = tagValue;
+      if (tagName == "FEN") {
+        startingFen = tagValue;
+        hasFenTag = true;
+      } else if (tagName == "SetUp") setupValue = tagValue;
       else if (tagName == "White") whiteName = tagValue;
       else if (tagName == "Black") blackName = tagValue;
       i = end;
@@ -2542,7 +2545,7 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
     error = "unterminated PGN variation";
     return false;
   }
-  if (setupValue == "1" && startingFen == StartFen) {
+  if (setupValue == "1" && !hasFenTag) {
     error = "PGN SetUp tag requires a FEN tag";
     return false;
   }
@@ -2708,8 +2711,14 @@ static bool importPgn(const std::string &pgn) {
 
 static void executeSerialCommand() {
   if (serialCommandOverflow) {
-    Serial.printf("[SERIAL] ERROR: command exceeded %u bytes; discarded\n",
-                  (unsigned)(SerialCommandCapacity - 1));
+    if (pgnImportActive) {
+      pgnImportActive = false;
+      pgnImportBuffer.clear();
+      Serial.println("[PGN] ERROR: input line exceeded the serial line buffer; import cancelled");
+    } else {
+      Serial.printf("[SERIAL] ERROR: command exceeded %u bytes; discarded\n",
+                    (unsigned)(SerialCommandCapacity - 1));
+    }
     serialCommandLength = 0;
     serialCommandOverflow = false;
     return;
