@@ -67,7 +67,7 @@ checksummed NVS blob after each accepted human move, engine move, undo and
 new-game initialization. When a saved game is restored, its original strength
 is restored independently of the next-game menu selection.
 
-The serial monitor logs each received command as [SERIAL] RX and each accepted
+The serial command `PRINT` displays the current board using Stockfish's ASCII representation. The board is also printed automatically after loading a position with `POSITION`, `FEN` or `PGN IMPORT`. The serial monitor logs each received command as [SERIAL] RX and each accepted
 move in UCI notation as [MOVE], distinguishing the player from Stockfish and
 showing the moving colour. A single UCI move such as e2e4 or a promotion such
 as e7e8q can be entered directly. Short castling is also accepted as O-O, o-o
