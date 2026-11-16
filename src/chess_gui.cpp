@@ -274,7 +274,7 @@ static void updateInputLockIndicator() {
     }
   }
 
-  Serial.printf("[GUI] Touch input %s; backlight %s%s\\n",
+  Serial.printf("[GUI] Touch input %s; backlight %s%s\n",
                 locked ? "LOCKED" : "ENABLED",
                 locked ? "dimmed" : "full",
                 backlightPwmReady ? "" : " (PWM unavailable)");
@@ -2559,7 +2559,7 @@ static void initializeDisplayAndTouch() {
                                  BacklightPwmResolution);
   if (backlightPwmReady
       && ledcWrite(LCD_BL, BacklightFullBrightness)) {
-    Serial.printf("[GUI] Backlight PWM ready: %lu Hz, %u-bit\\n",
+    Serial.printf("[GUI] Backlight PWM ready: %lu Hz, %u-bit\n",
                   (unsigned long)BacklightPwmFrequencyHz,
                   BacklightPwmResolution);
   } else {
