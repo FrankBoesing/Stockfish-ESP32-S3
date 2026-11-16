@@ -1393,11 +1393,13 @@ static void pollSearchMailbox() {
   bool infoDirty = false;
   bool bestMoveReady = false;
   char bestMove[16] = {};
+  SearchMailbox infoSnapshot{};
 
   portENTER_CRITICAL(&searchMux);
   if (searchMailbox.infoDirty) {
     infoDirty = true;
     searchMailbox.infoDirty = false;
+    infoSnapshot = searchMailbox;
   }
   if (searchMailbox.bestMoveReady) {
     bestMoveReady = true;
@@ -1407,11 +1409,11 @@ static void pollSearchMailbox() {
   portEXIT_CRITICAL(&searchMux);
 
   if (infoDirty && screen == Screen::Game) {
-    evalBarValid = searchMailbox.wdlValid;
-    evalBarWdlWin = searchMailbox.wdlWin;
-    evalBarWdlDraw = searchMailbox.wdlDraw;
-    evalBarWdlLoss = searchMailbox.wdlLoss;
-    evalBarScoreSide = searchMailbox.scoreSide;
+    evalBarValid = infoSnapshot.wdlValid;
+    evalBarWdlWin = infoSnapshot.wdlWin;
+    evalBarWdlDraw = infoSnapshot.wdlDraw;
+    evalBarWdlLoss = infoSnapshot.wdlLoss;
+    evalBarScoreSide = infoSnapshot.scoreSide;
     drawGamePanelSearchStats();
     refreshEvaluationBar();
   }
