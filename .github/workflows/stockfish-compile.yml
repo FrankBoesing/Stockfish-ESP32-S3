@@ -74,7 +74,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for env in freenove_stockfish_gui freenove_stockfish_compile freenove_stockfish_core1 freenove_stockfish_nnubench freenove_stockfish_pievalidate; do
+          for env in freenove_stockfish_gui freenove_stockfish_compile freenove_stockfish_o2 freenove_stockfish_o3 freenove_stockfish_core1 freenove_stockfish_nnubench freenove_stockfish_pievalidate; do
             echo "===== Building $env ====="
             log="/tmp/${env}.log"
             if ! pio run -e "$env" -v > "$log" 2>&1; then
@@ -88,6 +88,19 @@ jobs:
               exit 1
             }
             echo "$command"
+            expected_opt=""
+            case "$env" in
+              freenove_stockfish_compile) expected_opt="-Os" ;;
+              freenove_stockfish_o2) expected_opt="-O2" ;;
+              freenove_stockfish_o3) expected_opt="-O3" ;;
+            esac
+            if [[ -n "$expected_opt" ]]; then
+              actual_opt="$(grep -oE -- '-O(s|[0-3])' <<<"$command" | tail -n 1 || true)"
+              if [[ "$actual_opt" != "$expected_opt" ]]; then
+                echo "Expected final optimization flag $expected_opt in $env, got '$actual_opt'."
+                exit 1
+              fi
+            fi
             if [[ "$env" == "freenove_stockfish_compile" || "$env" == "freenove_stockfish_nnubench" || "$env" == "freenove_stockfish_pievalidate" ]]; then
               grep -q -- '-DSTOCKFISH_ESP32_S3_PIE=1' <<<"$command" || {
                 echo "PIE was not enabled in $env."
@@ -126,6 +139,10 @@ jobs:
             .pio/build/freenove_stockfish_gui/firmware.map
             .pio/build/freenove_stockfish_compile/firmware.bin
             .pio/build/freenove_stockfish_compile/firmware.map
+            .pio/build/freenove_stockfish_o2/firmware.bin
+            .pio/build/freenove_stockfish_o2/firmware.map
+            .pio/build/freenove_stockfish_o3/firmware.bin
+            .pio/build/freenove_stockfish_o3/firmware.map
             .pio/build/freenove_stockfish_core1/firmware.bin
             .pio/build/freenove_stockfish_core1/firmware.map
             .pio/build/freenove_stockfish_nnubench/firmware.bin
@@ -133,4 +150,48 @@ jobs:
             .pio/build/freenove_stockfish_pievalidate/firmware.bin
             .pio/build/freenove_stockfish_pievalidate/firmware.map
           if-no-files-found: warn
+          retention-days: 7
+
+      - name: Prepare A/B/C optimization benchmark package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-abcs
+          cp .pio/build/freenove_stockfish_compile/firmware.bin benchmark-abcs/stockfish_A_Os.bin
+          cp .pio/build/freenove_stockfish_o2/firmware.bin benchmark-abcs/stockfish_B_O2.bin
+          cp .pio/build/freenove_stockfish_o3/firmware.bin benchmark-abcs/stockfish_C_O3.bin
+          (cd benchmark-abcs && sha256sum stockfish_*.bin > SHA256SUMS.txt)
+          cat > benchmark-abcs/README.txt <<'EOF'
+Stockfish ESP32-S3 compiler optimization A/B/C test
+
+A = -Os (freenove_stockfish_compile)
+B = -O2 (freenove_stockfish_o2)
+C = -O3 (freenove_stockfish_o3)
+
+All three builds use the same source revision, ESP32-S3 FNK0104B board
+configuration, QIO flash / OPI PSRAM, 240 MHz CPU, partition table,
+NNUE network, 1 MiB hash, search probe and test positions. Only the final
+compiler optimization flag differs. The firmware prints its optimization
+level at startup.
+
+Flash only the application image at offset 0x10000. Do not erase flash or
+rewrite the partition table. The existing NVS and book partition are preserved.
+
+Run each firmware from a cold reboot and capture the complete serial output
+at 115200 baud. Compare NPS, depth, nodes, bestmove, internal heap, PSRAM
+and any warnings. For a fair comparison, keep board, USB cable/port, power,
+ambient conditions and run order consistent; alternate A/B/C order between
+repeats to limit temperature and clock drift. One run per build is only a
+screening result; use at least three runs each before deciding.
+
+Example:
+esptool --chip esp32s3 --port COM12 --baud 460800 write-flash 0x10000 .\\stockfish_A_Os.bin
+EOF
+
+      - name: Upload A/B/C optimization firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: stockfish-s3-opt-abcs
+          path: benchmark-abcs/*
+          if-no-files-found: error
           retention-days: 7
