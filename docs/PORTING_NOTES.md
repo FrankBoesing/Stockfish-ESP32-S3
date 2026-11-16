@@ -41,17 +41,18 @@ hardware. Changes to QIO flash mode, OPI PSRAM settings or the 16 MiB partition
 layout must be validated against the physical board and the existing NVS/book
 partition requirements.
 
-## Baseline validation
+## Initial baseline (historical)
 
-The initial firmware should support at least:
+The following commands defined the original standalone-engine bring-up target:
 
 - `uci`
 - `isready`
 - `ucinewgame`
 - `position startpos`
-- `go depth 1` (subject to memory feasibility)
+- `go depth 1`
 - `stop`
 - `quit`
 
-Compare legal best moves and protocol behavior with a desktop build from the same
-upstream revision.
+This was an initial porting acceptance target, not a current task list. The
+project has since moved to the touchscreen GUI and its documented game-control
+serial console.
