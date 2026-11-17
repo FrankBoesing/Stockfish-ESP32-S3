@@ -528,6 +528,45 @@ static void executeSerialCommand() {
       Serial.println("[SERIAL] ERROR: it is not the player's turn");
     else if (consoleCallbacks.startHint)
       consoleCallbacks.startHint();
+  } else if (command == "autoplay") {
+    std::string action;
+    std::string extra;
+    if (!(input >> action))
+      action = "status";
+    std::transform(action.begin(), action.end(), action.begin(),
+                   [](unsigned char ch) { return char(tolower(ch)); });
+
+    if ((input >> extra)
+        || (action != "start" && action != "stop" && action != "status")) {
+      Serial.println("[SERIAL] Usage: AUTOPLAY [START|STOP|STATUS]");
+    } else if (action == "status") {
+      const SerialConsole::GameState state = getGameState();
+      Serial.printf("[AUTO] Engine-vs-Engine is %s; %u plies; %s to move%s\\n",
+                    state.autoPlayEnabled ? "ON" : "OFF",
+                    unsigned(state.moveCount),
+                    state.sideToMove == 'w' ? "White" : "Black",
+                    state.searchInFlight ? "; search active" : "");
+    } else if (action == "start") {
+      const SerialConsole::GameState state = getGameState();
+      if (!state.hasGame) {
+        Serial.println("[SERIAL] ERROR: no active game; use NEWGAME first");
+      } else if (state.gameOver) {
+        Serial.println("[SERIAL] ERROR: game is over; start a new game first");
+      } else if (state.autoPlayEnabled) {
+        Serial.println("[AUTO] Already active");
+      } else if (consoleCallbacks.setAutoPlay
+                 && consoleCallbacks.setAutoPlay(true)) {
+        Serial.println("[AUTO] Engine-vs-Engine started");
+      }
+    } else {
+      const SerialConsole::GameState state = getGameState();
+      if (!state.autoPlayEnabled) {
+        Serial.println("[AUTO] Already stopped");
+      } else if (consoleCallbacks.setAutoPlay
+                 && consoleCallbacks.setAutoPlay(false)) {
+        Serial.println("[AUTO] Engine-vs-Engine stopped");
+      }
+    }
   } else if (command == "calibration") {
     std::string extra;
     if (input >> extra) {
@@ -672,6 +711,7 @@ static void executeSerialCommand() {
     Serial.println("  e2e4 [or e7e8q]  apply one legal UCI move; O-O / 0-0 = short castle");
     Serial.println("  UNDO  undo the last move pair (or the only move)");
     Serial.println("  HINT  ask Stockfish for a move suggestion");
+    Serial.println("  AUTOPLAY [START|STOP|STATUS]  run Stockfish against itself");
     Serial.println("  CALIBRATION  start touch calibration");
     Serial.println("  LEVEL [1..20]  show/set skill for the next game");
     Serial.println("  BOOK [ON|OFF]  show or set opening-book usage");
