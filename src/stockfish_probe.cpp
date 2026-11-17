@@ -226,6 +226,23 @@ static void printFc0ValidationStats(const char *label) {
                   (unsigned)stats.firstMismatchIndex,
                   (long)stats.firstExpected, (long)stats.firstActual);
   Serial.println();
+  if (stats.partialChecks)
+  {
+    Serial.printf("[FC0_PARTIAL] checks=%llu mismatches=%llu",
+                  (unsigned long long)stats.partialChecks,
+                  (unsigned long long)stats.partialMismatches);
+    if (stats.hasPartialMismatch)
+      Serial.printf(" first_input_base=%u output=%u expected=%ld actual=%ld input0=%ld weight0=%ld input31=%ld weight31=%ld",
+                    (unsigned)stats.firstPartialInputBase,
+                    (unsigned)stats.firstPartialOutput,
+                    (long)stats.firstPartialExpected,
+                    (long)stats.firstPartialActual,
+                    (long)stats.firstPartialInput0,
+                    (long)stats.firstPartialWeight0,
+                    (long)stats.firstPartialInput31,
+                    (long)stats.firstPartialWeight31);
+    Serial.println();
+  }
 }
 #else
 static void resetFc0ValidationStats() {}
