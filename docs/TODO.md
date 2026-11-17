@@ -34,3 +34,4 @@ This file contains future development work that is intentionally not part of the
 - [x] Add a serial-console `CALIBRATION` command to start touch calibration again on demand.
 - [x] Implement PGN import so a game can be loaded from PGN notation, including move parsing and validation before replacing the current game.
 - [x] Review the right-hand information panel for text that is too long and currently overlaps or extends into the chessboard. Clip text to the panel bounds.
+- [ ] Add GUI controls for the Engine-vs-Engine auto-play mode; serial-console control is the initial interface.
