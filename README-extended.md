@@ -172,7 +172,7 @@ A diagnostic-only build enables cycle counters inside the real Stockfish NNUE ev
 pio run -e freenove_stockfish_nnubench -t upload
 ```
 
-The profiler uses the same `-Os` optimization level as the baseline. It instruments the following stages on the search worker:
+The profiler uses the same `-O2` optimization level as the current baseline (verified in `platformio.ini`). It instruments the following stages on the search worker:
 
 - Accumulator update (`AccumulatorStack::evaluate`)
 - Feature transformation (both perspectives)
