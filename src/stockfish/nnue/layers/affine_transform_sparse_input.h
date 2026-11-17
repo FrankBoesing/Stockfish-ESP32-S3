@@ -458,17 +458,91 @@ class AffineTransformSparseInput {
         static_assert(32 * 127 * 128 < (1 << 19),
                       "A 32-feature FC0 chunk must fit in signed 20-bit QACC lanes");
 
+    #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+        auto& validation = Bench::fc0ValidationStats;
+        // Capture only the first FC0 call to isolate each QACC partial from
+        // errors that might occur while traversing or combining the blocks.
+        const bool inspectPartials = validation.calls == 0;
+    #endif
+
         std::memcpy(output, biases, sizeof(OutputType) * OutputDimensions);
         for (IndexType base = 0; base < InputDimensions; base += 32)
         {
             const InputType* inputChunk = input + base;
             const WeightType* weightsChunk = weights + base * OutputDimensions;
+
+        #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+            OutputType before[16];
+            if (inspectPartials)
+                std::memcpy(before, output, sizeof(before));
+        #endif
             accumulate_pie_16(inputChunk, weightsChunk, output);
+        #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+            if (inspectPartials)
+            {
+                ++validation.partialChecks;
+                for (IndexType lane = 0; lane < 16; ++lane)
+                {
+                    OutputType expected = 0;
+                    for (IndexType k = 0; k < 32; ++k)
+                        expected += static_cast<OutputType>(inputChunk[k])
+                                  * static_cast<OutputType>(weightsChunk[k * OutputDimensions + lane]);
+                    const OutputType actual = output[lane] - before[lane];
+                    if (expected != actual)
+                    {
+                        ++validation.partialMismatches;
+                        if (!validation.hasPartialMismatch)
+                        {
+                            validation.hasPartialMismatch = true;
+                            validation.firstPartialInputBase = base;
+                            validation.firstPartialOutput = lane;
+                            validation.firstPartialExpected = expected;
+                            validation.firstPartialActual = actual;
+                            validation.firstPartialInput0 = inputChunk[0];
+                            validation.firstPartialWeight0 = weightsChunk[0];
+                            validation.firstPartialInput31 = inputChunk[31];
+                            validation.firstPartialWeight31 = weightsChunk[31 * OutputDimensions];
+                        }
+                    }
+                }
+            }
+            if (inspectPartials)
+                std::memcpy(before, output + 16, sizeof(before));
+        #endif
             accumulate_pie_16(inputChunk, weightsChunk + 16, output + 16);
+        #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+            if (inspectPartials)
+            {
+                ++validation.partialChecks;
+                for (IndexType lane = 0; lane < 16; ++lane)
+                {
+                    OutputType expected = 0;
+                    for (IndexType k = 0; k < 32; ++k)
+                        expected += static_cast<OutputType>(inputChunk[k])
+                                  * static_cast<OutputType>(weightsChunk[k * OutputDimensions + 16 + lane]);
+                    const OutputType actual = output[16 + lane] - before[lane];
+                    if (expected != actual)
+                    {
+                        ++validation.partialMismatches;
+                        if (!validation.hasPartialMismatch)
+                        {
+                            validation.hasPartialMismatch = true;
+                            validation.firstPartialInputBase = base;
+                            validation.firstPartialOutput = 16 + lane;
+                            validation.firstPartialExpected = expected;
+                            validation.firstPartialActual = actual;
+                            validation.firstPartialInput0 = inputChunk[0];
+                            validation.firstPartialWeight0 = weightsChunk[16];
+                            validation.firstPartialInput31 = inputChunk[31];
+                            validation.firstPartialWeight31 = weightsChunk[31 * OutputDimensions + 16];
+                        }
+                    }
+                }
+            }
+        #endif
         }
 
     #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
-        auto& validation = Bench::fc0ValidationStats;
         ++validation.calls;
         uint64_t mismatches = 0;
         uint64_t outOfRangeInputs = 0;
