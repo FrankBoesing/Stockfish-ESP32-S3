@@ -13,6 +13,7 @@ struct GameState {
   bool hasGame;
   bool gameOver;
   bool searchInFlight;
+  bool autoPlayEnabled;
   char sideToMove;
   char playerColor;
   int selectedSkillLevel;
@@ -33,6 +34,7 @@ struct Callbacks {
   bool (*saveSkillLevel)(int level);
   void (*setOpeningBookEnabled)(bool enabled);
   void (*startNewGame)(int selectedSkillLevel, char playerColor);
+  bool (*setAutoPlay)(bool enabled);
   bool (*applyPosition)(const std::string &baseFen, GameHistory &history);
   bool (*applyMove)(const std::string &uciMove);
   void (*exportPgn)();
