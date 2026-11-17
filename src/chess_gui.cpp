@@ -787,7 +787,7 @@ static void drawBoardCoordinates() {
                           ? BoardY + BoardSize - whiteHeight
                           : BoardY + whiteHeight;
   for (int row = 0; row < 8; ++row) {
-    const int rank = playerColor == 'w' ? 7 - row : row;
+    const int rank = playerColor == 'w' ? row : 7 - row;
     const int centerY = BoardY + row * SquareSize + SquareSize / 2;
     uint16_t labelColor = ColorMuted;
     if (evalBarValid) {
