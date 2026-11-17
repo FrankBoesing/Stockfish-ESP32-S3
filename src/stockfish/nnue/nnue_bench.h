@@ -91,6 +91,19 @@ struct FC0ValidationStats {
     int32_t firstExpected;
     int32_t firstActual;
     bool hasMismatch;
+
+    // First FC0 call: compare every 32-feature PIE partial against scalar math.
+    uint64_t partialChecks;
+    uint64_t partialMismatches;
+    uint32_t firstPartialInputBase;
+    uint32_t firstPartialOutput;
+    int32_t firstPartialExpected;
+    int32_t firstPartialActual;
+    int32_t firstPartialInput0;
+    int32_t firstPartialWeight0;
+    int32_t firstPartialInput31;
+    int32_t firstPartialWeight31;
+    bool hasPartialMismatch;
 };
 
 extern FC0ValidationStats fc0ValidationStats;
