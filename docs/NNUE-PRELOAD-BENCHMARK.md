@@ -21,7 +21,7 @@ variation is available yet.
 - Board: Freenove ESP32-S3 Display FNK0104B
 - SoC: ESP32-S3, 240 MHz
 - External RAM: 8 MiB OPI PSRAM
-- Flash mode: QIO
+- Flash mode: DIO (reported by the ESP-ROM boot log for run 1)
 - Framework/toolchain recorded for the project: Arduino-ESP32 3.3.12,
   ESP-IDF 5.5.5, PlatformIO Espressif32
 - NNUE network: Stockfish 19 Smallnet P_hm,
