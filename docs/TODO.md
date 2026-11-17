@@ -6,6 +6,7 @@ This file contains future development work that is intentionally not part of the
 
 - [ ] Resume Stockfish search and NNUE performance optimization from the validated ESP32-S3 PIE baseline.
   - Re-establish repeatable search/NPS and NNUE-cycle baselines before changing the implementation.
+  - Capture and preserve the no-preload hardware reference before DCache-preload experiments; see [NNUE preload benchmark](NNUE-PRELOAD-BENCHMARK.md).
   - Profile the search hot paths, memory placement and PSRAM/internal-RAM trade-offs.
   - Revisit the current single-worker limit only if per-worker memory and stack requirements can be reduced and measured safely.
   - Review Stockfish's compiler-level `__builtin_prefetch()` hints separately from ESP32-S3 SoC cache preloading. Keep `-DNO_PREFETCH` until the Xtensa compiler output has been inspected; do not assume that removing the define will produce a useful instruction.
