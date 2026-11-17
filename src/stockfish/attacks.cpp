@@ -32,11 +32,30 @@
 
 namespace Stockfish::Attacks {
 
-Bitboard LineBB[SQUARE_NB][SQUARE_NB];
+Bitboard (*LineBB)[SQUARE_NB] = nullptr;
 Bitboard BetweenBB[SQUARE_NB][SQUARE_NB];
-Bitboard RayPassBB[SQUARE_NB][SQUARE_NB];
+// RayPassBB is currently unused and intentionally disabled.
+// Bitboard RayPassBB[SQUARE_NB][SQUARE_NB];
 
 namespace {
+
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+static void allocate_line_table() {
+    if (LineBB)
+        return;
+
+    constexpr size_t EntryCount = size_t(SQUARE_NB) * size_t(SQUARE_NB);
+    constexpr uint32_t psramCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    void* storage = heap_caps_calloc(EntryCount, sizeof(Bitboard), psramCaps);
+    if (!storage)
+        SF_FATAL_ABORT("Failed to allocate PSRAM for line attack table");
+
+    // Keep the existing two-dimensional indexing API: LineBB[square1][square2].
+    LineBB = (Bitboard (*)[SQUARE_NB])storage;
+}
+#else
+static Bitboard LineBBStorage[SQUARE_NB][SQUARE_NB];
+#endif
 
 #ifndef USE_DUAL_HYPERBOLA_QUINT
 alignas(64) Magic Magics[SQUARE_NB][2];
@@ -231,6 +250,14 @@ static std::array<Bitboard, 0x1480>  BishopTable;
 
 void init() {
 
+#if defined(ESP_PLATFORM) || defined(ARDUINO_ARCH_ESP32)
+    // LineBB is only used by selected legality/check tests, so keep its
+    // 32 KiB table in PSRAM and preserve internal DRAM for hot search data.
+    allocate_line_table();
+#else
+    LineBB = LineBBStorage;
+#endif
+
 #ifdef USE_HYPERBOLA_QUINT
     init_magics(Magics);
 #elif !defined(USE_DUAL_HYPERBOLA_QUINT)
@@ -254,8 +281,8 @@ void init() {
                     LineBB[s1][s2] = (attacks_bb(pt, s1, 0) & attacks_bb(pt, s2, 0)) | s1 | s2;
                     BetweenBB[s1][s2] =
                       (attacks_bb(pt, s1, square_bb(s2)) & attacks_bb(pt, s2, square_bb(s1)));
-                    RayPassBB[s1][s2] =
-                      attacks_bb(pt, s1, 0) & (attacks_bb(pt, s2, square_bb(s1)) | s2);
+                    // RayPassBB[s1][s2] =
+                    //   attacks_bb(pt, s1, 0) & (attacks_bb(pt, s2, square_bb(s1)) | s2);
                 }
                 BetweenBB[s1][s2] |= s2;
             }

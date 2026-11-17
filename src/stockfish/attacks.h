@@ -167,9 +167,10 @@ const Magic& magic(Square s, PieceType pt);
 
 #endif
 
-extern Bitboard LineBB[SQUARE_NB][SQUARE_NB];
+extern Bitboard (*LineBB)[SQUARE_NB];
 extern Bitboard BetweenBB[SQUARE_NB][SQUARE_NB];
-extern Bitboard RayPassBB[SQUARE_NB][SQUARE_NB];
+// RayPassBB is currently unused; keep the former table declaration disabled.
+// extern Bitboard RayPassBB[SQUARE_NB][SQUARE_NB];
 
 inline Bitboard line_bb(Square s1, Square s2) {
     assert(is_ok(s1) && is_ok(s2));
@@ -181,10 +182,13 @@ inline Bitboard between_bb(Square s1, Square s2) {
     return BetweenBB[s1][s2];
 }
 
+// RayPassBB has no current callers and is intentionally disabled.
+/*
 inline Bitboard ray_pass_bb(Square s1, Square s2) {
     assert(is_ok(s1) && is_ok(s2));
     return RayPassBB[s1][s2];
 }
+*/
 
 // Returns the bitboard of target square for the given step
 // from the given square. If the step is off the board, returns empty bitboard.
