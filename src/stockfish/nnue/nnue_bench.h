@@ -79,6 +79,24 @@ extern PieValidationStats pieValidationStats;
 
 #endif  // STOCKFISH_ESP32_S3_PIE_VALIDATE
 
+#if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+
+struct FC0ValidationStats {
+    uint64_t calls;
+    uint64_t mismatchedCalls;
+    uint64_t mismatchedElements;
+    uint64_t outOfRangeCalls;
+    uint64_t outOfRangeElements;
+    uint32_t firstMismatchIndex;
+    int32_t firstExpected;
+    int32_t firstActual;
+    bool hasMismatch;
+};
+
+extern FC0ValidationStats fc0ValidationStats;
+
+#endif  // STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE
+
 }  // namespace Stockfish::Eval::NNUE::Bench
 
 #endif  // NNUE_BENCH_H_INCLUDED
