@@ -541,7 +541,7 @@ static void executeSerialCommand() {
       Serial.println("[SERIAL] Usage: AUTOPLAY [START|STOP|STATUS]");
     } else if (action == "status") {
       const SerialConsole::GameState state = getGameState();
-      Serial.printf("[AUTO] Engine-vs-Engine is %s; %u plies; %s to move%s\\n",
+      Serial.printf("[AUTO] Engine-vs-Engine is %s; %u plies; %s to move%s\n",
                     state.autoPlayEnabled ? "ON" : "OFF",
                     unsigned(state.moveCount),
                     state.sideToMove == 'w' ? "White" : "Black",
