@@ -32,6 +32,9 @@
 #include "../simd.h"
 #include "../nnue_common.h"
 #include "../nnz_helper.h"
+#if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+#include "../nnue_bench.h"
+#endif
 
 /*
   This file contains the definition for a fully connected layer (aka affine transform) with block sparse input.
@@ -42,6 +45,9 @@ namespace Stockfish::Eval::NNUE::Layers {
 // Sparse input implementation
 template<IndexType InDims, IndexType OutDims>
 class AffineTransformSparseInput {
+    // Keep the FC0 weight type visible in member-function parameter declarations.
+    using WeightType = i8;
+
    public:
     // Input/output type
     using InputType  = u8;
@@ -438,6 +444,140 @@ class AffineTransformSparseInput {
             RVV_SPARSE_PROPAGATE(m2, m4, m8);
 
     #undef RVV_SPARSE_PROPAGATE
+#elif defined(STOCKFISH_ESP32_S3_FC0_PIE)
+        // Experimental ESP32-S3 PIE FC0 kernel. The transformed features are
+        // floor(clamp(acc0, 0, 255) * clamp(acc1, 0, 255) / 512), hence 0..127.
+        // This lets VMULAS.S8.QACC treat the u8 input as a non-negative s8 value.
+        // Each 32-feature chunk is accumulated in 20-bit QACC lanes. The worst
+        // possible negative sum is 32 * 127 * 128 = 520,192, within -524,288;
+        // the worst positive sum is 32 * 127 * 127 = 516,128, within +524,287.
+        static_assert(OutputDimensions == 32,
+                      "The experimental ESP32-S3 FC0 kernel expects 32 outputs");
+        static_assert(InputDimensions % 32 == 0,
+                      "The experimental ESP32-S3 FC0 kernel processes 32 inputs per chunk");
+        static_assert(32 * 127 * 128 < (1 << 19),
+                      "A 32-feature FC0 chunk must fit in signed 20-bit QACC lanes");
+
+    #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+        auto& validation = Bench::fc0ValidationStats;
+        // Capture only the first FC0 call to isolate each QACC partial from
+        // errors that might occur while traversing or combining the blocks.
+        const bool inspectPartials = validation.calls == 0;
+    #endif
+
+        std::memcpy(output, biases, sizeof(OutputType) * OutputDimensions);
+        for (IndexType base = 0; base < InputDimensions; base += 32)
+        {
+            const InputType* inputChunk = input + base;
+            const WeightType* weightsChunk = weights + base * OutputDimensions;
+
+        #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+            OutputType before[16];
+            if (inspectPartials)
+                std::memcpy(before, output, sizeof(before));
+        #endif
+            accumulate_pie_16(inputChunk, weightsChunk, output);
+        #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+            if (inspectPartials)
+            {
+                ++validation.partialChecks;
+                for (IndexType lane = 0; lane < 16; ++lane)
+                {
+                    OutputType expected = 0;
+                    for (IndexType k = 0; k < 32; ++k)
+                        expected += static_cast<OutputType>(inputChunk[k])
+                                  * static_cast<OutputType>(weightsChunk[k * OutputDimensions + lane]);
+                    const OutputType actual = output[lane] - before[lane];
+                    if (expected != actual)
+                    {
+                        ++validation.partialMismatches;
+                        if (!validation.hasPartialMismatch)
+                        {
+                            validation.hasPartialMismatch = true;
+                            validation.firstPartialInputBase = base;
+                            validation.firstPartialOutput = lane;
+                            validation.firstPartialExpected = expected;
+                            validation.firstPartialActual = actual;
+                            validation.firstPartialInput0 = inputChunk[0];
+                            validation.firstPartialWeight0 = weightsChunk[0];
+                            validation.firstPartialInput31 = inputChunk[31];
+                            validation.firstPartialWeight31 = weightsChunk[31 * OutputDimensions];
+                        }
+                    }
+                }
+            }
+            if (inspectPartials)
+                std::memcpy(before, output + 16, sizeof(before));
+        #endif
+            accumulate_pie_16(inputChunk, weightsChunk + 16, output + 16);
+        #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+            if (inspectPartials)
+            {
+                ++validation.partialChecks;
+                for (IndexType lane = 0; lane < 16; ++lane)
+                {
+                    OutputType expected = 0;
+                    for (IndexType k = 0; k < 32; ++k)
+                        expected += static_cast<OutputType>(inputChunk[k])
+                                  * static_cast<OutputType>(weightsChunk[k * OutputDimensions + 16 + lane]);
+                    const OutputType actual = output[16 + lane] - before[lane];
+                    if (expected != actual)
+                    {
+                        ++validation.partialMismatches;
+                        if (!validation.hasPartialMismatch)
+                        {
+                            validation.hasPartialMismatch = true;
+                            validation.firstPartialInputBase = base;
+                            validation.firstPartialOutput = 16 + lane;
+                            validation.firstPartialExpected = expected;
+                            validation.firstPartialActual = actual;
+                            validation.firstPartialInput0 = inputChunk[0];
+                            validation.firstPartialWeight0 = weightsChunk[16];
+                            validation.firstPartialInput31 = inputChunk[31];
+                            validation.firstPartialWeight31 = weightsChunk[31 * OutputDimensions + 16];
+                        }
+                    }
+                }
+            }
+        #endif
+        }
+
+    #if defined(STOCKFISH_ESP32_S3_FC0_PIE_VALIDATE)
+        ++validation.calls;
+        uint64_t mismatches = 0;
+        uint64_t outOfRangeInputs = 0;
+
+        for (IndexType i = 0; i < InputDimensions; ++i)
+            if (input[i] > 127)
+                ++outOfRangeInputs;
+
+        for (IndexType j = 0; j < OutputDimensions; ++j)
+        {
+            OutputType expected = biases[j];
+            for (IndexType i = 0; i < InputDimensions; ++i)
+                expected += static_cast<OutputType>(weights[i * OutputDimensions + j])
+                          * static_cast<OutputType>(input[i]);
+
+            if (expected != output[j])
+            {
+                if (!validation.hasMismatch)
+                {
+                    validation.hasMismatch = true;
+                    validation.firstMismatchIndex = j;
+                    validation.firstExpected = expected;
+                    validation.firstActual = output[j];
+                }
+                ++mismatches;
+            }
+        }
+
+        if (mismatches)
+            ++validation.mismatchedCalls;
+        validation.mismatchedElements += mismatches;
+        if (outOfRangeInputs)
+            ++validation.outOfRangeCalls;
+        validation.outOfRangeElements += outOfRangeInputs;
+    #endif
 #elif defined(STOCKFISH_ESP32_S3)
         // Same sparse-input dot product as the generic fallback, but use the
         // ESP32-S3 input-major weight layout to read each active input's
@@ -459,8 +599,82 @@ class AffineTransformSparseInput {
     }
 
    private:
-    using BiasType   = OutputType;
-    using WeightType = i8;
+#if defined(STOCKFISH_ESP32_S3_FC0_PIE)
+    static inline i32 extract_qacc_s20(const u32* words, IndexType lane) {
+        const IndexType bitOffset = lane * 20;
+        const IndexType wordIndex = bitOffset / 32;
+        const IndexType shift = bitOffset % 32;
+
+        uint64_t bits = words[wordIndex];
+        if (shift > 12)
+            bits |= static_cast<uint64_t>(words[wordIndex + 1]) << 32;
+        bits >>= shift;
+        bits &= 0xFFFFFU;
+
+        return (bits & 0x80000U) ? static_cast<i32>(bits) - 0x100000
+                                  : static_cast<i32>(bits);
+    }
+
+    static inline void accumulate_pie_16(const InputType* input,
+                                         const WeightType* weights,
+                                         OutputType* output) {
+        const InputType* inputPtr = input;
+        const WeightType* weightsPtr = weights;
+        u32 iterations = 32;
+
+        // QACC registers are implicit PIE state and cannot be declared as
+        // normal GCC clobbers. Keep all QR use inside this volatile block.
+        // Broadcast-load and advance one input byte per feature; each 16-weight
+        // vector load advances by the full 32-byte output row.
+        asm volatile(
+          "ee.zero.qacc\n\t"
+          "1:\n\t"
+          "ee.vldbc.8.ip q0, %[input], 1\n\t"
+          "ee.vld.128.ip q1, %[weights], 32\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "ee.vmulas.s8.qacc q0, q1\n\t"
+          "addi %[iterations], %[iterations], -1\n\t"
+          "bnez %[iterations], 1b\n\t"
+          : [input] "+&a"(inputPtr),
+            [weights] "+&a"(weightsPtr),
+            [iterations] "+&a"(iterations)
+          :
+          : "memory");
+
+        u32 low[5];
+        asm volatile(
+          "rur.qacc_l_0 %0\n\t"
+          "rur.qacc_l_1 %1\n\t"
+          "rur.qacc_l_2 %2\n\t"
+          "rur.qacc_l_3 %3\n\t"
+          "rur.qacc_l_4 %4\n\t"
+          : "=a"(low[0]), "=a"(low[1]), "=a"(low[2]), "=a"(low[3]), "=a"(low[4])
+          :
+          : "memory");
+
+        u32 high[5];
+        asm volatile(
+          "rur.qacc_h_0 %0\n\t"
+          "rur.qacc_h_1 %1\n\t"
+          "rur.qacc_h_2 %2\n\t"
+          "rur.qacc_h_3 %3\n\t"
+          "rur.qacc_h_4 %4\n\t"
+          : "=a"(high[0]), "=a"(high[1]), "=a"(high[2]), "=a"(high[3]), "=a"(high[4])
+          :
+          : "memory");
+
+        // QACC_L contains output lanes 0..7; QACC_H contains lanes 8..15.
+        for (IndexType lane = 0; lane < 8; ++lane)
+        {
+            output[lane] += extract_qacc_s20(low, lane);
+            output[lane + 8] += extract_qacc_s20(high, lane);
+        }
+    }
+
+    #endif
+
+    using BiasType = OutputType;
 
 
     alignas(CacheLineSize) BiasType biases[OutputDimensions];

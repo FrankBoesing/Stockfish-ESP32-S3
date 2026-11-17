@@ -70,11 +70,11 @@ jobs:
       - name: Run native Stockfish GUI rule regression tests
         run: bash tests/native/run_tests.sh
 
-      - name: Compile QIO firmware, profiler and parity validator
+      - name: Compile QIO firmware, profilers and parity validator
         shell: bash
         run: |
           set -euo pipefail
-          for env in freenove_stockfish_gui freenove_stockfish_compile freenove_stockfish_nnubench freenove_stockfish_pievalidate; do
+          for env in freenove_stockfish_gui freenove_stockfish_compile freenove_stockfish_nnubench freenove_stockfish_nnubench_fc0pie freenove_stockfish_pievalidate; do
             echo "===== Building $env ====="
             log="/tmp/${env}.log"
             if ! pio run -e "$env" -v > "$log" 2>&1; then
@@ -93,7 +93,7 @@ jobs:
               echo "Expected -O2 for every firmware environment in $env, got '$actual_opt'."
               exit 1
             fi
-            if [[ "$env" == "freenove_stockfish_compile" || "$env" == "freenove_stockfish_nnubench" || "$env" == "freenove_stockfish_pievalidate" ]]; then
+            if [[ "$env" == "freenove_stockfish_compile" || "$env" == "freenove_stockfish_nnubench" || "$env" == "freenove_stockfish_nnubench_fc0pie" || "$env" == "freenove_stockfish_pievalidate" ]]; then
               grep -q -- '-DSTOCKFISH_ESP32_S3_PIE=1' <<<"$command" || {
                 echo "PIE was not enabled in $env."
                 exit 1
@@ -107,16 +107,41 @@ jobs:
               echo "DIO flash / OPI PSRAM SDK variant unexpectedly selected in $env."
               exit 1
             fi
+            if [[ "$env" == "freenove_stockfish_nnubench_fc0pie" || "$env" == "freenove_stockfish_pievalidate" ]]; then
+              grep -q -- '-DSTOCKFISH_ESP32_S3_FC0_PIE=1' <<<"$command" || {
+                echo "The experimental FC0 PIE kernel was not enabled in $env."
+                exit 1
+              }
+            fi
             if [[ "$env" == "freenove_stockfish_pievalidate" ]]; then
               grep -q -- '-DSTOCKFISH_ESP32_S3_PIE_VALIDATE=1' <<<"$command" || {
-                echo "PIE parity validation was not enabled."
+                echo "Accumulator PIE parity validation was not enabled."
+                exit 1
+              }
+              grep -q -- '-DSTOCKFISH_ESP32_S3_FC0_PIE_VALIDATE=1' <<<"$command" || {
+                echo "FC0 scalar parity validation was not enabled."
                 exit 1
               }
             fi
           done
 
 
-      - name: Upload default PIE, profiler and validation artifacts
+      - name: Disassemble FC0 PIE profiler
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          elf=".pio/build/freenove_stockfish_nnubench_fc0pie/firmware.elf"
+          objdump="$(find "$HOME/.platformio/packages" -path '*/bin/xtensa-esp32s3-elf-objdump' -type f -print -quit)"
+          if [[ -z "$objdump" ]]; then
+            echo "Could not locate xtensa-esp32s3-elf-objdump."
+            exit 1
+          fi
+          "$objdump" -d -C "$elf" > .pio/build/freenove_stockfish_nnubench_fc0pie/firmware.disasm
+          echo "FC0 PIE instruction matches:"
+          grep -n -i -E 'vmulas\.s8\.qacc|vldbc\.8|vld\.128\.ip|rur\.qacc_[lh]_[04]' .pio/build/freenove_stockfish_nnubench_fc0pie/firmware.disasm | head -n 60 || true
+
+      - name: Upload default PIE, scalar/PIE profilers and validation artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -128,6 +153,11 @@ jobs:
             .pio/build/freenove_stockfish_compile/firmware.map
             .pio/build/freenove_stockfish_nnubench/firmware.bin
             .pio/build/freenove_stockfish_nnubench/firmware.map
+            .pio/build/freenove_stockfish_nnubench/firmware.elf
+            .pio/build/freenove_stockfish_nnubench_fc0pie/firmware.bin
+            .pio/build/freenove_stockfish_nnubench_fc0pie/firmware.map
+            .pio/build/freenove_stockfish_nnubench_fc0pie/firmware.elf
+            .pio/build/freenove_stockfish_nnubench_fc0pie/firmware.disasm
             .pio/build/freenove_stockfish_pievalidate/firmware.bin
             .pio/build/freenove_stockfish_pievalidate/firmware.map
           if-no-files-found: warn
