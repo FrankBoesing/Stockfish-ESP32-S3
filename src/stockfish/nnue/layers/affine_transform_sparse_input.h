@@ -624,11 +624,12 @@ class AffineTransformSparseInput {
 
         // QACC registers are implicit PIE state and cannot be declared as
         // normal GCC clobbers. Keep all QR use inside this volatile block.
-        // Each weight row is 32 bytes; this 16-output half advances by 32.
+        // Broadcast-load and advance one input byte per feature; each 16-weight
+        // vector load advances by the full 32-byte output row.
         asm volatile(
           "ee.zero.qacc\n\t"
           "1:\n\t"
-          "ee.vldbc.8 q0, %[input]\n\t"
+          "ee.vldbc.8.ip q0, %[input], 1\n\t"
           "ee.vld.128.ip q1, %[weights], 32\n\t"
           "nop\n\t"
           "nop\n\t"
