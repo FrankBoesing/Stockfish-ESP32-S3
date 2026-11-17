@@ -555,7 +555,7 @@ class AffineTransformSparseInput {
           "ee.zero.qacc\n\t"
           "1:\n\t"
           "ee.vldbc.8 q0, %[input]\n\t"
-          "ee.vld.128.ip q1, %[weights], 2\n\t"
+          "ee.vld.128.ip q1, %[weights], 32\n\t"
           "ee.vmulas.s8.qacc q0, q1\n\t"
           "addi %[iterations], %[iterations], -1\n\t"
           "bnez %[iterations], 1b\n\t"
