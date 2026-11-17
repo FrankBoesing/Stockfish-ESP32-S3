@@ -1692,15 +1692,17 @@ static void startNewGame() {
 }
 
 static void undoMove() {
-  if (searchInFlight)
-    stopSearch();
-
+  // A no-op undo must not interrupt an active engine search. This matters
+  // especially at ply zero when Engine-vs-Engine auto-play has just started.
   if (!ChessGuiRules::undoEnabled(gameHistory.size())) {
     setStatus("Nothing to undo");
     if (screen == Screen::Game)
       drawGamePanelInfo();
     return;
   }
+
+  if (searchInFlight)
+    stopSearch();
 
   const int oldLastFrom = lastFrom, oldLastTo = lastTo;
   const int oldHintFrom = hintFrom, oldHintTo = hintTo;
