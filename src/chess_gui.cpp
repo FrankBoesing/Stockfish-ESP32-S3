@@ -2729,15 +2729,35 @@ static bool parsePgnImport(const std::string &pgn, std::string &baseFen,
   for (size_t i = 0; i < pgn.size(); ++i) {
     const char ch = pgn[i];
     if (inBraceComment) {
-      if (ch == '}') inBraceComment = false;
+      if (ch == '}') {
+        inBraceComment = false;
+        // A brace comment can be adjacent to SAN tokens without whitespace
+        // (for example, "e4{note}e5"). Preserve the token boundary.
+        if (variationDepth == 0)
+          moveText.push_back(' ');
+      }
       continue;
     }
     if (inLineComment) {
-      if (ch == '\n' || ch == '\r') inLineComment = false;
+      if (ch == '\n' || ch == '\r') {
+        inLineComment = false;
+        if (variationDepth == 0)
+          moveText.push_back(' ');
+      }
       continue;
     }
-    if (ch == '{') { inBraceComment = true; continue; }
-    if (ch == ';') { inLineComment = true; continue; }
+    if (ch == '{') {
+      if (variationDepth == 0)
+        moveText.push_back(' ');
+      inBraceComment = true;
+      continue;
+    }
+    if (ch == ';') {
+      if (variationDepth == 0)
+        moveText.push_back(' ');
+      inLineComment = true;
+      continue;
+    }
     if (ch == '(') { ++variationDepth; continue; }
     if (ch == ')') {
       if (variationDepth == 0) {
