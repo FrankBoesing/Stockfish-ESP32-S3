@@ -167,7 +167,7 @@ const Magic& magic(Square s, PieceType pt);
 
 #endif
 
-extern Bitboard (*LineBB)[SQUARE_NB];
+extern Bitboard LineBB[SQUARE_NB][SQUARE_NB];
 extern Bitboard BetweenBB[SQUARE_NB][SQUARE_NB];
 // RayPassBB is currently unused; keep the former table declaration disabled.
 // extern Bitboard RayPassBB[SQUARE_NB][SQUARE_NB];
