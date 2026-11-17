@@ -45,6 +45,9 @@ namespace Stockfish::Eval::NNUE::Layers {
 // Sparse input implementation
 template<IndexType InDims, IndexType OutDims>
 class AffineTransformSparseInput {
+    // Keep the FC0 weight type visible in member-function parameter declarations.
+    using WeightType = i8;
+
    public:
     // Input/output type
     using InputType  = u8;
@@ -594,8 +597,7 @@ class AffineTransformSparseInput {
 
     #endif
 
-    using BiasType   = OutputType;
-    using WeightType = i8;
+    using BiasType = OutputType;
 
 
     alignas(CacheLineSize) BiasType biases[OutputDimensions];
