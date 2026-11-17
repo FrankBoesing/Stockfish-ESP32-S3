@@ -6,13 +6,17 @@ This document records the no-preload hardware reference for later ESP32-S3
 DCache-preload experiments. The reference must be captured before any manual
 preload code is added. Keep the raw serial logs with the experiment notes.
 
-**Status: awaiting the first hardware capture.** No new benchmark numbers are
-claimed in this revision.
+**Status: baseline run 1 of 3 captured; two additional runs are pending.**
+Only the first hardware capture is recorded so far. No median or run-to-run
+variation is available yet.
 
 ## Frozen software configuration
 
 - Repository: `FrankBoesing/Stockfish-ESP32-S3`
 - Reference source revision: `3bef1021887a0044e5ad50a276e8630452d1c63e`
+  (intended benchmark revision; the supplied serial output does not print a
+  Git SHA, so the flashed binary's exact source revision is not independently
+  verifiable from this capture)
 - Branch at reference setup: `main`
 - Board: Freenove ESP32-S3 Display FNK0104B
 - SoC: ESP32-S3, 240 MHz
@@ -24,7 +28,7 @@ claimed in this revision.
   `nn-61e7af4bb97d.nnue`, architecture `(768, 1024, 32, 32, 1)`
 - Search configuration: one worker, 1 MiB hash
 - Build environment: `freenove_stockfish_nnubench`
-- Optimization: `-O2` (verified in the current `platformio.ini`)
+- Optimization: `-O2` (verified in the reference `platformio.ini`)
 - Relevant defines: `NO_PREFETCH`, `STOCKFISH_ESP32_S3_PIE=1`,
   `STOCKFISH_NNUE_BENCHMARK=1`
 - Manual ESP32-S3 DCache preload: **disabled / not present**
@@ -80,47 +84,91 @@ percentages together.
 
 ## Hardware results
 
-The following tables are intentionally unfilled until real FNK0104B serial
-logs have been captured. Values must be copied from the board output; do not
-estimate or substitute historical NPS values from a different build.
-
 ### Search results
 
-| Run | Test | Nodes | Depth | NPS | Best move |
-|---:|---|---:|---:|---:|---|
-| 1 | Start position | pending | pending | pending | pending |
-| 1 | Kiwipete | pending | pending | pending | pending |
-| 1 | 5-second search | pending | pending | pending | pending |
-| 2 | Start position | pending | pending | pending | pending |
-| 2 | Kiwipete | pending | pending | pending | pending |
-| 2 | 5-second search | pending | pending | pending | pending |
-| 3 | Start position | pending | pending | pending | pending |
-| 3 | Kiwipete | pending | pending | pending | pending |
-| 3 | 5-second search | pending | pending | pending | pending |
-| Median | Start position | pending | pending | pending | — |
-| Median | Kiwipete | pending | pending | pending | — |
-| Median | 5-second search | pending | pending | pending | — |
+Run 1 is the first complete serial capture supplied for this benchmark. The
+30,000-node searches ended at 30,040 and 30,007 nodes respectively; the
+reported values are retained exactly as emitted by the firmware.
+
+| Run | Test | Nodes | Depth | NPS | Best move | Ponder |
+|---:|---|---:|---:|---:|---|---|
+| 1 | Start position | 30,040 | 13 | 1,526 | e2e4 | e7e6 |
+| 1 | Kiwipete | 30,007 | 11 | 1,568 | d5e6 | a6e2 |
+| 1 | 5-second search | 10,703 | 14 | 2,034 | e2e4 | e7e6 |
+| 2 | Start position | pending | pending | pending | pending | pending |
+| 2 | Kiwipete | pending | pending | pending | pending | pending |
+| 2 | 5-second search | pending | pending | pending | pending | pending |
+| 3 | Start position | pending | pending | pending | pending | pending |
+| 3 | Kiwipete | pending | pending | pending | pending | pending |
+| 3 | 5-second search | pending | pending | pending | pending | pending |
+| Median | Start position | pending | pending | pending | — | — |
+| Median | Kiwipete | pending | pending | pending | — | — |
+| Median | 5-second search | pending | pending | pending | — | — |
 
 ### NNUE cycle results
 
-Populate these from the matching `[NNUEBENCH]` output for each test. Record
-both average cycles per call and call counts; averages alone can hide a changed
-number of accumulator updates.
+Values below are average cycles per evaluation. The selected accumulator
+counters also include calls so changes in call count remain visible.
 
-| Run | Test | eval cycles/eval | accum-update-both avg/calls | accum-main-loop avg/calls | accum-pie-loop avg/calls |
-|---:|---|---:|---:|---:|---:|
-| 1 | Start position | pending | pending | pending | pending |
-| 1 | Kiwipete | pending | pending | pending | pending |
-| 1 | 5-second search | pending | pending | pending | pending |
-| 2 | Start position | pending | pending | pending | pending |
-| 2 | Kiwipete | pending | pending | pending | pending |
-| 2 | 5-second search | pending | pending | pending | pending |
-| 3 | Start position | pending | pending | pending | pending |
-| 3 | Kiwipete | pending | pending | pending | pending |
-| 3 | 5-second search | pending | pending | pending | pending |
-| Median | Start position | pending | pending | pending | pending |
-| Median | Kiwipete | pending | pending | pending | pending |
-| Median | 5-second search | pending | pending | pending | pending |
+| Run | Test | Evaluations | Evaluation cycles/eval | accum-update-both avg/calls | accum-main-loop avg/calls | accum-pie-loop avg/calls |
+|---:|---|---:|---:|---:|---:|---:|
+| 1 | Start position | 15,875 | 205,389 | 68,385 / 20,772 | 32,043 / 41,845 | 31,719 / 41,845 |
+| 1 | Kiwipete | 12,976 | 254,617 | 77,230 / 16,777 | 36,304 / 35,108 | 35,955 / 35,108 |
+| 1 | 5-second search | 3,491 | 226,424 | 70,048 / 5,168 | 32,846 / 10,406 | 32,509 / 10,406 |
+| 2 | Start position | pending | pending | pending | pending | pending |
+| 2 | Kiwipete | pending | pending | pending | pending | pending |
+| 2 | 5-second search | pending | pending | pending | pending | pending |
+| 3 | Start position | pending | pending | pending | pending | pending |
+| 3 | Kiwipete | pending | pending | pending | pending | pending |
+| 3 | 5-second search | pending | pending | pending | pending | pending |
+| Median | Start position | pending | pending | pending | pending | pending |
+| Median | Kiwipete | pending | pending | pending | pending | pending |
+| Median | 5-second search | pending | pending | pending | pending | pending |
+
+### Complete NNUE counters — run 1
+
+Each cell contains `average cycles/call; calls; reported share`. Shares are
+copied from the firmware output. Since counters are nested, shares across
+rows must not be summed.
+
+| Counter | Start position | Kiwipete | 5-second search |
+|---|---:|---:|---:|
+| accumulator | 102,520; 15,875; 49.9% | 142,113; 12,976; 55.8% | 121,609; 3,491; 53.7% |
+| feature-transform | 15,759; 15,875; 7.6% | 15,989; 12,976; 6.2% | 15,892; 3,491; 7.0% |
+| fc0 | 64,181; 15,875; 31.2% | 71,149; 12,976; 27.9% | 65,039; 3,491; 28.7% |
+| sqr-relu0 | 813; 15,875; 0.3% | 827; 12,976; 0.3% | 847; 3,491; 0.3% |
+| clip-relu0 | 333; 15,875; 0.1% | 344; 12,976; 0.1% | 346; 3,491; 0.1% |
+| fc1 | 16,383; 15,875; 7.9% | 18,565; 12,976; 7.2% | 16,940; 3,491; 7.4% |
+| sqr-relu1 | 748; 15,875; 0.3% | 776; 12,976; 0.3% | 783; 3,491; 0.3% |
+| clip-relu1 | 349; 15,875; 0.1% | 363; 12,976; 0.1% | 369; 3,491; 0.1% |
+| fc2 | 2,851; 15,875; 1.3% | 3,000; 12,976; 1.1% | 2,917; 3,491; 1.2% |
+| evaluation-total | 205,389; 15,875; 100.0% | 254,617; 12,976; 100.0% | 226,424; 3,491; 100.0% |
+| accum-find-last | 840; 15,875; 0.4% | 894; 12,976; 0.3% | 962; 3,491; 0.4% |
+| accum-forward | 55,926; 186; 0.3% | 72,563; 681; 1.4% | 53,816; 38; 0.2% |
+| accum-backward | 2,610; 190; 0.0% | 8,573; 683; 0.1% | 6,348; 40; 0.0% |
+| accum-forward-both | 93,056; 15,687; 44.7% | 108,386; 12,294; 40.3% | 107,643; 3,452; 47.0% |
+| accum-refresh-cache | 675,810; 190; 3.9% | 631,156; 683; 13.0% | 1,087,604; 40; 5.5% |
+| accum-build-indices | 1,565; 20,772; 0.9% | 1,604; 16,777; 0.8% | 1,591; 5,168; 1.0% |
+| accum-main-loop | 32,043; 41,845; 41.1% | 36,304; 35,108; 38.5% | 32,846; 10,406; 43.2% |
+| accum-psqt-loop | 1,022; 41,845; 1.3% | 1,105; 35,108; 1.1% | 1,015; 10,406; 1.3% |
+| accum-update-both | 68,385; 20,772; 43.5% | 77,230; 16,777; 39.2% | 70,048; 5,168; 45.7% |
+| accum-pie-loop | 31,719; 41,845; 40.7% | 35,955; 35,108; 38.2% | 32,509; 10,406; 42.7% |
+
+## Initial interpretation — run 1 only
+
+The accumulator path is a substantial part of the measured NNUE evaluation.
+The reported `accum-pie-loop` average is approximately 31.7k–36.0k cycles
+per call in these three tests. This makes the accumulator path a reasonable
+target for a carefully isolated DCache-preload overlap experiment.
+
+This is **not evidence that manual preloading will improve performance**.
+The measurements are only one run, and no preload variant has been measured.
+In particular, do not infer a speedup from the counter shares alone.
+
+The reported `accum-refresh-cache` average is based on relatively few calls
+(190, 683 and 40 respectively); it is therefore especially sensitive to
+individual cache-refresh events and should not be treated as a stable
+per-evaluation cost from this single capture.
 
 ## Interpretation rules for later experiments
 
@@ -137,8 +185,13 @@ number of accumulator updates.
 
 ## Raw logs and follow-up
 
-Attach or paste the three complete serial logs in the development conversation.
-After they are checked, replace the pending cells above with the measured
-values and add the raw-log filenames / checksums if the logs are stored outside
-the repository. This document then becomes the immutable no-preload comparison
-point for subsequent A/B experiments.
+Run 1 was supplied as a complete serial text capture in the development
+conversation. No separate raw-log file or checksum has been added to the
+repository yet. Keep the original capture outside the repository or attach it
+as a file so the exact run can be recovered.
+
+After runs 2 and 3 are checked, replace the pending cells above with measured
+values and calculate medians independently for each test and metric. Add the
+raw-log filenames / checksums if the logs are stored outside the repository.
+This document then becomes the no-preload comparison point for subsequent
+A/B experiments.
