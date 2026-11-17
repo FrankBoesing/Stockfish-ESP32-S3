@@ -1,0 +1,45 @@
+# Kopiere diese Datei nach config.toml und passe die Werte an.
+# config.toml ist absichtlich in .gitignore eingetragen.
+
+[lichess]
+# Der Benutzername muss exakt zum Bot-Konto des Tokens gehören.
+username = "YOUR_BOT_USERNAME"
+# Das Token wird aus dieser Umgebungsvariable gelesen, nicht aus dieser Datei.
+token_env = "LICHESS_TOKEN"
+base_url = "https://lichess.org"
+
+[opponent]
+# Nur dieses Konto darf herausgefordert bzw. als Herausforderer angenommen werden.
+allowed_username = "THE_OTHER_BOT_USERNAME"
+# CHALLENGE: Dieses Konto startet die Partie.
+# ACCEPT: Dieses Konto nimmt eine eingehende Challenge des erlaubten Gegners an.
+role = "CHALLENGE"
+
+[serial]
+# Beispiele: COM5 (Windows), /dev/cu.usbmodemXXXX (macOS), /dev/ttyACM0 (Linux)
+port = "COM5"
+baudrate = 115200
+
+[game]
+variant = "standard"
+rated = false
+initial_time_seconds = 300
+increment_seconds = 3
+# Schätzung der restlichen Partie zur Aufteilung der Bedenkzeit.
+moves_to_go = 30
+# Fester Abstand zur Flagge, der nicht an die MCU weitergegeben wird.
+safety_margin_ms = 1800
+# Anteil des berechneten Zugbudgets, den die MCU höchstens ausnutzen soll.
+move_time_factor = 0.85
+min_move_time_ms = 100
+max_move_time_ms = 20000
+
+[timeouts]
+serial_ready_seconds = 12
+serial_command_seconds = 8
+move_extra_seconds = 5
+reconnect_seconds = 3
+api_retries = 2
+
+[logging]
+level = "INFO"

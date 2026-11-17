@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "microcontroller-chess-lichess-bridge"
+version = "0.1.0"
+description = "Serial bridge between microcontroller chess engines and the Lichess Bot API"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27,<1",
+  "pyserial>=3.5,<4",
+  "python-chess>=1.999,<2",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+lichess-bridge = "bridge:main"
+
+[tool.setuptools]
+py-modules = [
+  "bridge", "bridge_app", "chess_controller", "config", "lichess_client",
+  "protocol", "serial_client"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
