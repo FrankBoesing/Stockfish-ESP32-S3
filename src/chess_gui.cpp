@@ -188,6 +188,8 @@ int hintTo = -1;
 bool hasGame = false;
 bool gameOver = false;
 bool searchInFlight = false;
+// Runtime-only mode: deliberately not written to NVS or restored after reboot.
+bool autoPlayEnabled = false;
 constexpr uint32_t BookMovePauseMs = 500;
 bool pendingBookMove = false;
 uint32_t pendingBookMoveStarted = 0;
@@ -526,7 +528,10 @@ static bool updateGameStatusFromPosition() {
   const ChessGuiRules::GameOutcome outcome =
     ChessGuiRules::classifyGame(position, sideToMove(), playerColor);
   gameOver = ChessGuiRules::isTerminal(outcome);
-  setStatus(ChessGuiRules::statusText(outcome));
+  if (autoPlayEnabled && !position.hasLegalMoves && position.inCheck)
+    setStatus(sideToMove() == 'w' ? "Black wins" : "White wins");
+  else
+    setStatus(ChessGuiRules::statusText(outcome));
   return gameOver;
 }
 
@@ -830,7 +835,11 @@ static void drawGamePanelInfo() {
 
   const char *turnText = gameOver ? "Game over"
                        : searchInFlight
-                           ? (searchMode == SearchMode::Evaluation ? "Evaluating" : "Thinking")
+                           ? (searchMode == SearchMode::Evaluation ? "Evaluating"
+                              : autoPlayEnabled
+                                  ? (sideToMove() == 'w' ? "White thinking" : "Black thinking")
+                                  : "Thinking")
+                       : autoPlayEnabled ? "Auto-play"
                        : sideToMove() == playerColor ? "Your move" : "Engine";
   drawPanelText(turnText, x + 1, 56, w - 2, 20,
                 searchInFlight ? ColorOrange : ColorText,
@@ -1418,7 +1427,7 @@ static void showCurrentGame() {
   if (gameOver)
     return;
 
-  if (sideToMove() != playerColor)
+  if (autoPlayEnabled || sideToMove() != playerColor)
     startSearch(SearchMode::EngineMove);
   else
     startSearch(SearchMode::Evaluation);
@@ -1458,6 +1467,10 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
     searchMode = SearchMode::None;
     if (!updateGameStatusFromPosition())
       setStatus("Search ended");
+    if (autoPlayEnabled) {
+      autoPlayEnabled = false;
+      Serial.println(gameOver ? "[AUTO] Game finished" : "[AUTO] Stopped: no best move");
+    }
     if (screen == Screen::Game)
       drawGamePanelInfo();
     return;
@@ -1504,6 +1517,7 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
     char oldBoard[64];
     memcpy(oldBoard, board, sizeof(board));
 
+    bool moveApplied = false;
     if (!gameHistory.appendUci(bestMove)) {
       setStatus("History full");
     } else if (!syncEnginePosition()) {
@@ -1511,16 +1525,23 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
       syncEnginePosition();
       setStatus("Engine move error");
     } else {
+      moveApplied = true;
       logAcceptedMove(actor, movingSide, bestMove);
       updateGameStatusFromPosition();
       saveGameToNvs();
     }
     searchMode = SearchMode::None;
+    if (autoPlayEnabled && (!moveApplied || gameOver)) {
+      autoPlayEnabled = false;
+      Serial.println(moveApplied ? "[AUTO] Game finished" : "[AUTO] Stopped: move could not be applied");
+    }
     if (screen == Screen::Game) {
       drawChangedBoardSquares(oldBoard, oldLastFrom, oldLastTo,
                               oldHintFrom, oldHintTo, oldSelected);
       drawGamePanelInfo();
     }
+    if (autoPlayEnabled && moveApplied && !gameOver)
+      startSearch(SearchMode::EngineMove);
   }
 }
 
@@ -1635,6 +1656,7 @@ static void pollPendingBookMove() {
 
 static void startNewGame() {
   stopSearch();
+  autoPlayEnabled = false;
   engine->search_clear();
   skillLevel = selectedSkillLevel;
   gameHistory.clear();
@@ -1709,7 +1731,7 @@ static void undoMove() {
     drawGamePanelInfo();
   }
 
-  if (sideToMove() != playerColor)
+  if (autoPlayEnabled || sideToMove() != playerColor)
     startSearch(SearchMode::EngineMove);
   else
     startSearch(SearchMode::Evaluation);
@@ -1841,7 +1863,7 @@ static int screenToSquare(int x, int y) {
 }
 
 static void handleBoardTouch(int x, int y) {
-  if (searchInFlight)
+  if (searchInFlight || autoPlayEnabled)
     return;
 
   const int panelX = PanelX;
@@ -2028,6 +2050,7 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
   const std::string previousBaseFen = gameBaseFen;
   const bool previousHadGame = hasGame;
 
+  autoPlayEnabled = false;
   stopSearch();
   const auto error = engine->set_position(baseFen, &candidateHistory,
                                           candidateHistory.size(), readGameHistoryMove);
@@ -2655,6 +2678,7 @@ static bool importPgn(const std::string &pgn) {
   const std::string previousBaseFen = gameBaseFen;
   const char previousPlayerColor = playerColor;
   const bool previousHadGame = hasGame;
+  autoPlayEnabled = false;
   stopSearch();
   const auto positionError = engine->set_position(baseFen, &candidateHistory,
                                                    candidateHistory.size(), readGameHistoryMove);
@@ -2843,6 +2867,7 @@ static void getSerialConsoleState(SerialConsole::GameState &state) {
   state.hasGame = hasGame;
   state.gameOver = gameOver;
   state.searchInFlight = searchInFlight;
+  state.autoPlayEnabled = autoPlayEnabled;
   state.sideToMove = sideToMove();
   state.playerColor = playerColor;
   state.selectedSkillLevel = selectedSkillLevel;
@@ -2869,6 +2894,7 @@ static void serialStartHint() {
 }
 
 static void serialStartCalibration() {
+  autoPlayEnabled = false;
   stopSearch();
   beginTouchCalibration();
 }
@@ -2886,6 +2912,46 @@ static void serialStartNewGame(int requestedSkillLevel, char requestedPlayerColo
   selectedSkillLevel = requestedSkillLevel;
   playerColor = requestedPlayerColor;
   startNewGame();
+}
+
+static bool serialSetAutoPlay(bool enabled) {
+  if (enabled) {
+    if (!hasGame) {
+      Serial.println("[AUTO] ERROR: no active game");
+      return false;
+    }
+    if (gameOver) {
+      Serial.println("[AUTO] ERROR: game is already over");
+      return false;
+    }
+
+    autoPlayEnabled = true;
+    // Replace a passive evaluation or hint with a move search. An existing
+    // engine move is allowed to finish; its result will continue the game.
+    if (searchInFlight && searchMode != SearchMode::EngineMove)
+      stopSearch();
+    if (!searchInFlight)
+      startSearch(SearchMode::EngineMove);
+    if (screen == Screen::Game)
+      drawGamePanelInfo();
+    return true;
+  }
+
+  const bool wasEnabled = autoPlayEnabled;
+  autoPlayEnabled = false;
+  if (wasEnabled && searchInFlight && searchMode == SearchMode::EngineMove)
+    stopSearch();
+
+  // Return to the normal human-vs-engine turn policy after stopping auto-play.
+  if (wasEnabled && hasGame && !gameOver && !searchInFlight) {
+    if (sideToMove() != playerColor)
+      startSearch(SearchMode::EngineMove);
+    else
+      startSearch(SearchMode::Evaluation);
+  }
+  if (screen == Screen::Game)
+    drawGamePanelInfo();
+  return true;
 }
 
 static bool serialApplyPosition(const std::string &baseFen, GameHistory &history) {
@@ -2915,6 +2981,7 @@ static const SerialConsole::Callbacks serialConsoleCallbacks = {
   serialSaveSkillLevel,
   serialSetOpeningBookEnabled,
   serialStartNewGame,
+  serialSetAutoPlay,
   serialApplyPosition,
   serialApplyMove,
   serialExportPgn,
