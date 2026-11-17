@@ -107,9 +107,19 @@ jobs:
               echo "DIO flash / OPI PSRAM SDK variant unexpectedly selected in $env."
               exit 1
             fi
+            if [[ "$env" == "freenove_stockfish_nnubench" || "$env" == "freenove_stockfish_pievalidate" ]]; then
+              grep -q -- '-DSTOCKFISH_ESP32_S3_FC0_PIE=1' <<<"$command" || {
+                echo "The experimental FC0 PIE kernel was not enabled in $env."
+                exit 1
+              }
+            fi
             if [[ "$env" == "freenove_stockfish_pievalidate" ]]; then
               grep -q -- '-DSTOCKFISH_ESP32_S3_PIE_VALIDATE=1' <<<"$command" || {
-                echo "PIE parity validation was not enabled."
+                echo "Accumulator PIE parity validation was not enabled."
+                exit 1
+              }
+              grep -q -- '-DSTOCKFISH_ESP32_S3_FC0_PIE_VALIDATE=1' <<<"$command" || {
+                echo "FC0 scalar parity validation was not enabled."
                 exit 1
               }
             fi
