@@ -590,6 +590,8 @@ class AffineTransformSparseInput {
             output[lane] += extract_qacc_s20(low, lane);
             output[lane + 8] += extract_qacc_s20(high, lane);
         }
+    }
+
     #endif
 
     using BiasType   = OutputType;
