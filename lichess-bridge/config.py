@@ -72,7 +72,7 @@ class BridgeConfig:
         value = os.getenv(self.lichess.token_env, "").strip()
         if not value:
             raise ConfigError(
-                f"Die Umgebungsvariable {self.lichess.token_env!r} ist nicht gesetzt."
+                f"Environment variable {self.lichess.token_env!r} is not set."
             )
         return value
 
@@ -80,14 +80,14 @@ class BridgeConfig:
 def _section(raw: dict, name: str) -> dict:
     value = raw.get(name, {})
     if not isinstance(value, dict):
-        raise ConfigError(f"[{name}] muss ein TOML-Tabellenabschnitt sein.")
+        raise ConfigError(f"[{name}] must be a TOML table.")
     return value
 
 
 def _required(section: dict, key: str, section_name: str) -> str:
     value = section.get(key)
     if not isinstance(value, str) or not value.strip():
-        raise ConfigError(f"[{section_name}].{key} muss als nichtleerer Text angegeben werden.")
+        raise ConfigError(f"[{section_name}].{key} must be a non-empty string.")
     return value.strip()
 
 
@@ -95,18 +95,18 @@ def load_config(path: str | Path) -> BridgeConfig:
     config_path = Path(path)
     if not config_path.is_file():
         raise ConfigError(
-            f"Konfigurationsdatei nicht gefunden: {config_path}. "
-            "Kopiere config.example.toml nach config.toml."
+            f"Configuration file not found: {config_path}. "
+            "Copy config.example.toml to config.toml."
         )
 
     try:
         with config_path.open("rb") as handle:
             raw = tomllib.load(handle)
     except tomllib.TOMLDecodeError as exc:
-        raise ConfigError(f"Ungültige TOML-Konfiguration: {exc}") from exc
+        raise ConfigError(f"Invalid TOML configuration: {exc}") from exc
 
     if not isinstance(raw, dict):
-        raise ConfigError("Die Konfigurationsdatei muss eine TOML-Tabelle enthalten.")
+        raise ConfigError("The configuration file must contain a TOML table.")
     lichess_raw = _section(raw, "lichess")
     opponent_raw = _section(raw, "opponent")
     serial_raw = _section(raw, "serial")
@@ -116,7 +116,7 @@ def load_config(path: str | Path) -> BridgeConfig:
 
     rated_raw = game_raw.get("rated", False)
     if not isinstance(rated_raw, bool):
-        raise ConfigError("[game].rated muss true oder false sein.")
+        raise ConfigError("[game].rated must be true or false.")
 
     lichess = LichessConfig(
         username=_required(lichess_raw, "username", "lichess"),
@@ -152,32 +152,32 @@ def load_config(path: str | Path) -> BridgeConfig:
     logging = LoggingConfig(level=str(logging_raw.get("level", "INFO")).upper())
 
     if not lichess.token_env:
-        raise ConfigError("[lichess].token_env darf nicht leer sein.")
+        raise ConfigError("[lichess].token_env must not be empty.")
     if not lichess.base_url.startswith(("https://", "http://")):
-        raise ConfigError("[lichess].base_url muss eine HTTP(S)-URL sein.")
+        raise ConfigError("[lichess].base_url must be an HTTP(S) URL.")
     if opponent.role not in {"CHALLENGE", "ACCEPT"}:
-        raise ConfigError("[opponent].role muss CHALLENGE oder ACCEPT sein.")
+        raise ConfigError("[opponent].role must be CHALLENGE or ACCEPT.")
     if game.variant != "standard":
-        raise ConfigError("Version 1 unterstützt ausschließlich [game].variant = 'standard'.")
+        raise ConfigError("Version 1 supports only [game].variant = 'standard'.")
     if game.initial_time_seconds < 1 or game.increment_seconds < 0:
-        raise ConfigError("Bedenkzeit muss positiv und Inkrement darf nicht negativ sein.")
+        raise ConfigError("Initial time must be positive and the increment must not be negative.")
     if game.moves_to_go < 1:
-        raise ConfigError("[game].moves_to_go muss mindestens 1 sein.")
+        raise ConfigError("[game].moves_to_go must be at least 1.")
     if game.safety_margin_ms < 0:
-        raise ConfigError("[game].safety_margin_ms darf nicht negativ sein.")
+        raise ConfigError("[game].safety_margin_ms must not be negative.")
     if not 0 < game.move_time_factor <= 1:
-        raise ConfigError("[game].move_time_factor muss größer 0 und höchstens 1 sein.")
+        raise ConfigError("[game].move_time_factor must be greater than 0 and at most 1.")
     if game.min_move_time_ms < 1 or game.max_move_time_ms < game.min_move_time_ms:
-        raise ConfigError("Ungültige min_move_time_ms/max_move_time_ms-Konfiguration.")
+        raise ConfigError("Invalid min_move_time_ms/max_move_time_ms configuration.")
     if serial.baudrate < 1200:
-        raise ConfigError("[serial].baudrate ist unplausibel niedrig.")
+        raise ConfigError("[serial].baudrate is implausibly low.")
     if timeouts.serial_ready_seconds <= 0 or timeouts.serial_command_seconds <= 0:
-        raise ConfigError("Serielle Timeouts müssen größer 0 sein.")
+        raise ConfigError("Serial timeouts must be greater than 0.")
     if timeouts.move_extra_seconds < 0 or timeouts.reconnect_seconds < 0:
-        raise ConfigError("Move- und Reconnect-Timeouts dürfen nicht negativ sein.")
+        raise ConfigError("Move and reconnect timeouts must not be negative.")
     if timeouts.api_retries < 0:
-        raise ConfigError("[timeouts].api_retries darf nicht negativ sein.")
+        raise ConfigError("[timeouts].api_retries must not be negative.")
     if logging.level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-        raise ConfigError("[logging].level muss DEBUG, INFO, WARNING, ERROR oder CRITICAL sein.")
+        raise ConfigError("[logging].level must be DEBUG, INFO, WARNING, ERROR, or CRITICAL.")
 
     return BridgeConfig(lichess, opponent, serial, game, timeouts, logging)
