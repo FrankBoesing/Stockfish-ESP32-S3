@@ -1,8 +1,10 @@
 # Microcontroller Chess – Lichess Bridge
 
-Eigenständige Python-Bridge für zwei räumlich getrennte Microcontroller-Schachcomputer. Jeder Standort betreibt eine eigene Instanz; beide PCs kommunizieren ausschließlich über Lichess.
+[English](README.md) | [Deutsch](README-de.md)
 
-## Architektur
+A standalone Python bridge for two geographically separated microcontroller-based chess computers. Each location runs its own bridge instance; the two PCs communicate exclusively through Lichess.
+
+## Architecture
 
 ```text
 PC A → Python Bridge A → Lichess Bot A
@@ -13,22 +15,25 @@ PC B → Python Bridge B → Lichess Bot B
 Chess-MCU A               Chess-MCU B
 ```
 
-Es gibt keine direkte Verbindung zwischen den PCs. Jeder Standort besitzt nur das Token seines eigenen Bot-Kontos.
+There is no direct connection between the PCs. Each location holds only the token for its own bot account.
 
-**Wichtig:** Für Engine-Partien ist ausschließlich die offizielle Lichess Bot API vorgesehen, nicht die Board API. Bot-Konten dürfen nur Challenge-Partien spielen, keine Pools oder Turniere. Die Hochstufung eines normalen Kontos zu einem Bot-Konto ist irreversibel. Dafür sollten zwei eigens angelegte Konten verwendet werden, die noch keine Partie gespielt haben. UltraBullet wird nicht unterstützt. Beachte die [Lichess Fair-Play-Regeln](https://lichess.org/page/fair-play).
+**Important:** Engine games must use the official Lichess Bot API, not the Board API. BOT accounts may play challenge games, but not pools or tournaments. Upgrading a regular account to a BOT account is irreversible. Use dedicated accounts that have not played any games before the upgrade. UltraBullet is not supported. Follow the [Lichess Fair Play rules](https://lichess.org/page/fair-play).
 
-## Voraussetzungen
+## Requirements
 
-- Python 3.11 oder neuer
-- Internetzugriff auf https://lichess.org
-- Ein dediziertes Bot-Konto pro Schachcomputer
-- Stockfish-ESP32-S3-Firmware mit dem integrierten Protokollmodus `BOTMODE` (siehe [docs/serial-protocol.md](docs/serial-protocol.md))
+- Python 3.11 or newer
+- Internet access to https://lichess.org
+- One dedicated Lichess BOT account per chess computer
+- MCU firmware implementing the `BOTMODE` serial protocol (see [serial protocol specification](docs/serial-protocol-en.md) and the [MCU integration guide](docs/integration-guide-en.md))
+
+The reference firmware implementation is currently provided for the Stockfish-ESP32-S3 PlatformIO environment `freenove_stockfish_gui`. Other firmware targets must implement the serial protocol themselves.
 
 ## Installation
 
-Im entpackten Projektverzeichnis:
+Run these commands from the extracted project directory.
 
 **Windows PowerShell**
+
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -38,6 +43,7 @@ Copy-Item config.example.toml config.toml
 ```
 
 **macOS / Linux**
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -46,94 +52,106 @@ python -m pip install -e '.[test]'
 cp config.example.toml config.toml
 ```
 
-## Lichess-Bot-Konten und Tokens
+## Lichess BOT accounts and API tokens
 
-Für den vollständigen Ablauf – einschließlich Registrierung, Gmail-Plus-Alias als nicht garantierter Versuch, Token-Erzeugung, unwiderruflicher BOT-Hochstufung und Kontrolle – siehe [docs/ACCOUNT-SETUP-DE.md](docs/ACCOUNT-SETUP-DE.md).
+For the full account setup procedure—including registration, the irreversible BOT upgrade, token creation and verification—see [Setting Up Lichess Bot Accounts](docs/ACCOUNT-SETUP-en.md).
 
-**Mehrfachkonten beachten:** Lichess erlaubt mehr als ein Konto nur in bestimmten Ausnahmefällen. Die Nutzungsbedingungen stellen dies in das Ermessen von Lichess; mehr als drei Konten werden üblicherweise nicht akzeptiert. Das ist keine pauschale Erlaubnis für drei Konten. Vor der Registrierung eines weiteren BOT-Kontos sollte die konkrete Nutzung mit Lichess geklärt werden.
+**Multiple accounts:** Lichess does not generally permit multiple accounts without restrictions. Its Terms of Service list specific exceptions and leave the decision to Lichess; more than three accounts are generally not accepted. This is not blanket permission to operate three accounts. Clarify the intended use with Lichess before registering another BOT account.
 
-Jedes genehmigte BOT-Konto benötigt ein eigenes Personal API Token. Für diese Bridge werden verwendet:
+Each approved BOT account needs its own Personal API Token. This bridge requires:
 
-- `bot:play` für Bot-Spiel, Game-Stream und Zugübertragung
-- `challenge:read` für eingehende Challenges
-- `challenge:write` für Challenges erstellen, annehmen und ablehnen
+- `bot:play` to play bot games, use the game stream and submit moves
+- `challenge:read` to receive incoming challenges
+- `challenge:write` to create, accept and decline challenges
 
-Das Token kommt nicht in die TOML-Datei. Es wird zur Laufzeit als Umgebungsvariable gesetzt.
+Do not put the token in the TOML file. Set it as an environment variable at runtime.
 
 **Windows PowerShell**
+
 ```powershell
-$env:LICHESS_TOKEN = "TOKEN_DES_LOKALEN_BOTS"
+$env:LICHESS_TOKEN = "TOKEN_FOR_THIS_LOCATION'S_BOT"
 ```
 
 **macOS / Linux**
+
 ```bash
-export LICHESS_TOKEN="TOKEN_DES_LOKALEN_BOTS"
+export LICHESS_TOKEN="TOKEN_FOR_THIS_LOCATION'S_BOT"
 ```
 
-Tokens niemals committen oder in Logs veröffentlichen. `config.toml` ist in `.gitignore` eingetragen.
+Never commit tokens or publish them in logs. The local `config.toml` file is excluded by `.gitignore`.
 
-## Konfiguration
+## Configuration
 
-Bearbeite auf jedem Standort die lokale Datei `config.toml`:
+Create a local `config.toml` at each location. The main settings are:
 
-- `lichess.username`: exakter Name des lokalen Bot-Kontos
-- `lichess.token_env`: Umgebungsvariable, die dessen Token enthält
-- `opponent.allowed_username`: exakter Benutzername des anderen Bots
-- `opponent.role`: `CHALLENGE` auf dem initiierenden PC, `ACCEPT` auf dem zweiten PC
-- `serial.port`: z. B. `COM5`, `/dev/cu.usbmodem...` oder `/dev/ttyACM0`
-- `serial.baudrate`: Standard 115200
-- `game.initial_time_seconds` und `game.increment_seconds`: Bedenkzeit
-- `game.safety_margin_ms`, `move_time_factor`, `min_move_time_ms`, `max_move_time_ms`: konservatives Suchzeitbudget
+- `lichess.username`: exact username of the local BOT account
+- `lichess.token_env`: name of the environment variable holding that bot's token
+- `opponent.allowed_username`: exact username of the remote opponent account
+- `opponent.role`: `CHALLENGE` on the initiating PC, `ACCEPT` on the other PC
+- `serial.port`: for example `COM5`, `/dev/cu.usbmodem...` or `/dev/ttyACM0`
+- `serial.baudrate`: defaults to 115200
+- `game.initial_time_seconds` and `game.increment_seconds`: clock settings for challenge creation
+- `game.safety_margin_ms`, `move_time_factor`, `min_move_time_ms`, `max_move_time_ms`: conservative search-time budget settings
 
-## Start und Bedienung
+The exact available settings and defaults are documented in [config.example.toml](config.example.toml).
 
-Ports auflisten:
+## Starting and operating the bridge
+
+List serial ports:
+
 ```bash
 python bridge.py --list-ports
 ```
 
-Konfiguration prüfen:
+Validate the configuration:
+
 ```bash
 python bridge.py --config config.toml --validate-config
 ```
 
-Lokale Protokollsimulation ohne Lichess, MCU und Token:
+Run a local protocol simulation without Lichess, an MCU or a token:
+
 ```bash
 python bridge.py --offline-simulation
 ```
 
-Bridge mit simuliertem Microcontroller, aber echter Lichess-Verbindung:
+Run the bridge with a simulated microcontroller but a real Lichess connection:
+
 ```bash
 python bridge.py --config config.toml --simulate
 ```
 
-Normalbetrieb:
+Normal operation with a real MCU:
+
 ```bash
 python bridge.py --config config.toml
 ```
 
-Zuerst Standort B mit `role = "ACCEPT"` starten, danach Standort A mit `role = "CHALLENGE"`. Die Challenge wird an den ausdrücklich konfigurierten Gegner gesendet. Nach Spielstart wird die Lichess-Partie-URL in der Konsole angezeigt.
+Start location B first with `role = "ACCEPT"`, then start location A with `role = "CHALLENGE"`. The challenge is sent to the explicitly configured opponent. Once the game starts, the Lichess game URL is printed in the console.
 
-Mit Strg+C beenden. Beim Herunterfahren sendet die Bridge nach Möglichkeit `STOP` und `EXITBOT`.
+Stop the bridge with Ctrl+C. During shutdown it sends `STOP` and `EXITBOT` when possible. Make sure no other application, such as a serial monitor, has the configured serial port open; serial ports are normally exclusive on Windows.
 
 ## Tests
+
+Run the Python test suite:
 
 ```bash
 python -m pytest
 ```
 
-Die HTTP-Tests verwenden einen Mock-Transport; es werden keine echten Tokens benötigt.
+HTTP tests use a mock transport; no real tokens are required.
 
-## Hinweise und Einschränkungen
+## Current functionality and limitations
 
-- Version 1 unterstützt nur Standard-Schach.
-- Pro Bridge wird eine Partie gleichzeitig verarbeitet.
-- Die Firmware-Implementierung für Stockfish-ESP32-S3 liegt im übergeordneten Repository unter `src/chess_gui.cpp` und `src/gui/serial_console.cpp`.
-- Der integrierte `BOTMODE` ist für das PlatformIO-Environment `freenove_stockfish_gui` vorgesehen; andere Boards/Firmware-Targets sind damit noch nicht verifiziert.
-- `GO` läuft asynchron und bleibt über `STOP` abbrechbar.
-- Nach einem unklaren Ergebnis beim HTTP-Move-POST wird derselbe Zug nicht blind erneut gesendet. Die Bridge wartet auf den Game-Stream; nach einem Prozessabbruch kann ein manueller Abgleich mit Lichess erforderlich sein.
-- Die Wiederverbindung mit serieller Schnittstelle und Lichess-Streams ist implementiert, muss aber auf echter Hardware und mit realen Bot-Konten erprobt werden.
-- Das Zeitbudget ist eine konfigurierbare Heuristik, keine Garantie gegen Zeitüberschreitung.
-- Lichess-Partien ohne klassische Schachuhr (z. B. Korrespondenzpartien) werden anhand der `gameFull`-Metadaten (`clock`, `speed`, `daysPerTurn`) erkannt. Der `gameState`-Platzhalter `2147483647` wird ebenfalls nicht als echte Restbedenkzeit interpretiert; stattdessen verwendet die Bridge `max_move_time_ms`.
+- Version 1 supports standard chess only.
+- Each bridge instance processes one game at a time.
+- The Stockfish-ESP32-S3 firmware implementation is in the parent repository under `src/chess_gui.cpp` and `src/gui/serial_console.cpp`.
+- The integrated `BOTMODE` implementation currently targets the `freenove_stockfish_gui` PlatformIO environment. Other boards and firmware targets have not been verified.
+- `GO` is asynchronous and can be cancelled with `STOP`.
+- When enabled and available, the MCU's Polyglot opening book is queried in BOTMODE. A book hit is applied to the local GUI and returned as `BESTMOVE`; on a miss, the MCU runs a normal Stockfish search. The Python bridge does not implement or select opening-book moves.
+- If the result of an HTTP move submission is unclear, the bridge does not blindly submit the same move again. It waits for the game stream; after a process crash, a manual check against Lichess may be necessary.
+- Basic end-to-end operation has been tested with the real Freenove ESP32-S3 hardware and real BOT accounts, including a Polyglot hit, a Stockfish fallback, local display updates and Lichess move confirmation. Reconnect and less common fault cases still need further testing.
+- The move-time budget is a configurable heuristic, not a guarantee against flagging.
+- Games without a conventional chess clock (for example correspondence games) are detected using `gameFull` metadata (`clock`, `speed`, `daysPerTurn`). The `gameState` placeholder value `2147483647` is not treated as a real remaining time; the bridge uses `max_move_time_ms` instead.
 
-Siehe [serielles Protokoll LICHESS-BRIDGE/1](docs/serial-protocol.md) und die offizielle [Lichess API](https://lichess.org/api), [Fair Play](https://lichess.org/page/fair-play) sowie [API-Tipps/Rate-Limits](https://lichess.org/page/api-tips).
+See the [serial protocol specification](docs/serial-protocol-en.md), the [MCU integration guide](docs/integration-guide-en.md), and the official [Lichess API](https://lichess.org/api), [Fair Play rules](https://lichess.org/page/fair-play) and [API tips and rate limits](https://lichess.org/page/api-tips).

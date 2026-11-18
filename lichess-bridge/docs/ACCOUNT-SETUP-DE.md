@@ -1,5 +1,7 @@
 # Lichess-Bot-Konten einrichten (Windows / PowerShell)
 
+[Deutsch](ACCOUNT-SETUP-DE.md) | [English](ACCOUNT-SETUP-en.md)
+
 Diese Anleitung dokumentiert den Ablauf, mit dem das Testkonto **espsf19testbot** eingerichtet, unwiderruflich zu einem BOT-Konto hochgestuft und anschließend mit der Python-Bridge getestet wurde.
 
 > **Wichtig – Mehrfachkonten:** Lichess erlaubt mehrere Konten nicht grundsätzlich. Die Nutzungsbedingungen nennen nur bestimmte Ausnahmefälle und stellen die Entscheidung in das Ermessen von Lichess. Mehr als drei Konten werden üblicherweise nicht akzeptiert. Das ist keine pauschale Erlaubnis, drei Konten zu betreiben. Vor dem Anlegen eines weiteren BOT-Kontos sollte die konkrete Nutzung mit Lichess geklärt werden. Siehe [Lichess Terms of Service](https://lichess.org/terms-of-service).

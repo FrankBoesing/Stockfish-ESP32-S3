@@ -1,5 +1,7 @@
 # Serielles Protokoll LICHESS-BRIDGE/1
 
+[Deutsch](serial-protocol-de.md) | [English](serial-protocol-en.md)
+
 ## Transport
 
 - Baudrate: standardmäßig 115200, in `config.toml` änderbar.
@@ -67,11 +69,11 @@
 Die Stockfish-ESP32-S3-GUI-Firmware implementiert das Protokoll in einem eigenen seriellen `BOTMODE`. Außerhalb dieses Modus bleibt die normale serielle GUI-Konsole aktiv.
 
 - `GO` startet eine asynchrone Stockfish-Suche mit dem übergebenen `movetime_ms`. Die Hauptschleife bleibt aktiv und kann weiterhin `STOP` verarbeiten.
-- Die Bridge-FEN ersetzt die aktuelle Engine-Stellung. Die Firmware führt den gelieferten Zug nicht selbst aus; nach dem Lichess-Zug übermittelt der PC die nächste vollständige FEN.
+- Die Bridge-FEN ersetzt die aktuelle Engine-Stellung und aktualisiert das lokale GUI-Brett. Nach der Suche übernimmt die Firmware den ausgewählten Zug auch in die lokale Spielhistorie und aktualisiert das Display, bevor `BESTMOVE` an den PC gesendet wird. Bei der nächsten eigenen Zuggelegenheit übermittelt der PC erneut die vollständige FEN.
 - Der vor BOTMODE aktive GUI-Spielstand wird für die Bridge-Sitzung im RAM zwischengespeichert und bei `EXITBOT` wiederhergestellt. Remote-Stellungen werden nicht in NVS gespeichert.
-- Die Suche verwendet direkt Stockfish und überspringt die lokale Polyglot-Eröffnungsbuch-Verzögerung.
+- Wenn die Polyglot-Eröffnungsbibliothek aktiviert und verfügbar ist, wird sie auch im BOTMODE abgefragt. Bei einem Treffer wird der Buchzug nach einer kurzen Anzeigepause lokal übernommen und als `BESTMOVE` gemeldet; andernfalls startet Stockfish.
 - `STOP` bricht eine laufende Suche ab und verwirft deren ausstehende Antwort.
 - Ein regulärer Suchabschluss sendet genau eine `BESTMOVE`-Antwort. Bei einer Stellung ohne legalen Zug wird `BESTMOVE 0000` gesendet.
 - `EXITBOT` beendet den Bridge-Modus. Während `BOTMODE` werden Touch-Eingaben für das Spiel ignoriert; eine gegebenenfalls notwendige Touch-Kalibrierung bleibt möglich.
 
-Die Protokollimplementierung ist in der Firmware integriert, muss aber noch auf echter Hardware mit der Python-Bridge verifiziert werden.
+Die Referenzimplementierung ist in der Stockfish-ESP32-S3-GUI-Firmware integriert und wurde mit der Python-Bridge auf echter Freenove-ESP32-S3-Hardware getestet. Andere MCU-Projekte müssen die Anforderungen dieser Spezifikation eigenständig implementieren.

@@ -112,6 +112,19 @@ The firmware can use a Polyglot opening book stored in a separate, read-only fla
 
 The book image is prepared and flashed separately. See [Flashing an opening book](docs/FLASHING-OPENING-BOOK.md) for the image format and procedure.
 
+## Lichess Bot Bridge
+
+The repository also includes a standalone Python bridge that connects the chess computer to the official Lichess Bot API. It is designed to let two geographically separated chess computers play each other through Lichess: each location runs its own PC-side bridge and BOT account, and the local chess computer connects to that bridge over USB serial. No direct PC-to-PC network connection is required.
+
+The bridge currently supports standard-chess challenge games and has been tested end to end with the Freenove ESP32-S3 Display board, including Polyglot opening-book moves, Stockfish search fallback, local display updates and Lichess move confirmation.
+
+- [Lichess Bridge documentation (English)](lichess-bridge/README.md)
+- [Lichess Bridge documentation (German)](lichess-bridge/README-de.md)
+- [MCU integration guide](lichess-bridge/docs/integration-guide-en.md)
+- [Serial protocol specification](lichess-bridge/docs/serial-protocol-en.md)
+
+The reference MCU implementation is part of the `freenove_stockfish_gui` firmware target. Other boards or chess-computer projects, such as Teensy-based implementations, need to implement the documented `BOTMODE` serial protocol themselves. The Python bridge can remain unchanged as long as the MCU implementation follows that protocol.
+
 ## Project status
 
 The touchscreen application, Stockfish engine and optional Polyglot opening book are running on the target board. This remains an experimental project rather than a general-purpose, production-ready chess product. The firmware is tailored to the FNK0104B; the opening-book image is flashed separately from the application.
