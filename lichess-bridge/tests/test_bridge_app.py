@@ -69,15 +69,15 @@ def test_opponent_moves_are_logged_once_in_san_and_uci(caplog):
 
     app = BridgeApp(make_config(), SimulatedSerialClient(), FakeLichess())
     app._log_new_opponent_moves("e2e4", chess.WHITE)
-    assert "Gegnerzug" not in caplog.text
+    assert "Opponent move" not in caplog.text
 
     with caplog.at_level(logging.INFO):
         app._log_new_opponent_moves("e2e4 e7e5", chess.WHITE)
         app._log_new_opponent_moves("e2e4 e7e5 g1f3", chess.WHITE)
 
-    assert "Gegnerzug: 1... e5 (e7e5)." in caplog.text
-    assert "Gegnerzug: 2... " not in caplog.text
-    assert caplog.text.count("Gegnerzug:") == 1
+    assert "Opponent move: 1... e5 (e7e5)." in caplog.text
+    assert "Opponent move: 2... " not in caplog.text
+    assert caplog.text.count("Opponent move:") == 1
 
 
 def test_opponent_gone_logs_claim_delay_and_reconnect(caplog):
@@ -90,7 +90,7 @@ def test_opponent_gone_logs_claim_delay_and_reconnect(caplog):
     caplog.clear()
     with caplog.at_level(logging.INFO):
         BridgeApp._log_opponent_gone({"type": "opponentGone", "gone": False})
-    assert "wieder verbunden" in caplog.text
+    assert "reconnected" in caplog.text
 
 
 def test_clock_budget_uses_lichess_millisecond_fields(caplog):
@@ -108,7 +108,7 @@ def test_clock_budget_uses_lichess_millisecond_fields(caplog):
 
     assert budget == 10999
     assert "300.000 s verbleibend" in caplog.text
-    assert "Inkrement 3.000 s" in caplog.text
+    assert "increment 3.000 s" in caplog.text
     assert "Suchbudget 10999 ms" in caplog.text
 
 
@@ -119,7 +119,7 @@ def test_missing_clock_is_explicitly_reported(caplog):
     with caplog.at_level(logging.WARNING):
         budget = app._calculate_move_budget({}, chess.WHITE)
     assert budget == app.config.game.max_move_time_ms
-    assert "wtime fehlt/ist ungültig" in caplog.text
+    assert "wtime is missing or invalid" in caplog.text
 
 
 
@@ -151,8 +151,8 @@ def test_correspondence_game_is_detected_as_no_classic_clock(caplog):
     assert budget == app.config.game.max_move_time_ms
     assert "speed=correspondence" in caplog.text
     assert "daysPerTurn=3" in caplog.text
-    assert "Keine klassische Schachuhr erkannt" in caplog.text
-    assert "Partie ohne klassische Schachuhr" in caplog.text
+    assert "No conventional chess clock detected" in caplog.text
+    assert "Game has no conventional clock" in caplog.text
     assert "2147483.647 s" not in caplog.text
 
 
@@ -171,7 +171,7 @@ def test_lichess_no_clock_sentinel_is_detected_without_gamefull_metadata(caplog)
         budget = app._calculate_move_budget(state, chess.WHITE)
 
     assert budget == app.config.game.max_move_time_ms
-    assert "No-Clock-Platzhalter 2147483647" in caplog.text
+    assert "no-clock placeholder 2147483647" in caplog.text
     assert "2147483.647 s" not in caplog.text
 
 
@@ -187,5 +187,5 @@ def test_missing_classic_clock_metadata_is_not_reported_as_24_days(caplog):
         })
 
     assert has_clock is False
-    assert "Keine klassische Schachuhr erkannt" in caplog.text
-    assert "clock=null/fehlt" in caplog.text
+    assert "No conventional chess clock detected" in caplog.text
+    assert "clock=null/missing" in caplog.text
