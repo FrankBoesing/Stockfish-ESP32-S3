@@ -94,25 +94,26 @@ constexpr uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
   return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
-// Deep midnight navy, close to the dark TeensyFish look.
-constexpr uint16_t ColorBackground = rgb(27, 32, 48);
-constexpr uint16_t ColorPanel      = rgb(37, 45, 64);
-constexpr uint16_t ColorLight      = rgb(194, 193, 201);
-constexpr uint16_t ColorDark       = rgb(54, 99, 197);
-constexpr uint16_t ColorOrange     = rgb(255, 169, 0);
-constexpr uint16_t ColorText       = rgb(239, 240, 245);
-constexpr uint16_t ColorMuted      = rgb(149, 157, 177);
-constexpr uint16_t ColorButton     = rgb(51, 77, 128);
-constexpr uint16_t ColorDisabled   = rgb(48, 54, 68);
-constexpr uint16_t ColorSelected   = rgb(235, 220, 111);
-constexpr uint16_t ColorTargetDot  = rgb(40, 40, 40);
-constexpr uint16_t ColorEvalWhite    = rgb(230, 230, 235);
-constexpr uint16_t ColorEvalBlack    = rgb(34, 39, 52);
-constexpr uint16_t ColorEvalDividerWhite = rgb(194, 194, 199);
-constexpr uint16_t ColorEvalDividerBlack = rgb(45, 50, 63);
-constexpr uint16_t ColorEvalTextDark = rgb(43, 49, 64);
-constexpr uint16_t ColorLastMove   = rgb(224, 204, 91);
-constexpr uint16_t ColorHint       = rgb(69, 190, 184);
+// Lichess-inspired warm board and charcoal interface palette.
+constexpr uint16_t ColorBackground = rgb(22, 21, 18);    // #161512
+constexpr uint16_t ColorPanel      = rgb(38, 36, 33);    // #262421
+constexpr uint16_t ColorLight      = rgb(240, 217, 181); // #F0D9B5
+constexpr uint16_t ColorDark       = rgb(181, 136, 99);  // #B58863
+constexpr uint16_t ColorAccent     = rgb(118, 150, 86);  // #769656
+constexpr uint16_t ColorText       = rgb(255, 255, 255);
+constexpr uint16_t ColorMuted      = rgb(168, 168, 168); // #A8A8A8
+constexpr uint16_t ColorCoordinates = rgb(168, 168, 168); // #A8A8A8
+constexpr uint16_t ColorButton     = rgb(58, 55, 50);    // #3A3732
+constexpr uint16_t ColorDisabled   = rgb(48, 46, 43);    // #302E2B
+constexpr uint16_t ColorSelected   = rgb(246, 246, 105); // #F6F669
+constexpr uint16_t ColorTargetDot  = rgb(118, 150, 86);  // #769656
+constexpr uint16_t ColorEvalWhite  = rgb(220, 220, 220); // #DCDCDC
+constexpr uint16_t ColorEvalBlack  = rgb(38, 36, 33);
+constexpr uint16_t ColorEvalDividerWhite = rgb(190, 190, 190);
+constexpr uint16_t ColorEvalDividerBlack = rgb(68, 65, 60);
+constexpr uint16_t ColorEvalTextDark = rgb(38, 36, 33);
+constexpr uint16_t ColorLastMove   = rgb(205, 210, 106); // #CDD26A
+constexpr uint16_t ColorHint       = rgb(137, 170, 105);
 constexpr uint16_t ColorCheck      = rgb(217, 65, 65);
 
 class BoardDisplay : public lgfx::LGFX_Device {
@@ -415,10 +416,10 @@ static void drawButton(int x, int y, int w, int h, const char *label,
                        const lgfx::IFont *font = &fonts::FreeSansBold9pt7b,
                        int textYOffset = 0) {
   const uint16_t fill = !enabled ? ColorDisabled
-                          : active ? ColorOrange : ColorButton;
+                          : active ? ColorAccent : ColorButton;
   const uint16_t text = active ? ColorBackground : ColorText;
   tft.fillRoundRect(x, y, w, h, 7, fill);
-  tft.drawRoundRect(x, y, w, h, 7, active ? ColorOrange : ColorButton);
+  tft.drawRoundRect(x, y, w, h, 7, active ? ColorAccent : ColorButton);
   tft.setFont(font);
   tft.setTextSize(1);
   tft.setTextColor(enabled ? text : ColorMuted);
@@ -429,14 +430,14 @@ static void drawButton(int x, int y, int w, int h, const char *label,
 static void drawCrosshair(int x, int y) {
   tft.drawLine(x - 12, y, x + 12, y, ColorText);
   tft.drawLine(x, y - 12, x, y + 12, ColorText);
-  tft.drawCircle(x, y, 5, ColorOrange);
+  tft.drawCircle(x, y, 5, ColorAccent);
   tft.fillCircle(x, y, 2, ColorCheck);
 }
 
 static void renderCalibration() {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Touch calibration", 20, 79, 280, 38,
-                   ColorOrange, &fonts::FreeSansBold12pt7b);
+                   ColorAccent, &fonts::FreeSansBold12pt7b);
   tft.drawFastHLine(48, 119, 224, ColorButton);
   drawCenteredText("Tap the crosshair", 20, 130, 280, 36,
                    ColorText, &fonts::FreeSans9pt7b);
@@ -625,7 +626,12 @@ static void drawPiece(char piece, int x, int y, uint16_t squareColor,
   if (captureMarker)
     addCaptureMarkerToTile();
 
+  // pieceTile stores native RGB565 values returned by rgb(). Tell
+  // LovyanGFX not to interpret this uint16_t buffer as byte-swapped RGB565.
+  const bool previousSwapBytes = tft.getSwapBytes();
+  tft.setSwapBytes(true);
   tft.pushImage(x, y, SquareSize, SquareSize, pieceTile);
+  tft.setSwapBytes(previousSwapBytes);
 }
 
 static uint16_t boardSquareColor(int square, int lastFromValue, int lastToValue,
@@ -787,35 +793,23 @@ static void drawBoardCoordinates() {
   static constexpr char Files[] = "abcdefgh";
   static constexpr char Ranks[] = "87654321";
 
+  // Use the same dedicated color for file and rank labels.
   // Font0 is deliberately small and unobtrusive. Labels occupy the existing
   // 16px top margin and the 10px strip to the left of the board.
   for (int col = 0; col < 8; ++col) {
     const int file = playerColor == 'w' ? col : 7 - col;
     char label[2] = { Files[file], '\0' };
     drawCenteredText(label, BoardX + col * SquareSize, 0, SquareSize, BoardY,
-                     ColorMuted, &fonts::Font0);
+                     ColorCoordinates, &fonts::Font0);
   }
 
-  const int whiteHeight = evaluationWhiteHeight();
-  const int whiteBoundary = playerColor == 'w'
-                          ? BoardY + BoardSize - whiteHeight
-                          : BoardY + whiteHeight;
   for (int row = 0; row < 8; ++row) {
     const int rank = playerColor == 'w' ? row : 7 - row;
-    const int centerY = BoardY + row * SquareSize + SquareSize / 2;
-    uint16_t labelColor = ColorMuted;
-    if (evalBarValid) {
-      const bool whiteSegment = playerColor == 'w'
-                              ? centerY >= whiteBoundary
-                              : centerY < whiteBoundary;
-      labelColor = whiteSegment ? ColorEvalTextDark : ColorText;
-    }
     char label[2] = { Ranks[rank], '\0' };
     drawCenteredText(label, 0, BoardY + row * SquareSize, BoardX, SquareSize,
-                     labelColor, &fonts::Font0);
+                     ColorCoordinates, &fonts::Font0);
   }
 }
-
 static void refreshEvaluationBar() {
   drawEvaluationBar();
   drawBoardCoordinates();
@@ -851,14 +845,14 @@ static void drawGamePanelInfo() {
                        : autoPlayEnabled ? "Auto-play"
                        : sideToMove() == playerColor ? "Your move" : "Engine";
   drawPanelText(turnText, x + 1, 56, w - 2, 20,
-                searchInFlight ? ColorOrange : ColorText,
+                searchInFlight ? ColorAccent : ColorText,
                 &fonts::FreeSansBold9pt7b);
 
   const int material = materialBalanceForPlayer();
   char materialText[20];
   snprintf(materialText, sizeof(materialText), "Material %+d", material);
   drawPanelText(materialText, x, 117, w, 20,
-                material > 0 ? ColorOrange : ColorText,
+                material > 0 ? ColorAccent : ColorText,
                 &fonts::FreeSansBold9pt7b);
 
   drawPanelText(statusText, x + 1, 139, w - 2, 18,
@@ -936,7 +930,7 @@ static void drawGamePanel() {
   char levelText[8];
   snprintf(levelText, sizeof(levelText), "L%d", skillLevel);
   drawCenteredText(levelText, x, 37, w, 18,
-                   ColorOrange, &fonts::FreeSansBold9pt7b);
+                   ColorAccent, &fonts::FreeSansBold9pt7b);
   drawGamePanelInfo();
 }
 
@@ -959,9 +953,9 @@ static void renderPromotionChooser() {
   constexpr int DialogW = 292;
   constexpr int DialogH = 112;
   tft.fillRoundRect(DialogX, DialogY, DialogW, DialogH, 10, ColorPanel);
-  tft.drawRoundRect(DialogX, DialogY, DialogW, DialogH, 10, ColorOrange);
+  tft.drawRoundRect(DialogX, DialogY, DialogW, DialogH, 10, ColorAccent);
   drawCenteredText("Promote pawn", DialogX + 6, DialogY + 5,
-                   DialogW - 12, 25, ColorOrange,
+                   DialogW - 12, 25, ColorAccent,
                    &fonts::FreeSansBold9pt7b);
 
   static const char *labels[] = { "QUEEN", "ROOK", "BISHOP", "KNIGHT" };
@@ -979,7 +973,7 @@ static void renderMenu() {
   tft.fillScreen(ColorBackground);
 
   drawCenteredText("New Game", 20, 12, 280, 40,
-                   ColorOrange, &fonts::FreeSansBold12pt7b);
+                   ColorAccent, &fonts::FreeSansBold12pt7b);
   drawTextAt("Play as", 31, 59, ColorMuted, &fonts::FreeSans9pt7b);
 
   drawButton(28, 87, 128, 36, "White", playerColor == 'w');
@@ -1009,7 +1003,7 @@ static void renderMenu() {
 static void renderLoading() {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Stockfish ESP32", 20, 76, 280, 32,
-                   ColorOrange, &fonts::FreeSansBold12pt7b);
+                   ColorAccent, &fonts::FreeSansBold12pt7b);
   drawCenteredText("Loading engine and NNUE...", 20, 122, 280, 24,
                    ColorText, &fonts::FreeSans9pt7b);
 }
@@ -1319,7 +1313,7 @@ static bool loadSavedGameFromNvs(bool hasSavedSkillSetting) {
 static void renderCalibrationComplete(bool saved) {
   tft.fillScreen(ColorBackground);
   drawCenteredText("Touch ready", 20, 88, 280, 34,
-                   ColorOrange, &fonts::FreeSansBold12pt7b);
+                   ColorAccent, &fonts::FreeSansBold12pt7b);
   drawCenteredText(saved ? "Calibration saved to flash" : "Flash save failed",
                    20, 132, 280, 24, ColorText, &fonts::FreeSans9pt7b);
   delay(500);
