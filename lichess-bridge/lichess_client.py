@@ -164,7 +164,7 @@ class LichessClient:
                     if isinstance(value, dict):
                         yield value
         except (httpx.TimeoutException, httpx.TransportError) as exc:
-            raise LichessError(f"Stream connection to {path} unterbrochen: {exc}") from exc
+            raise LichessError(f"Stream connection to {path} interrupted: {exc}") from exc
 
     async def event_stream(self) -> AsyncIterator[dict[str, Any]]:
         async for event in self.stream_ndjson("/api/stream/event"):
