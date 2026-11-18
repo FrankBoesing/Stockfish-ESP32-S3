@@ -147,7 +147,7 @@ class LichessClient:
                 if response.status_code == 429:
                     delay = self._retry_after(response)
                     raise LichessRateLimitError(
-                        f"Lichess stream returned HTTP 429; reopen the connection after at least {delay}s erneut öffnen.",
+                        f"Lichess stream returned HTTP 429; reopen the connection after at least {delay}s.",
                         retry_after_seconds=delay,
                     )
                 if response.is_error:
