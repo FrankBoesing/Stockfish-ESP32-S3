@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "game_history.h"
@@ -39,9 +40,16 @@ struct Callbacks {
   bool (*applyMove)(const std::string &uciMove);
   void (*exportPgn)();
   bool (*importPgn)(const std::string &pgn);
+
+  bool (*setBotMode)(bool enabled);
+  bool (*botNewGame)();
+  bool (*botSetPosition)(const std::string &fen);
+  bool (*botStartSearch)(uint32_t movetimeMs);
+  void (*botStopSearch)();
 };
 
 void begin(const Callbacks &callbacks);
 void poll();
+void completeBotSearch(const char *uciMove);
 
 } // namespace SerialConsole

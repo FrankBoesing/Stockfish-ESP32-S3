@@ -52,6 +52,9 @@
 
 - Unbekannte Befehle sind mit `ERROR UNKNOWN_COMMAND <text>` zu beantworten.
 - Ungültige FEN: `ERROR BAD_FEN <text>`.
+- Ungültiges Suchzeitbudget: `ERROR BAD_MOVETIME <text>`.
+- `GO` ohne übernommene Stellung: `ERROR NO_POSITION <text>`.
+- Bereits laufende Suche: `ERROR BUSY <text>` bzw. `ERROR SEARCH_BUSY <text>`.
 - Ein neuer `POSITION`-Befehl ersetzt immer die zuletzt übermittelte Position.
 - `GO` darf nur mit einer gültigen zuvor übernommenen Position starten.
 - `BESTMOVE` muss zur zuletzt übernommenen Position legal sein.
@@ -59,11 +62,16 @@
 - Diagnoseausgaben dürfen nicht wie Protokollantworten aussehen. Empfohlen wird `#LOG ...`.
 - Keine mehrzeiligen Debug-Dumps über dieselbe serielle Schnittstelle ausgeben.
 
-## Implementierungsannahmen für die Firmware
+## Firmware-Implementierung
 
-Die MCU-Firmware ist nicht Teil dieses Python-Projekts. Folgende Punkte sind daher Anforderungen an die spätere Firmware-Anpassung und noch nicht auf echter Hardware verifiziert:
+Die Stockfish-ESP32-S3-GUI-Firmware implementiert das Protokoll in einem eigenen seriellen `BOTMODE`. Außerhalb dieses Modus bleibt die normale serielle GUI-Konsole aktiv.
 
-- `GO` muss asynchron oder zumindest so verarbeitet werden, dass `STOP` während der Suche noch empfangen werden kann.
-- `movetime_ms` ist ein maximales Suchzeitbudget, kein Versprechen, dass die Suche exakt so lange läuft.
-- Nach `STOP` soll die MCU die Suche abbrechen und keine verspätete `BESTMOVE`-Antwort für den abgebrochenen Auftrag senden.
-- Für jeden Auftrag sollte genau eine abschließende Antwort gesendet werden.
+- `GO` startet eine asynchrone Stockfish-Suche mit dem übergebenen `movetime_ms`. Die Hauptschleife bleibt aktiv und kann weiterhin `STOP` verarbeiten.
+- Die Bridge-FEN ersetzt die aktuelle Engine-Stellung. Die Firmware führt den gelieferten Zug nicht selbst aus; nach dem Lichess-Zug übermittelt der PC die nächste vollständige FEN.
+- Der vor BOTMODE aktive GUI-Spielstand wird für die Bridge-Sitzung im RAM zwischengespeichert und bei `EXITBOT` wiederhergestellt. Remote-Stellungen werden nicht in NVS gespeichert.
+- Die Suche verwendet direkt Stockfish und überspringt die lokale Polyglot-Eröffnungsbuch-Verzögerung.
+- `STOP` bricht eine laufende Suche ab und verwirft deren ausstehende Antwort.
+- Ein regulärer Suchabschluss sendet genau eine `BESTMOVE`-Antwort. Bei einer Stellung ohne legalen Zug wird `BESTMOVE 0000` gesendet.
+- `EXITBOT` beendet den Bridge-Modus. Während `BOTMODE` werden Touch-Eingaben für das Spiel ignoriert; eine gegebenenfalls notwendige Touch-Kalibrierung bleibt möglich.
+
+Die Protokollimplementierung ist in der Firmware integriert, muss aber noch auf echter Hardware mit der Python-Bridge verifiziert werden.

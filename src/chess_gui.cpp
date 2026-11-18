@@ -168,7 +168,7 @@ PolyglotBook::FlashPolyglotBook openingBook;
 bool openingBookEnabled = true;
 
 enum class Screen : uint8_t { Calibration, Menu, Game, Promotion };
-enum class SearchMode : uint8_t { None, EngineMove, Hint, Evaluation };
+enum class SearchMode : uint8_t { None, EngineMove, Hint, Evaluation, BridgeMove };
 
 Screen screen = Screen::Menu;
 SearchMode searchMode = SearchMode::None;
@@ -190,6 +190,15 @@ bool gameOver = false;
 bool searchInFlight = false;
 // Runtime-only mode: deliberately not written to NVS or restored after reboot.
 bool autoPlayEnabled = false;
+bool bridgeBotModeActive = false;
+bool bridgeSavedStateValid = false;
+bool bridgeSavedAutoPlayEnabled = false;
+GameHistory bridgeSavedHistory;
+std::string bridgeSavedBaseFen;
+bool bridgeSavedHasGame = false;
+bool bridgeSavedGameOver = false;
+char bridgeSavedPlayerColor = 'w';
+int bridgeSavedSkillLevel = 10;
 constexpr uint32_t BookMovePauseMs = 500;
 bool pendingBookMove = false;
 uint32_t pendingBookMoveStarted = 0;
@@ -1422,9 +1431,45 @@ static void startSearch(SearchMode mode) {
     drawGamePanelInfo();
 }
 
+
+static bool startBridgeSearch(uint32_t movetimeMs) {
+  if (!engine || !bridgeBotModeActive || searchInFlight || !movetimeMs)
+    return false;
+  pendingBookMove = false;
+  pendingBookMoveUci[0] = '\0';
+  searchMode = SearchMode::BridgeMove;
+
+  portENTER_CRITICAL(&searchMux);
+  searchMailbox.depth = 0;
+  searchMailbox.nps = 0;
+  searchMailbox.nodes = 0;
+  searchMailbox.scoreSide = sideToMove();
+  searchMailbox.scoreKind = SearchScoreKind::None;
+  searchMailbox.scoreValue = 0;
+  searchMailbox.tablebaseWin = false;
+  searchMailbox.scoreValid = false;
+  searchMailbox.wdlWin = 0;
+  searchMailbox.wdlDraw = 0;
+  searchMailbox.wdlLoss = 0;
+  searchMailbox.wdlValid = false;
+  searchMailbox.infoDirty = false;
+  searchMailbox.bestMoveReady = false;
+  searchMailbox.bestMove[0] = '\0';
+  portEXIT_CRITICAL(&searchMux);
+
+  Stockfish::Search::LimitsType limits;
+  limits.movetime = (Stockfish::TimePoint)movetimeMs;
+  limits.startTime = Stockfish::now();
+  searchInFlight = true;
+  setStatus("Lichess search");
+  engine->go(limits);
+  if (screen == Screen::Game) drawGamePanelInfo();
+  return true;
+}
+
 static void showCurrentGame() {
   renderGame();
-  if (gameOver)
+  if (gameOver || bridgeBotModeActive)
     return;
 
   if (autoPlayEnabled || sideToMove() != playerColor)
@@ -1633,9 +1678,13 @@ static void pollSearchMailbox() {
     portENTER_CRITICAL(&searchMux);
     finalResult = searchMailbox;
     portEXIT_CRITICAL(&searchMux);
-    logSearchEvaluation(finalResult);
-
-    handleSearchResult(bestMove);
+    if (searchMode == SearchMode::BridgeMove) {
+      searchMode = SearchMode::None;
+      SerialConsole::completeBotSearch(bestMove);
+    } else {
+      logSearchEvaluation(finalResult);
+      handleSearchResult(bestMove);
+    }
   }
 }
 
@@ -2040,7 +2089,7 @@ static void printBoardAscii() {
 
 static bool applySerialPosition(const std::string &baseFen, GameHistory &candidateHistory,
                                 const char *moveActor = nullptr, const char *uciMove = nullptr,
-                                char movingSide = '\0') {
+                                char movingSide = '\0', bool bridgeExternal = false) {
   if (!engine)
     return false;
   if (baseFen.empty() || baseFen.size() > SavedGameMaxFenBytes) {
@@ -2094,6 +2143,14 @@ static bool applySerialPosition(const std::string &baseFen, GameHistory &candida
   updateLastMove();
   hasGame = true;
   updateGameStatusFromPosition();
+  if (bridgeExternal) {
+    // Lichess owns the remote position; never persist it over the local GUI game.
+    if (touchCalibrated) {
+      screen = Screen::Game;
+      renderGame();
+    }
+    return true;
+  }
   saveGameToNvs();
 
   if (moveActor && uciMove)
@@ -2972,6 +3029,111 @@ static bool serialImportPgn(const std::string &pgn) {
   return importPgn(pgn);
 }
 
+static bool serialSetBotMode(bool enabled) {
+  if (!engine) return false;
+  if (enabled) {
+    if (!bridgeBotModeActive) {
+      bridgeSavedHistory.clear();
+      if (gameHistory.size()
+          && !bridgeSavedHistory.assignPackedBytes(
+               reinterpret_cast<const uint8_t *>(gameHistory.packedData()),
+               gameHistory.size()))
+        return false;
+      bridgeSavedBaseFen = gameBaseFen;
+      bridgeSavedHasGame = hasGame;
+      bridgeSavedGameOver = gameOver;
+      bridgeSavedPlayerColor = playerColor;
+      bridgeSavedSkillLevel = skillLevel;
+      bridgeSavedAutoPlayEnabled = autoPlayEnabled;
+      bridgeSavedStateValid = true;
+    }
+    autoPlayEnabled = false;
+    stopSearch();
+    bridgeBotModeActive = true;
+    if (screen == Screen::Game) drawGamePanelInfo();
+    return true;
+  }
+
+  bridgeBotModeActive = false;
+  autoPlayEnabled = false;
+  stopSearch();
+  if (bridgeSavedStateValid) {
+    gameHistory.swap(bridgeSavedHistory);
+    gameBaseFen = bridgeSavedBaseFen;
+    hasGame = bridgeSavedHasGame;
+    gameOver = bridgeSavedGameOver;
+    playerColor = bridgeSavedPlayerColor;
+    skillLevel = bridgeSavedSkillLevel;
+    autoPlayEnabled = bridgeSavedAutoPlayEnabled;
+    bridgeSavedHistory.clear();
+    bridgeSavedBaseFen.clear();
+    bridgeSavedStateValid = false;
+    engine->search_clear();
+    selectedSquare = -1;
+    hintFrom = hintTo = -1;
+    hintText[0] = '\0';
+    pendingPromotion.clear();
+    clearLegalDestinations(false);
+    if (hasGame) {
+      if (syncEnginePosition()) {
+        updateGameStatusFromPosition();
+        if (touchCalibrated) showCurrentGame();
+        else beginTouchCalibration();
+      }
+    } else {
+      gameBaseFen = StartFen;
+      gameHistory.clear();
+      gameOver = false;
+      syncEnginePosition();
+      if (touchCalibrated) renderMenu();
+      else beginTouchCalibration();
+    }
+  }
+  return true;
+}
+
+static bool serialBotNewGame() {
+  if (!engine || !bridgeBotModeActive) return false;
+  autoPlayEnabled = false;
+  stopSearch();
+  engine->search_clear();
+  gameHistory.clear();
+  gameBaseFen = StartFen;
+  playerColor = 'w';
+  skillLevel = selectedSkillLevel;
+  gameOver = false;
+  selectedSquare = -1;
+  hintFrom = hintTo = -1;
+  hintText[0] = '\0';
+  pendingPromotion.clear();
+  clearLegalDestinations(false);
+  searchMode = SearchMode::None;
+  setSkillOption();
+  if (!syncEnginePosition()) return false;
+  hasGame = true;
+  updateGameStatusFromPosition();
+  setStatus("Lichess ready");
+  if (touchCalibrated) {
+    screen = Screen::Game;
+    renderGame();
+  }
+  return true;
+}
+
+static bool serialBotSetPosition(const std::string &fen) {
+  if (!engine || !bridgeBotModeActive) return false;
+  GameHistory emptyHistory;
+  return applySerialPosition(fen, emptyHistory, nullptr, nullptr, '\0', true);
+}
+
+static bool serialBotStartSearch(uint32_t movetimeMs) {
+  return startBridgeSearch(movetimeMs);
+}
+
+static void serialBotStopSearch() {
+  stopSearch();
+}
+
 static const SerialConsole::Callbacks serialConsoleCallbacks = {
   StartFen,
   getSerialConsoleState,
@@ -2987,7 +3149,12 @@ static const SerialConsole::Callbacks serialConsoleCallbacks = {
   serialApplyPosition,
   serialApplyMove,
   serialExportPgn,
-  serialImportPgn
+  serialImportPgn,
+  serialSetBotMode,
+  serialBotNewGame,
+  serialBotSetPosition,
+  serialBotStartSearch,
+  serialBotStopSearch
 };
 
 static_assert(SerialConsole::MaxFenBytes == SavedGameMaxFenBytes,
@@ -3038,7 +3205,8 @@ void loop() {
     int y = rawY;
     if (screen != Screen::Calibration && touchCalibrated)
       mapTouch(rawX, rawY, x, y);
-    processTouch(x, y, rawX, rawY);
+    if (!bridgeBotModeActive || screen == Screen::Calibration)
+      processTouch(x, y, rawX, rawY);
   }
   previousTouchDown = down;
 

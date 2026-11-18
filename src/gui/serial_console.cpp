@@ -42,6 +42,9 @@ GameHistory serialPositionHistory;
 
 SerialConsole::Callbacks consoleCallbacks{};
 bool consoleReady = false;
+bool botModeActive = false;
+bool botPositionReady = false;
+bool botSearchPending = false;
 
 static SerialConsole::GameState getGameState() {
   SerialConsole::GameState state{};
@@ -427,6 +430,132 @@ static bool isUciMoveToken(const std::string &command) {
                               || command[4] == 'b' || command[4] == 'n');
 }
 
+static bool parseBotUnsigned(const std::string &text, uint32_t &value) {
+  if (text.empty()) return false;
+  uint32_t parsed = 0;
+  for (unsigned char ch : text) {
+    if (ch < '0' || ch > '9') return false;
+    const uint32_t digit = (uint32_t)(ch - '0');
+    if (parsed > (0xFFFFFFFFu - digit) / 10u) return false;
+    parsed = parsed * 10u + digit;
+  }
+  if (!parsed) return false;
+  value = parsed;
+  return true;
+}
+
+static void executeBotCommand(const std::string &line, const std::string &command) {
+  if (line.empty()) return;
+  std::istringstream input(line);
+  std::string ignored;
+  input >> ignored;
+
+  if (command == "ping") {
+    std::string extra;
+    if (input >> extra) Serial.println("ERROR BAD_COMMAND PING takes no arguments");
+    else Serial.println("PONG");
+    return;
+  }
+
+  if (command == "newgame") {
+    std::string extra;
+    if (input >> extra) Serial.println("ERROR BAD_COMMAND NEWGAME takes no arguments");
+    else if (botSearchPending) Serial.println("ERROR BUSY search is active");
+    else if (!consoleCallbacks.botNewGame || !consoleCallbacks.botNewGame())
+      Serial.println("ERROR NEWGAME_FAILED could not reset the engine");
+    else {
+      botPositionReady = false;
+      Serial.println("OK NEWGAME");
+    }
+    return;
+  }
+
+  if (command == "position") {
+    if (botSearchPending) { Serial.println("ERROR BUSY search is active"); return; }
+    const size_t separator = line.find_first_of(" \t");
+    if (separator == std::string::npos) {
+      botPositionReady = false;
+      Serial.println("ERROR BAD_FEN missing FEN");
+      return;
+    }
+    const size_t first = line.find_first_not_of(" \t", separator);
+    if (first == std::string::npos) {
+      botPositionReady = false;
+      Serial.println("ERROR BAD_FEN missing FEN");
+      return;
+    }
+    std::string fen = line.substr(first);
+    while (!fen.empty() && isspace((unsigned char)fen.back())) fen.pop_back();
+    std::istringstream fenInput(fen);
+    std::string fields[6], extra;
+    bool valid = true;
+    for (unsigned i = 0; i < 6; ++i)
+      if (!(fenInput >> fields[i])) { valid = false; break; }
+    if (!valid || (fenInput >> extra) || fen.empty() || fen.size() > SerialConsole::MaxFenBytes) {
+      botPositionReady = false;
+      Serial.println("ERROR BAD_FEN expected exactly six FEN fields");
+      return;
+    }
+    fen.clear();
+    for (unsigned i = 0; i < 6; ++i) { if (i) fen.push_back(' '); fen += fields[i]; }
+    botPositionReady = false;
+    if (!consoleCallbacks.botSetPosition || !consoleCallbacks.botSetPosition(fen))
+      Serial.println("ERROR BAD_FEN Stockfish rejected the position");
+    else {
+      botPositionReady = true;
+      Serial.println("OK POSITION");
+    }
+    return;
+  }
+
+  if (command == "go") {
+    std::string timeText, extra;
+    uint32_t movetimeMs = 0;
+    if (!(input >> timeText) || (input >> extra) || !parseBotUnsigned(timeText, movetimeMs))
+      Serial.println("ERROR BAD_MOVETIME expected GO <movetime_ms>");
+    else if (!botPositionReady)
+      Serial.println("ERROR NO_POSITION send POSITION before GO");
+    else if (botSearchPending)
+      Serial.println("ERROR BUSY search is already running");
+    else if (!consoleCallbacks.botStartSearch || !consoleCallbacks.botStartSearch(movetimeMs))
+      Serial.println("ERROR SEARCH_BUSY Stockfish could not start the search");
+    else
+      botSearchPending = true;
+    return;
+  }
+
+  if (command == "stop") {
+    botSearchPending = false;
+    if (consoleCallbacks.botStopSearch) consoleCallbacks.botStopSearch();
+    Serial.println("INFO STOP acknowledged");
+    return;
+  }
+
+  if (command == "exitbot") {
+    botSearchPending = false;
+    if (consoleCallbacks.botStopSearch) consoleCallbacks.botStopSearch();
+    botPositionReady = false;
+    botModeActive = false;
+    if (consoleCallbacks.setBotMode) consoleCallbacks.setBotMode(false);
+    return;
+  }
+
+  if (command == "botmode") {
+    std::string extra;
+    if (input >> extra) Serial.println("ERROR BAD_COMMAND BOTMODE takes no arguments");
+    else if (!consoleCallbacks.setBotMode || !consoleCallbacks.setBotMode(true))
+      Serial.println("ERROR ENGINE_NOT_READY Stockfish is not ready");
+    else {
+      botModeActive = true;
+      botPositionReady = false;
+      botSearchPending = false;
+      Serial.println("READY LICHESS-BRIDGE/1 Stockfish-ESP32-S3");
+    }
+    return;
+  }
+  Serial.printf("ERROR UNKNOWN_COMMAND %s\n", command.c_str());
+}
+
 static void executeSerialCommand() {
   if (serialCommandOverflow) {
     if (pgnImportActive) {
@@ -484,16 +613,35 @@ static void executeSerialCommand() {
     return;
   }
 
-  if (!line.empty())
-    Serial.printf("[SERIAL] RX (%u bytes): %s\n",
-                  (unsigned)line.size(), line.c_str());
-
   std::istringstream input(line);
   std::string command;
   input >> command;
   std::transform(command.begin(), command.end(), command.begin(),
                  [](unsigned char ch) { return char(tolower(ch)); });
 
+  if (!line.empty() && !botModeActive && command != "botmode")
+    Serial.printf("[SERIAL] RX (%u bytes): %s\n",
+                  (unsigned)line.size(), line.c_str());
+
+  if (command == "botmode" && !botModeActive) {
+    std::string extra;
+    if (input >> extra) Serial.println("ERROR BAD_COMMAND BOTMODE takes no arguments");
+    else if (!consoleCallbacks.setBotMode || !consoleCallbacks.setBotMode(true))
+      Serial.println("ERROR ENGINE_NOT_READY Stockfish is not ready");
+    else {
+      botModeActive = true;
+      botPositionReady = false;
+      botSearchPending = false;
+      Serial.println("READY LICHESS-BRIDGE/1 Stockfish-ESP32-S3");
+    }
+    serialCommandLength = 0;
+    return;
+  }
+  if (botModeActive) {
+    executeBotCommand(line, command);
+    serialCommandLength = 0;
+    return;
+  }
   if (command == "print") {
     if (consoleCallbacks.printBoard)
       consoleCallbacks.printBoard();
@@ -744,6 +892,9 @@ namespace SerialConsole {
 
 void begin(const Callbacks &callbacks) {
   consoleCallbacks = callbacks;
+  botModeActive = false;
+  botPositionReady = false;
+  botSearchPending = false;
 
   const size_t serialRxBuffer = Serial.setRxBufferSize(SerialCommandCapacity);
   Serial.begin(115200);
@@ -773,7 +924,7 @@ void poll() {
       continue;
     }
 
-    if (!pgnImportActive && !serialCommandOverflow
+    if (!botModeActive && !pgnImportActive && !serialCommandOverflow
         && (value == ' ' || value == '\t' || value == '\n')
         && tryBeginSerialPositionStream()) {
       if (value == '\n')
@@ -794,6 +945,16 @@ void poll() {
       serialCommandOverflow = true;
     }
   }
+}
+
+void completeBotSearch(const char *uciMove) {
+  if (!botModeActive || !botSearchPending) return;
+  botSearchPending = false;
+  if (!uciMove || !uciMove[0] || strcmp(uciMove, "0000") == 0
+      || strcmp(uciMove, "(none)") == 0)
+    Serial.println("BESTMOVE 0000");
+  else
+    Serial.printf("BESTMOVE %s\n", uciMove);
 }
 
 } // namespace SerialConsole

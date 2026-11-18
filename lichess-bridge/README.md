@@ -22,7 +22,7 @@ Es gibt keine direkte Verbindung zwischen den PCs. Jeder Standort besitzt nur da
 - Python 3.11 oder neuer
 - Internetzugriff auf https://lichess.org
 - Ein dediziertes Bot-Konto pro Schachcomputer
-- Microcontroller-Firmware mit dem Protokoll aus [docs/serial-protocol.md](docs/serial-protocol.md)
+- Stockfish-ESP32-S3-Firmware mit dem integrierten Protokollmodus `BOTMODE` (siehe [docs/serial-protocol.md](docs/serial-protocol.md))
 
 ## Installation
 
@@ -128,8 +128,9 @@ Die HTTP-Tests verwenden einen Mock-Transport; es werden keine echten Tokens ben
 
 - Version 1 unterstützt nur Standard-Schach.
 - Pro Bridge wird eine Partie gleichzeitig verarbeitet.
-- Die MCU-Firmware ist nicht Bestandteil dieses Projekts und muss separat angepasst werden.
-- `GO` muss abbrechbar bleiben, damit `STOP` während der Suche verarbeitet werden kann.
+- Die Firmware-Implementierung für Stockfish-ESP32-S3 liegt im übergeordneten Repository unter `src/chess_gui.cpp` und `src/gui/serial_console.cpp`.
+- Der integrierte `BOTMODE` ist für das PlatformIO-Environment `freenove_stockfish_gui` vorgesehen; andere Boards/Firmware-Targets sind damit noch nicht verifiziert.
+- `GO` läuft asynchron und bleibt über `STOP` abbrechbar.
 - Nach einem unklaren Ergebnis beim HTTP-Move-POST wird derselbe Zug nicht blind erneut gesendet. Die Bridge wartet auf den Game-Stream; nach einem Prozessabbruch kann ein manueller Abgleich mit Lichess erforderlich sein.
 - Die Wiederverbindung mit serieller Schnittstelle und Lichess-Streams ist implementiert, muss aber auf echter Hardware und mit realen Bot-Konten erprobt werden.
 - Das Zeitbudget ist eine konfigurierbare Heuristik, keine Garantie gegen Zeitüberschreitung.
