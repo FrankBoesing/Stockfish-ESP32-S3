@@ -43,17 +43,17 @@ class SerialClient:
         try:
             import serial  # type: ignore[import-not-found]
         except ImportError as exc:
-            raise RuntimeError("pySerial fehlt. Installiere mit: python -m pip install pyserial") from exc
+            raise RuntimeError("pySerial is missing. Install it with: python -m pip install pyserial") from exc
         self._loop = asyncio.get_running_loop()
         self._queue = asyncio.Queue()
         try:
             self._serial = serial.Serial(self.port, self.baudrate, timeout=0.2, write_timeout=3)
         except Exception as exc:  # pySerial raises platform-specific exception types.
-            raise SerialConnectionError(f"Serieller Port {self.port!r} konnte nicht geöffnet werden: {exc}") from exc
+            raise SerialConnectionError(f"Serial port {self.port!r} could not be opened: {exc}") from exc
         self._stop.clear()
         self._reader_thread = threading.Thread(target=self._reader, name="serial-reader", daemon=True)
         self._reader_thread.start()
-        LOG.info("Serieller Port geöffnet: %s @ %d Baud", self.port, self.baudrate)
+        LOG.info("Opened serial port: %s @ %d baud", self.port, self.baudrate)
 
     def _reader(self) -> None:
         assert self._serial is not None
@@ -75,19 +75,19 @@ class SerialClient:
 
     async def send(self, command: str, argument: str | None = None) -> None:
         if self._serial is None or not self._serial.is_open:
-            raise SerialConnectionError("Serielle Schnittstelle ist nicht geöffnet.")
+            raise SerialConnectionError("Serial port is not open.")
         data = format_command(command, argument)
         try:
             await asyncio.to_thread(self._serial.write, data)
             await asyncio.to_thread(self._serial.flush)
         except Exception as exc:
-            raise SerialConnectionError(f"Serieller Schreibfehler: {exc}") from exc
+            raise SerialConnectionError(f"Serial write error: {exc}") from exc
 
     async def read_message(self, timeout: float) -> ProtocolMessage:
         try:
             return await asyncio.wait_for(self._queue.get(), timeout=timeout)
         except asyncio.TimeoutError as exc:
-            raise TimeoutError("Timeout beim Warten auf eine serielle Protokollantwort.") from exc
+            raise TimeoutError("Timed out waiting for a serial protocol response.") from exc
 
     async def close(self) -> None:
         self._stop.set()
@@ -95,7 +95,7 @@ class SerialClient:
             try:
                 await asyncio.to_thread(self._serial.close)
             except Exception:
-                LOG.debug("Fehler beim Schließen des seriellen Ports", exc_info=True)
+                LOG.debug("Error while closing the serial port", exc_info=True)
         if self._reader_thread is not None:
             await asyncio.to_thread(self._reader_thread.join, 1.0)
         self._serial = None
@@ -118,7 +118,7 @@ class SimulatedSerialClient:
 
     async def send(self, command: str, argument: str | None = None) -> None:
         if not self._connected:
-            raise RuntimeError("Simulation ist nicht verbunden.")
+            raise RuntimeError("Simulation is not connected.")
         if command == "BOTMODE":
             await self._queue.put(parse_message(f"READY LICHESS-BRIDGE/1 {self.device_name}"))
         elif command == "PING":
@@ -130,7 +130,7 @@ class SimulatedSerialClient:
             try:
                 self._board = chess.Board(argument or "")
                 if not self._board.is_valid():
-                    raise ValueError("FEN ist keine gültige Schachstellung")
+                    raise ValueError("FEN does not represent a valid chess position")
                 await self._queue.put(parse_message("OK POSITION"))
             except Exception as exc:
                 await self._queue.put(parse_message(f"ERROR BAD_FEN {exc}"))
@@ -152,10 +152,10 @@ class SimulatedSerialClient:
         try:
             message = await asyncio.wait_for(self._queue.get(), timeout=timeout)
             if message is None:
-                raise RuntimeError("Interner Simulationsfehler")
+                raise RuntimeError("Internal simulation error")
             return message
         except asyncio.TimeoutError as exc:
-            raise TimeoutError("Timeout in der seriellen Simulation.") from exc
+            raise TimeoutError("Timed out in the serial simulation.") from exc
 
     async def close(self) -> None:
         self._connected = False
