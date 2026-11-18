@@ -102,13 +102,14 @@ constexpr uint16_t ColorDark       = rgb(181, 136, 99);  // #B58863
 constexpr uint16_t ColorAccent     = rgb(118, 150, 86);  // #769656
 constexpr uint16_t ColorText       = rgb(255, 255, 255);
 constexpr uint16_t ColorMuted      = rgb(168, 168, 168); // #A8A8A8
+constexpr uint16_t ColorCoordinates = rgb(168, 168, 168); // #A8A8A8
 constexpr uint16_t ColorButton     = rgb(58, 55, 50);    // #3A3732
 constexpr uint16_t ColorDisabled   = rgb(48, 46, 43);    // #302E2B
 constexpr uint16_t ColorSelected   = rgb(246, 246, 105); // #F6F669
 constexpr uint16_t ColorTargetDot  = rgb(118, 150, 86);  // #769656
-constexpr uint16_t ColorEvalWhite  = rgb(240, 217, 181);
+constexpr uint16_t ColorEvalWhite  = rgb(220, 220, 220); // #DCDCDC
 constexpr uint16_t ColorEvalBlack  = rgb(38, 36, 33);
-constexpr uint16_t ColorEvalDividerWhite = rgb(208, 185, 151);
+constexpr uint16_t ColorEvalDividerWhite = rgb(190, 190, 190);
 constexpr uint16_t ColorEvalDividerBlack = rgb(68, 65, 60);
 constexpr uint16_t ColorEvalTextDark = rgb(38, 36, 33);
 constexpr uint16_t ColorLastMove   = rgb(205, 210, 106); // #CDD26A
@@ -792,35 +793,23 @@ static void drawBoardCoordinates() {
   static constexpr char Files[] = "abcdefgh";
   static constexpr char Ranks[] = "87654321";
 
+  // Use the same dedicated color for file and rank labels.
   // Font0 is deliberately small and unobtrusive. Labels occupy the existing
   // 16px top margin and the 10px strip to the left of the board.
   for (int col = 0; col < 8; ++col) {
     const int file = playerColor == 'w' ? col : 7 - col;
     char label[2] = { Files[file], '\0' };
     drawCenteredText(label, BoardX + col * SquareSize, 0, SquareSize, BoardY,
-                     ColorMuted, &fonts::Font0);
+                     ColorCoordinates, &fonts::Font0);
   }
 
-  const int whiteHeight = evaluationWhiteHeight();
-  const int whiteBoundary = playerColor == 'w'
-                          ? BoardY + BoardSize - whiteHeight
-                          : BoardY + whiteHeight;
   for (int row = 0; row < 8; ++row) {
     const int rank = playerColor == 'w' ? row : 7 - row;
-    const int centerY = BoardY + row * SquareSize + SquareSize / 2;
-    uint16_t labelColor = ColorMuted;
-    if (evalBarValid) {
-      const bool whiteSegment = playerColor == 'w'
-                              ? centerY >= whiteBoundary
-                              : centerY < whiteBoundary;
-      labelColor = whiteSegment ? ColorEvalTextDark : ColorText;
-    }
     char label[2] = { Ranks[rank], '\0' };
     drawCenteredText(label, 0, BoardY + row * SquareSize, BoardX, SquareSize,
-                     labelColor, &fonts::Font0);
+                     ColorCoordinates, &fonts::Font0);
   }
 }
-
 static void refreshEvaluationBar() {
   drawEvaluationBar();
   drawBoardCoordinates();
