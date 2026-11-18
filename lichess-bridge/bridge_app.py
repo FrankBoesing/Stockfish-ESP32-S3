@@ -64,7 +64,7 @@ class BridgeApp:
                 "The configured Lichess account does not have the BOT title. "
                 "The Bot API can only be used with a BOT account."
             )
-        LOG.info("Lichess verbunden: BOT @%s", account_name)
+        LOG.info("Connected to Lichess: BOT @%s", account_name)
 
         if self.config.opponent.role == "CHALLENGE":
             await self._create_challenge()
@@ -175,7 +175,7 @@ class BridgeApp:
     def _should_accept_challenge(self, challenge: dict[str, Any]) -> tuple[bool, str]:
         challenger = self._challenge_opponent(challenge)
         if challenger.casefold() != self.config.opponent.allowed_username.casefold():
-            return False, f"challenger @{challenger or 'unknown'}"
+            return False, f"challenger @{challenger or 'unknown'} is not on the allowlist"
         if self._challenge_variant(challenge) != "standard":
             return False, "only standard chess is allowed"
         if self._active_game_id is not None:
@@ -252,7 +252,7 @@ class BridgeApp:
             game_id = str(game.get("id", "")) if isinstance(game, dict) else ""
             LOG.info("Received game-finished event: %s", game_id or "unknown")
         elif event_type in {"challengeCanceled", "challengeDeclined"}:
-            LOG.info("Challenge-Ereignis: %s", event_type)
+            LOG.info("Challenge event: %s", event_type)
         else:
             LOG.debug("Ignoring Lichess event: %s", event_type)
 
@@ -425,7 +425,7 @@ class BridgeApp:
                 self.config.game.max_move_time_ms,
             )
         else:
-            LOG.info("Suchbudget ohne verwertbare Uhrdaten: %d ms.", movetime)
+            LOG.info("Search budget without usable clock data: %d ms.", movetime)
         return movetime
 
     async def _run_game(self, game_id: str) -> None:
@@ -471,7 +471,7 @@ class BridgeApp:
                         elif event_type == "opponentGone":
                             self._log_opponent_gone(event)
                         elif event_type == "chatLine":
-                            LOG.debug("Game-Chat: %s", event.get("text", ""))
+                            LOG.debug("Game chat: %s", event.get("text", ""))
                     LOG.info("Game stream for %s closed.", game_id)
                     break
                 except asyncio.CancelledError:
