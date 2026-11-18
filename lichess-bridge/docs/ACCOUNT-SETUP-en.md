@@ -135,14 +135,14 @@ From the `lichess-bridge` directory:
 
 ```powershell
 python.exe -m venv .venv
-.\\.venv\\Scripts\\python.exe -m pip install --upgrade pip
-.\\.venv\\Scripts\\python.exe -m pip install -e ".[test]"
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ".[test]"
 ```
 
 Then start the bridge with a simulated microcontroller:
 
 ```powershell
-.\\.venv\\Scripts\\python.exe bridge.py --config config.toml --simulate
+.\.venv\Scripts\python.exe bridge.py --config config.toml --simulate
 ```
 
 The successful initial connection test produced output similar to this:

@@ -1,6 +1,6 @@
 # Serielles Protokoll LICHESS-BRIDGE/1
 
-[Deutsch](serial-protocol-de.md) | [English](serial-protocol-en.md)
+[Deutsch](serial-protocol-de.md) | [English](serial-protocol-en.md) | [MCU-Integrationsleitfaden (Englisch)](integration-guide-en.md)
 
 ## Transport
 
