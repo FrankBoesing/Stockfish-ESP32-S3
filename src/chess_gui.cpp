@@ -1457,6 +1457,40 @@ static bool startBridgeSearch(uint32_t movetimeMs) {
   searchMailbox.bestMove[0] = '\0';
   portEXIT_CRITICAL(&searchMux);
 
+  // Bridge games use the same Polyglot book as the local GUI game mode.
+  // A book hit is delayed briefly so the selected move remains visible before
+  // it is applied and returned to the host.
+  if (openingBookEnabled && openingBook.ready()) {
+    const Stockfish::Position& position = engine->position();
+    Stockfish::Move bookMove;
+    PolyglotBook::SelectionStats stats;
+    const uint64_t key = PolyglotBook::hashPosition(position);
+    const uint64_t randomValue = (uint64_t(esp_random()) << 32) | esp_random();
+
+    if (openingBook.chooseMove(position, randomValue, bookMove, &stats)) {
+      const std::string uciMove = Stockfish::UCIEngine::move(bookMove, false);
+      Serial.printf("[BOOK] HIT (BOT) key=%016llX legal-entries=%lu total-weight=%llu move=%s\\n",
+                    (unsigned long long)key,
+                    (unsigned long)stats.legalEntries,
+                    (unsigned long long)stats.totalWeight,
+                    uciMove.c_str());
+      snprintf(pendingBookMoveUci, sizeof(pendingBookMoveUci), "%s", uciMove.c_str());
+      pendingBookMoveStarted = millis();
+      pendingBookMove = true;
+      searchInFlight = true;
+      setStatus("Opening book");
+      if (screen == Screen::Game) drawGamePanelInfo();
+      return true;
+    }
+
+    Serial.printf("[BOOK] MISS (BOT) key=%016llX; falling back to Stockfish search\\n",
+                  (unsigned long long)key);
+  } else if (!openingBookEnabled) {
+    Serial.println("[BOOK] Disabled; using Stockfish search for BOT move");
+  } else {
+    Serial.println("[BOOK] Unavailable; using Stockfish search for BOT move");
+  }
+
   Stockfish::Search::LimitsType limits;
   limits.movetime = (Stockfish::TimePoint)movetimeMs;
   limits.startTime = Stockfish::now();
@@ -1508,7 +1542,9 @@ static void logAcceptedMove(const char *actor, char movingSide, const char *uciM
 }
 
 static void handleSearchResult(const char *bestMove, const char *actor) {
-  if (!bestMove || !bestMove[0] || strcmp(bestMove, "0000") == 0) {
+  const bool bridgeMove = searchMode == SearchMode::BridgeMove;
+  if (!bestMove || !bestMove[0] || strcmp(bestMove, "0000") == 0
+      || strcmp(bestMove, "(none)") == 0) {
     searchMode = SearchMode::None;
     if (!updateGameStatusFromPosition())
       setStatus("Search ended");
@@ -1516,6 +1552,8 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
       autoPlayEnabled = false;
       Serial.println(gameOver ? "[AUTO] Game finished" : "[AUTO] Stopped: no best move");
     }
+    if (bridgeMove)
+      SerialConsole::completeBotSearch("0000");
     if (screen == Screen::Game)
       drawGamePanelInfo();
     return;
@@ -1554,7 +1592,9 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
     return;
   }
 
-  if (searchMode == SearchMode::EngineMove) {
+  if (searchMode == SearchMode::EngineMove
+      || searchMode == SearchMode::BridgeMove) {
+    const bool bridgeMove = searchMode == SearchMode::BridgeMove;
     const char movingSide = sideToMove();
     const int oldLastFrom = lastFrom, oldLastTo = lastTo;
     const int oldHintFrom = hintFrom, oldHintTo = hintTo;
@@ -1573,10 +1613,21 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
       moveApplied = true;
       logAcceptedMove(actor, movingSide, bestMove);
       updateGameStatusFromPosition();
-      saveGameToNvs();
+      if (!bridgeMove)
+        saveGameToNvs();
     }
     searchMode = SearchMode::None;
-    if (autoPlayEnabled && (!moveApplied || gameOver)) {
+    if (bridgeMove) {
+      if (moveApplied) {
+        if (!gameOver)
+          setStatus("Waiting for opponent");
+        Serial.printf("[BOT] Move committed to local GUI: %s\\n", bestMove);
+        SerialConsole::completeBotSearch(bestMove);
+      } else {
+        Serial.println("[BOT] Move could not be committed locally; reporting no move");
+        SerialConsole::completeBotSearch("0000");
+      }
+    } else if (autoPlayEnabled && (!moveApplied || gameOver)) {
       autoPlayEnabled = false;
       Serial.println(moveApplied ? "[AUTO] Game finished" : "[AUTO] Stopped: move could not be applied");
     }
@@ -1585,7 +1636,7 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
                               oldHintFrom, oldHintTo, oldSelected);
       drawGamePanelInfo();
     }
-    if (autoPlayEnabled && moveApplied && !gameOver)
+    if (!bridgeMove && autoPlayEnabled && moveApplied && !gameOver)
       startSearch(SearchMode::EngineMove);
   }
 }
@@ -1678,13 +1729,10 @@ static void pollSearchMailbox() {
     portENTER_CRITICAL(&searchMux);
     finalResult = searchMailbox;
     portEXIT_CRITICAL(&searchMux);
-    if (searchMode == SearchMode::BridgeMove) {
-      searchMode = SearchMode::None;
-      SerialConsole::completeBotSearch(bestMove);
-    } else {
-      logSearchEvaluation(finalResult);
-      handleSearchResult(bestMove);
-    }
+    logSearchEvaluation(finalResult);
+    // handleSearchResult commits BridgeMove to the local GUI position before
+    // completeBotSearch publishes BESTMOVE to the serial host.
+    handleSearchResult(bestMove);
   }
 }
 
@@ -3123,7 +3171,16 @@ static bool serialBotNewGame() {
 static bool serialBotSetPosition(const std::string &fen) {
   if (!engine || !bridgeBotModeActive) return false;
   GameHistory emptyHistory;
-  return applySerialPosition(fen, emptyHistory, nullptr, nullptr, '\0', true);
+  if (!applySerialPosition(fen, emptyHistory, nullptr, nullptr, '\0', true))
+    return false;
+
+  // Lichess sends POSITION only when the bot is to move. The opposite colour
+  // is therefore the human opponent whose turn is expected after our move.
+  playerColor = sideToMove() == 'w' ? 'b' : 'w';
+  updateGameStatusFromPosition();
+  if (screen == Screen::Game)
+    drawGamePanelInfo();
+  return true;
 }
 
 static bool serialBotStartSearch(uint32_t movetimeMs) {
