@@ -109,7 +109,7 @@ def test_clock_budget_uses_lichess_millisecond_fields(caplog):
     assert budget == 10999
     assert "300.000 s verbleibend" in caplog.text
     assert "increment 3.000 s" in caplog.text
-    assert "Suchbudget 10999 ms" in caplog.text
+    assert "search budget 10999 ms" in caplog.text
 
 
 def test_missing_clock_is_explicitly_reported(caplog):
