@@ -97,6 +97,10 @@ def test_clock_budget_uses_lichess_millisecond_fields(caplog):
     import logging
 
     app = BridgeApp(make_config(), SimulatedSerialClient(), FakeLichess())
+    assert app._configure_game_time_control({
+        "speed": "blitz",
+        "clock": {"initial": 300000, "increment": 3000},
+    })
     state = {"wtime": 300000, "btime": 300000, "winc": 3000, "binc": 3000}
 
     with caplog.at_level(logging.INFO):
@@ -116,3 +120,72 @@ def test_missing_clock_is_explicitly_reported(caplog):
         budget = app._calculate_move_budget({}, chess.WHITE)
     assert budget == app.config.game.max_move_time_ms
     assert "wtime fehlt/ist ungültig" in caplog.text
+
+
+
+def test_correspondence_game_is_detected_as_no_classic_clock(caplog):
+    import logging
+
+    app = BridgeApp(make_config(), SimulatedSerialClient(), FakeLichess())
+    game_full = {
+        "type": "gameFull",
+        "speed": "correspondence",
+        "daysPerTurn": 3,
+        "clock": None,
+        "state": {
+            "type": "gameState",
+            "moves": "e2e4",
+            "wtime": 2147483647,
+            "btime": 2147483647,
+            "winc": 0,
+            "binc": 0,
+            "status": "started",
+        },
+    }
+
+    with caplog.at_level(logging.INFO):
+        assert app._configure_game_time_control(game_full) is False
+        budget = app._calculate_move_budget(game_full["state"], chess.BLACK)
+
+    assert app._game_has_clock is False
+    assert budget == app.config.game.max_move_time_ms
+    assert "speed=correspondence" in caplog.text
+    assert "daysPerTurn=3" in caplog.text
+    assert "Keine klassische Schachuhr erkannt" in caplog.text
+    assert "Partie ohne klassische Schachuhr" in caplog.text
+    assert "2147483.647 s" not in caplog.text
+
+
+def test_lichess_no_clock_sentinel_is_detected_without_gamefull_metadata(caplog):
+    import logging
+
+    app = BridgeApp(make_config(), SimulatedSerialClient(), FakeLichess())
+    state = {
+        "wtime": 2147483647,
+        "btime": 2147483647,
+        "winc": 0,
+        "binc": 0,
+    }
+
+    with caplog.at_level(logging.INFO):
+        budget = app._calculate_move_budget(state, chess.WHITE)
+
+    assert budget == app.config.game.max_move_time_ms
+    assert "No-Clock-Platzhalter 2147483647" in caplog.text
+    assert "2147483.647 s" not in caplog.text
+
+
+def test_missing_classic_clock_metadata_is_not_reported_as_24_days(caplog):
+    import logging
+
+    app = BridgeApp(make_config(), SimulatedSerialClient(), FakeLichess())
+    with caplog.at_level(logging.INFO):
+        has_clock = app._configure_game_time_control({
+            "speed": "correspondence",
+            "daysPerTurn": 1,
+            "clock": None,
+        })
+
+    assert has_clock is False
+    assert "Keine klassische Schachuhr erkannt" in caplog.text
+    assert "clock=null/fehlt" in caplog.text

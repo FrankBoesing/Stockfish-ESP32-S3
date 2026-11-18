@@ -133,5 +133,6 @@ Die HTTP-Tests verwenden einen Mock-Transport; es werden keine echten Tokens ben
 - Nach einem unklaren Ergebnis beim HTTP-Move-POST wird derselbe Zug nicht blind erneut gesendet. Die Bridge wartet auf den Game-Stream; nach einem Prozessabbruch kann ein manueller Abgleich mit Lichess erforderlich sein.
 - Die Wiederverbindung mit serieller Schnittstelle und Lichess-Streams ist implementiert, muss aber auf echter Hardware und mit realen Bot-Konten erprobt werden.
 - Das Zeitbudget ist eine konfigurierbare Heuristik, keine Garantie gegen Zeitüberschreitung.
+- Lichess-Partien ohne klassische Schachuhr (z. B. Korrespondenzpartien) werden anhand der `gameFull`-Metadaten (`clock`, `speed`, `daysPerTurn`) erkannt. Der `gameState`-Platzhalter `2147483647` wird ebenfalls nicht als echte Restbedenkzeit interpretiert; stattdessen verwendet die Bridge `max_move_time_ms`.
 
 Siehe [serielles Protokoll LICHESS-BRIDGE/1](docs/serial-protocol.md) und die offizielle [Lichess API](https://lichess.org/api), [Fair Play](https://lichess.org/page/fair-play) sowie [API-Tipps/Rate-Limits](https://lichess.org/page/api-tips).

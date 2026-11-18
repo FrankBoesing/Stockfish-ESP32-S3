@@ -25,6 +25,9 @@ from serial_client import SerialConnectionError, SerialTransport
 
 LOG = logging.getLogger(__name__)
 
+# Lichess uses the signed 32-bit maximum as a no-clock placeholder.
+LICHESS_NO_CLOCK_SENTINEL_MS = 2_147_483_647
+
 
 class BridgeApp:
     def __init__(self, config: BridgeConfig, serial: SerialTransport, lichess: LichessClient) -> None:
@@ -37,6 +40,7 @@ class BridgeApp:
         self._username = config.lichess.username
         self._device_name = "unknown"
         self._last_logged_moves: list[str] = []
+        self._game_has_clock: bool | None = None
 
     async def run(self) -> None:
         await self.serial.connect()
@@ -239,6 +243,7 @@ class BridgeApp:
                 return
             self._active_game_id = game_id
             self._last_logged_moves = []
+            self._game_has_clock = None
             game_url = f"https://lichess.org/{quote(game_id)}"
             LOG.info("Partie gestartet: %s", game_url)
             self._game_task = asyncio.create_task(self._run_game(game_id), name=f"lichess-game-{game_id}")
@@ -251,27 +256,57 @@ class BridgeApp:
         else:
             LOG.debug("Lichess-Ereignis ignoriert: %s", event_type)
 
-    @staticmethod
-    def _log_game_clock(clock: Any) -> None:
-        """Log the immutable initial clock control from gameFull (all values in ms)."""
-        if not isinstance(clock, dict):
-            LOG.warning("gameFull enthält kein clock-Objekt; Zeitkontrolle ist nicht angegeben.")
-            return
-        initial = clock.get("initial")
-        increment = clock.get("increment")
-        if (
-            isinstance(initial, (int, float))
+    def _configure_game_time_control(self, game_full: dict[str, Any]) -> bool:
+        """Detect a real Lichess clock from gameFull metadata.
+
+        Correspondence games have no classic clock: Lichess omits/nulls clock,
+        sets speed to correspondence and may include daysPerTurn. Their
+        gameState wtime/btime fields can contain INT32_MAX as a placeholder,
+        not a real countdown.
+        """
+        speed = str(game_full.get("speed", "unknown")).lower()
+        days_per_turn = game_full.get("daysPerTurn")
+        clock = game_full.get("clock")
+
+        initial = clock.get("initial") if isinstance(clock, dict) else None
+        increment = clock.get("increment") if isinstance(clock, dict) else None
+
+        valid_clock = (
+            isinstance(initial, int)
             and not isinstance(initial, bool)
-            and isinstance(increment, (int, float))
+            and initial > 0
+            and isinstance(increment, int)
             and not isinstance(increment, bool)
-        ):
+            and increment >= 0
+        )
+        has_classic_clock = (
+            speed != "correspondence"
+            and days_per_turn is None
+            and valid_clock
+        )
+        self._game_has_clock = has_classic_clock
+
+        if has_classic_clock:
             LOG.info(
-                "Lichess-Zeitkontrolle: %.3f s Grundbedenkzeit + %.3f s Inkrement.",
-                initial / 1000.0,
-                increment / 1000.0,
+                "Lichess-Zeitkontrolle: %d s Grundbedenkzeit + %d s Inkrement.",
+                initial // 1000,
+                increment // 1000,
             )
         else:
-            LOG.warning("gameFull clock-Objekt enthält ungültige Werte: %r", clock)
+            details = [f"speed={speed}"]
+            if days_per_turn is not None:
+                details.append(f"daysPerTurn={days_per_turn}")
+            if clock is None:
+                details.append("clock=null/fehlt")
+            elif not valid_clock:
+                details.append(f"clock-Objekt ungültig/unvollständig: {clock!r}")
+            LOG.info(
+                "Keine klassische Schachuhr erkannt (%s). "
+                "Für die MCU wird das konfigurierte Suchzeitlimit von %d ms verwendet.",
+                ", ".join(details),
+                self.config.game.max_move_time_ms,
+            )
+        return has_classic_clock
 
     @staticmethod
     def _log_opponent_gone(event: dict[str, Any]) -> None:
@@ -322,6 +357,13 @@ class BridgeApp:
 
     def _calculate_move_budget(self, state: dict[str, Any], bot_color: chess.Color) -> int:
         """Calculate and log a move budget from Lichess clock fields (milliseconds)."""
+        if self._game_has_clock is False:
+            LOG.info(
+                "Partie ohne klassische Schachuhr: verwende konfiguriertes Suchzeitlimit %d ms.",
+                self.config.game.max_move_time_ms,
+            )
+            return self.config.game.max_move_time_ms
+
         remaining_key = "wtime" if bot_color == chess.WHITE else "btime"
         increment_key = "winc" if bot_color == chess.WHITE else "binc"
         remaining_raw = state.get(remaining_key)
@@ -335,6 +377,16 @@ class BridgeApp:
 
         remaining_ms = valid_ms(remaining_raw)
         increment_ms = valid_ms(increment_raw)
+
+        if remaining_ms == LICHESS_NO_CLOCK_SENTINEL_MS:
+            LOG.info(
+                "Lichess-Uhrfeld %s enthält den No-Clock-Platzhalter %d; "
+                "verwende das konfigurierte Suchzeitlimit %d ms.",
+                remaining_key,
+                LICHESS_NO_CLOCK_SENTINEL_MS,
+                self.config.game.max_move_time_ms,
+            )
+            return self.config.game.max_move_time_ms
         if remaining_ms is None:
             LOG.warning(
                 "Lichess-Uhrfeld %s fehlt/ist ungültig (%r); verwende das konfigurierte Maximalbudget %d ms. "
@@ -405,7 +457,7 @@ class BridgeApp:
                             else:
                                 raise RuntimeError("Eigener Bot ist in gameFull weder Weiß noch Schwarz.")
                             LOG.info("Spielerfarbe: %s", "Weiß" if bot_color else "Schwarz")
-                            self._log_game_clock(event.get("clock"))
+                            self._configure_game_time_control(event)
                             pending, thinking_moves = await self._process_game_state(
                                 game_id, state, bot_color, pending, thinking_moves
                             )
