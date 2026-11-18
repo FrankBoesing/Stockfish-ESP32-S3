@@ -71,16 +71,16 @@ class LichessClient:
                 except httpx.HTTPError as exc:
                     # No automatic POST retry: the server may have processed it
                     # before the connection failed. The caller must reconcile via stream.
-                    raise LichessError(f"Netzwerkfehler bei {method} {path}: {exc}") from exc
+                    raise LichessError(f"Network error during {method} {path}: {exc}") from exc
 
                 if response.status_code == 429:
                     delay = self._retry_after(response)
-                    LOG.warning("Lichess HTTP 429: pausiere %ss gemäß Rate-Limit-Hinweis.", delay)
+                    LOG.warning("Lichess HTTP 429: pausing for %ss as requested by the rate-limit response.", delay)
                     # Always enforce the cooldown, including after the final retry.
                     await asyncio.sleep(delay)
                     if attempt >= self.retries:
                         raise LichessRateLimitError(
-                            f"Lichess antwortet mit HTTP 429; nach {delay}s erneut versuchen.",
+                            f"Lichess returned HTTP 429; retry after {delay}s erneut versuchen.",
                             retry_after_seconds=delay,
                         )
                     continue
@@ -91,7 +91,7 @@ class LichessClient:
                         f"Lichess API {method} {path}: HTTP {response.status_code}: {detail}"
                     )
                 return response
-        raise LichessError("Unerwarteter Request-Abbruch")
+        raise LichessError("Unexpected request termination")
 
     async def get_account(self) -> dict[str, Any]:
         response = await self._request("GET", "/api/account")
@@ -147,7 +147,7 @@ class LichessClient:
                 if response.status_code == 429:
                     delay = self._retry_after(response)
                     raise LichessRateLimitError(
-                        f"Lichess Stream HTTP 429; Verbindung nach mindestens {delay}s erneut öffnen.",
+                        f"Lichess stream returned HTTP 429; reopen the connection after at least {delay}s erneut öffnen.",
                         retry_after_seconds=delay,
                     )
                 if response.is_error:
@@ -159,12 +159,12 @@ class LichessClient:
                     try:
                         value = json.loads(line)
                     except json.JSONDecodeError:
-                        LOG.warning("Ignoriere ungültige ND-JSON-Zeile aus %s", path)
+                        LOG.warning("Ignoring invalid ND-JSON line from %s", path)
                         continue
                     if isinstance(value, dict):
                         yield value
         except (httpx.TimeoutException, httpx.TransportError) as exc:
-            raise LichessError(f"Stream-Verbindung zu {path} unterbrochen: {exc}") from exc
+            raise LichessError(f"Stream connection to {path} unterbrochen: {exc}") from exc
 
     async def event_stream(self) -> AsyncIterator[dict[str, Any]]:
         async for event in self.stream_ndjson("/api/stream/event"):
