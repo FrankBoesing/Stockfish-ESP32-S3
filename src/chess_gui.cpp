@@ -625,7 +625,12 @@ static void drawPiece(char piece, int x, int y, uint16_t squareColor,
   if (captureMarker)
     addCaptureMarkerToTile();
 
+  // pieceTile stores native RGB565 values returned by rgb(). Tell
+  // LovyanGFX not to interpret this uint16_t buffer as byte-swapped RGB565.
+  const bool previousSwapBytes = tft.getSwapBytes();
+  tft.setSwapBytes(true);
   tft.pushImage(x, y, SquareSize, SquareSize, pieceTile);
+  tft.setSwapBytes(previousSwapBytes);
 }
 
 static uint16_t boardSquareColor(int square, int lastFromValue, int lastToValue,
