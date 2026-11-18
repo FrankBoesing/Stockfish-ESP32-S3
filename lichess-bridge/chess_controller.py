@@ -18,9 +18,9 @@ def board_from_uci_moves(moves: str) -> chess.Board:
         try:
             move = chess.Move.from_uci(token)
         except ValueError as exc:
-            raise ChessStateError(f"Ungültiger UCI-Zug an Position {index}: {token!r}") from exc
+            raise ChessStateError(f"Invalid UCI move at index {index}: {token!r}") from exc
         if move not in board.legal_moves:
-            raise ChessStateError(f"Illegaler UCI-Zug an Position {index}: {token!r}")
+            raise ChessStateError(f"Illegal UCI move at index {index}: {token!r}")
         board.push(move)
     return board
 
@@ -29,14 +29,14 @@ def validate_bestmove(board: chess.Board, uci: str) -> chess.Move:
     candidate = uci.strip()
     if candidate == "0000":
         if board.legal_moves.count() == 0:
-            raise ChessStateError("BESTMOVE 0000: Die Stellung hat keinen legalen Zug.")
-        raise ChessStateError("Microcontroller meldet BESTMOVE 0000, obwohl legale Züge existieren.")
+            raise ChessStateError("BESTMOVE 0000: the position has no legal moves.")
+        raise ChessStateError("Microcontroller returned BESTMOVE 0000 even though legal moves exist.")
     try:
         move = chess.Move.from_uci(candidate)
     except ValueError as exc:
-        raise ChessStateError(f"Microcontroller lieferte ungültiges UCI-Format: {candidate!r}") from exc
+        raise ChessStateError(f"Microcontroller returned an invalid UCI format: {candidate!r}") from exc
     if move not in board.legal_moves:
-        raise ChessStateError(f"Microcontroller lieferte einen illegalen Zug: {candidate}")
+        raise ChessStateError(f"Microcontroller returned an illegal move: {candidate}")
     return move
 
 
