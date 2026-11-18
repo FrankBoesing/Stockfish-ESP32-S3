@@ -36,6 +36,7 @@ class BridgeApp:
         self._game_task: asyncio.Task[None] | None = None
         self._username = config.lichess.username
         self._device_name = "unknown"
+        self._last_logged_moves: list[str] = []
 
     async def run(self) -> None:
         await self.serial.connect()
@@ -237,6 +238,7 @@ class BridgeApp:
                 LOG.warning("Ignoriere weiteres Spiel %s; %s ist noch aktiv.", game_id, self._active_game_id)
                 return
             self._active_game_id = game_id
+            self._last_logged_moves = []
             game_url = f"https://lichess.org/{quote(game_id)}"
             LOG.info("Partie gestartet: %s", game_url)
             self._game_task = asyncio.create_task(self._run_game(game_id), name=f"lichess-game-{game_id}")
@@ -248,6 +250,131 @@ class BridgeApp:
             LOG.info("Challenge-Ereignis: %s", event_type)
         else:
             LOG.debug("Lichess-Ereignis ignoriert: %s", event_type)
+
+    @staticmethod
+    def _log_game_clock(clock: Any) -> None:
+        """Log the immutable initial clock control from gameFull (all values in ms)."""
+        if not isinstance(clock, dict):
+            LOG.warning("gameFull enthält kein clock-Objekt; Zeitkontrolle ist nicht angegeben.")
+            return
+        initial = clock.get("initial")
+        increment = clock.get("increment")
+        if (
+            isinstance(initial, (int, float))
+            and not isinstance(initial, bool)
+            and isinstance(increment, (int, float))
+            and not isinstance(increment, bool)
+        ):
+            LOG.info(
+                "Lichess-Zeitkontrolle: %.3f s Grundbedenkzeit + %.3f s Inkrement.",
+                initial / 1000.0,
+                increment / 1000.0,
+            )
+        else:
+            LOG.warning("gameFull clock-Objekt enthält ungültige Werte: %r", clock)
+
+    @staticmethod
+    def _log_opponent_gone(event: dict[str, Any]) -> None:
+        """Report opponent disconnect/reconnect information without claiming a result."""
+        gone = event.get("gone")
+        claim_in = event.get("claimWinInSeconds")
+        if gone is True:
+            if isinstance(claim_in, int) and not isinstance(claim_in, bool) and claim_in > 0:
+                LOG.warning(
+                    "Gegner ist getrennt; ein Sieg kann laut Lichess in %d Sekunden beansprucht werden.",
+                    claim_in,
+                )
+            elif claim_in == 0:
+                LOG.warning(
+                    "Gegner ist getrennt; Lichess meldet, dass ein Sieg jetzt beansprucht werden kann."
+                )
+            else:
+                LOG.warning("Gegner ist getrennt; Lichess hat keine Beanspruchungszeit mitgeteilt.")
+        elif gone is False:
+            LOG.info("Gegner ist wieder verbunden.")
+        else:
+            LOG.warning("Ungültiges opponentGone-Ereignis empfangen: %r", event)
+
+    def _log_new_opponent_moves(self, moves_text: str, bot_color: chess.Color) -> None:
+        """Log every newly observed opponent move once, in SAN and UCI notation."""
+        moves = moves_text.split()
+        previous = self._last_logged_moves
+        if moves[: len(previous)] != previous:
+            LOG.warning("Lichess-Zugfolge wurde zurückgesetzt/geändert; setze die Move-Log-Synchronisierung zurück.")
+            previous = []
+
+        board = chess.Board()
+        for index, token in enumerate(moves):
+            try:
+                move = chess.Move.from_uci(token)
+            except ValueError as exc:
+                raise RuntimeError(f"Ungültiger UCI-Zug im Game-Stream: {token!r}") from exc
+            if move not in board.legal_moves:
+                raise RuntimeError(f"Illegaler UCI-Zug im Game-Stream: {token!r}")
+            if index >= len(previous) and board.turn != bot_color:
+                san = board.san(move)
+                move_number = board.fullmove_number
+                turn_suffix = "." if board.turn == chess.WHITE else "..."
+                LOG.info("Gegnerzug: %d%s %s (%s).", move_number, turn_suffix, san, token)
+            board.push(move)
+
+        self._last_logged_moves = moves
+
+    def _calculate_move_budget(self, state: dict[str, Any], bot_color: chess.Color) -> int:
+        """Calculate and log a move budget from Lichess clock fields (milliseconds)."""
+        remaining_key = "wtime" if bot_color == chess.WHITE else "btime"
+        increment_key = "winc" if bot_color == chess.WHITE else "binc"
+        remaining_raw = state.get(remaining_key)
+        increment_raw = state.get(increment_key)
+
+        def valid_ms(value: Any) -> int | None:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                return None
+            value = int(value)
+            return value if value >= 0 else None
+
+        remaining_ms = valid_ms(remaining_raw)
+        increment_ms = valid_ms(increment_raw)
+        if remaining_ms is None:
+            LOG.warning(
+                "Lichess-Uhrfeld %s fehlt/ist ungültig (%r); verwende das konfigurierte Maximalbudget %d ms. "
+                "Prüfe, ob die Partie eine Bedenkzeit hat.",
+                remaining_key,
+                remaining_raw,
+                self.config.game.max_move_time_ms,
+            )
+        if increment_ms is None:
+            LOG.warning(
+                "Lichess-Inkrementfeld %s fehlt/ist ungültig (%r); behandle das Inkrement für diese Berechnung als 0 ms.",
+                increment_key,
+                increment_raw,
+            )
+            increment_ms = 0
+
+        movetime = calculate_movetime_ms(
+            remaining_ms,
+            increment_ms,
+            moves_to_go=self.config.game.moves_to_go,
+            safety_margin_ms=self.config.game.safety_margin_ms,
+            factor=self.config.game.move_time_factor,
+            min_ms=self.config.game.min_move_time_ms,
+            max_ms=self.config.game.max_move_time_ms,
+        )
+        if remaining_ms is not None:
+            LOG.info(
+                "Lichess-Uhr %s: %.3f s verbleibend, Inkrement %.3f s; "
+                "Suchbudget %d ms (Reserve %d ms, Faktor %.2f, max. %d ms).",
+                "Weiß" if bot_color == chess.WHITE else "Schwarz",
+                remaining_ms / 1000.0,
+                increment_ms / 1000.0,
+                movetime,
+                self.config.game.safety_margin_ms,
+                self.config.game.move_time_factor,
+                self.config.game.max_move_time_ms,
+            )
+        else:
+            LOG.info("Suchbudget ohne verwertbare Uhrdaten: %d ms.", movetime)
+        return movetime
 
     async def _run_game(self, game_id: str) -> None:
         pending: PendingMove | None = None
@@ -278,6 +405,7 @@ class BridgeApp:
                             else:
                                 raise RuntimeError("Eigener Bot ist in gameFull weder Weiß noch Schwarz.")
                             LOG.info("Spielerfarbe: %s", "Weiß" if bot_color else "Schwarz")
+                            self._log_game_clock(event.get("clock"))
                             pending, thinking_moves = await self._process_game_state(
                                 game_id, state, bot_color, pending, thinking_moves
                             )
@@ -289,7 +417,7 @@ class BridgeApp:
                                 game_id, event, bot_color, pending, thinking_moves
                             )
                         elif event_type == "opponentGone":
-                            LOG.info("Lichess meldet, dass der Gegner kurzzeitig nicht verbunden ist.")
+                            self._log_opponent_gone(event)
                         elif event_type == "chatLine":
                             LOG.debug("Game-Chat: %s", event.get("text", ""))
                     LOG.info("Game-Stream für %s wurde geschlossen.", game_id)
@@ -348,6 +476,8 @@ class BridgeApp:
         except ChessStateError as exc:
             raise RuntimeError(f"Ungültiger Spielstand aus Lichess: {exc}") from exc
 
+        self._log_new_opponent_moves(moves_text, bot_color)
+
         if board.is_game_over(claim_draw=False):
             LOG.info("Schachstellung ist beendet: %s", board.result(claim_draw=False))
             return pending, thinking_moves
@@ -365,18 +495,12 @@ class BridgeApp:
             return pending, thinking_moves
 
         thinking_moves = moves_text
-        remaining_key = "wtime" if bot_color == chess.WHITE else "btime"
-        increment_key = "winc" if bot_color == chess.WHITE else "binc"
-        movetime = calculate_movetime_ms(
-            state.get(remaining_key),
-            state.get(increment_key),
-            moves_to_go=self.config.game.moves_to_go,
-            safety_margin_ms=self.config.game.safety_margin_ms,
-            factor=self.config.game.move_time_factor,
-            min_ms=self.config.game.min_move_time_ms,
-            max_ms=self.config.game.max_move_time_ms,
+        movetime = self._calculate_move_budget(state, bot_color)
+        LOG.info(
+            "MCU berechnet Zug; Zugnummer %d, Budget %d ms.",
+            board.fullmove_number,
+            movetime,
         )
-        LOG.info("MCU berechnet Zug; Zugnummer %d, Budget %d ms.", board.fullmove_number, movetime)
 
         response: ProtocolMessage | None = None
         for attempt in range(2):

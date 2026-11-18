@@ -48,9 +48,11 @@ cp config.example.toml config.toml
 
 ## Lichess-Bot-Konten und Tokens
 
-Lege zwei neue Lichess-Konten an. Spiele mit ihnen noch keine Partie. Folge danach für jedes Konto der offiziellen Anleitung zum [Upgrade to a BOT account](https://lichess.org/api#operation/botAccountUpgrade). Der Kontoname muss nach der Umstellung den Titel `BOT` tragen.
+Für den vollständigen Ablauf – einschließlich Registrierung, Gmail-Plus-Alias als nicht garantierter Versuch, Token-Erzeugung, unwiderruflicher BOT-Hochstufung und Kontrolle – siehe [docs/ACCOUNT-SETUP-DE.md](docs/ACCOUNT-SETUP-DE.md).
 
-Erzeuge je Bot ein Personal API Token mit den nötigen Berechtigungen:
+**Mehrfachkonten beachten:** Lichess erlaubt mehr als ein Konto nur in bestimmten Ausnahmefällen. Die Nutzungsbedingungen stellen dies in das Ermessen von Lichess; mehr als drei Konten werden üblicherweise nicht akzeptiert. Das ist keine pauschale Erlaubnis für drei Konten. Vor der Registrierung eines weiteren BOT-Kontos sollte die konkrete Nutzung mit Lichess geklärt werden.
+
+Jedes genehmigte BOT-Konto benötigt ein eigenes Personal API Token. Für diese Bridge werden verwendet:
 
 - `bot:play` für Bot-Spiel, Game-Stream und Zugübertragung
 - `challenge:read` für eingehende Challenges
@@ -68,7 +70,7 @@ $env:LICHESS_TOKEN = "TOKEN_DES_LOKALEN_BOTS"
 export LICHESS_TOKEN="TOKEN_DES_LOKALEN_BOTS"
 ```
 
-Wiederhole dies am zweiten PC mit dem Token von Bot B. Tokens niemals committen oder in Logs veröffentlichen. `config.toml` ist in `.gitignore` eingetragen.
+Tokens niemals committen oder in Logs veröffentlichen. `config.toml` ist in `.gitignore` eingetragen.
 
 ## Konfiguration
 

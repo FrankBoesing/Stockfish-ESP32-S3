@@ -49,3 +49,17 @@ def test_pending_move_confirmation_and_duplicate_guard():
     assert should_start_thinking(current_moves="", bot_to_move=True, pending=None, thinking_moves=None)
     assert not should_start_thinking(current_moves="", bot_to_move=True, pending=None, thinking_moves="")
     assert not should_start_thinking(current_moves="", bot_to_move=True, pending=pending, thinking_moves=None)
+
+
+
+def test_five_plus_three_clock_budget_default_settings():
+    # Lichess Bot Game Stream clock values are expressed in milliseconds.
+    assert calculate_movetime_ms(
+        300_000,
+        3_000,
+        moves_to_go=30,
+        safety_margin_ms=1_800,
+        factor=0.85,
+        min_ms=100,
+        max_ms=20_000,
+    ) == 10_999
