@@ -20,6 +20,6 @@ def test_invalid_role_is_rejected(tmp_path):
     try:
         load_config(target)
     except ConfigError as exc:
-        assert "CHALLENGE oder ACCEPT" in str(exc)
+        assert "CHALLENGE or ACCEPT" in str(exc)
     else:
         raise AssertionError("ConfigError expected")
