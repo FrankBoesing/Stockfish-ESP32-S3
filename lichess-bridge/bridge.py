@@ -20,14 +20,14 @@ def list_ports() -> int:
     try:
         from serial.tools import list_ports as serial_list_ports  # type: ignore[import-not-found]
     except ImportError:
-        print("pySerial ist nicht installiert. Installiere mit: python -m pip install pyserial", file=sys.stderr)
+        print("pySerial is not installed. Install it with: python -m pip install pyserial", file=sys.stderr)
         return 2
     ports = list(serial_list_ports.comports())
     if not ports:
-        print("Keine seriellen Ports gefunden.")
+        print("No serial ports found.")
         return 0
     for port in ports:
-        description = port.description or "unbekanntes Gerät"
+        description = port.description or "Unknown device"
         print(f"{port.device:24} {description}")
     return 0
 
@@ -45,22 +45,22 @@ async def offline_simulation() -> int:
 
     board = chess.Board()
     rng = random.Random(17)
-    print("Offline-Simulation: 8 Halbzüge werden über das serielle Protokoll angefordert.")
+    print("Offline simulation: requesting 8 plies through the serial protocol.")
     for ply in range(8):
         fen = board.fen()
         await device.send("POSITION", fen)
         ack = await device.read_message(1.0)
         if ack.raw != "OK POSITION":
-            raise RuntimeError(f"Position wurde nicht bestätigt: {ack.raw}")
+            raise RuntimeError(f"Position was not acknowledged: {ack.raw}")
         await device.send("GO", "100")
         bestmove = await device.read_message(1.0)
         move = chess.Move.from_uci(bestmove.value)
         if move not in board.legal_moves:
-            raise RuntimeError(f"Simulation lieferte illegalen Zug: {bestmove.value}")
+            raise RuntimeError(f"Simulation returned an illegal move: {bestmove.value}")
         san = board.san(move)
         board.push(move)
         print(f"{ply + 1:2}: {bestmove.value:5} ({san})  FEN={board.fen()}")
-    print("Offline-Simulation erfolgreich abgeschlossen.")
+    print("Offline simulation completed successfully.")
     await device.close()
     return 0
 
@@ -76,7 +76,7 @@ async def run_bridge(args: argparse.Namespace) -> int:
         serial = SimulatedSerialClient()
     else:
         if not config.serial.port:
-            raise ConfigError("[serial].port fehlt. Für Hardware-Simulation --simulate verwenden.")
+            raise ConfigError("[serial].port is not set. Use --simulate to run without hardware.")
         serial = SerialClient(config.serial.port, config.serial.baudrate)
 
     client = LichessClient(
@@ -88,7 +88,7 @@ async def run_bridge(args: argparse.Namespace) -> int:
     try:
         await app.run()
     except KeyboardInterrupt:
-        logging.getLogger(__name__).info("Abbruch durch Benutzer.")
+        logging.getLogger(__name__).info("Interrupted by user.")
     finally:
         await app.stop()
     return 0
@@ -96,13 +96,13 @@ async def run_bridge(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Bridge zwischen Microcontroller-Schachcomputer und Lichess Bot API"
+        description="Bridge between a microcontroller chess computer and the Lichess Bot API"
     )
-    parser.add_argument("--config", default="config.toml", help="Pfad zur TOML-Konfiguration (Standard: config.toml)")
-    parser.add_argument("--list-ports", action="store_true", help="Verfügbare serielle Ports auflisten")
-    parser.add_argument("--validate-config", action="store_true", help="Konfiguration prüfen, ohne eine Verbindung herzustellen")
-    parser.add_argument("--simulate", action="store_true", help="Microcontroller simulieren; Lichess-Verbindung bleibt echt")
-    parser.add_argument("--offline-simulation", action="store_true", help="Lokale Protokollsimulation ohne Lichess und ohne Hardware")
+    parser.add_argument("--config", default="config.toml", help="Path to the TOML configuration file (default: config.toml)")
+    parser.add_argument("--list-ports", action="store_true", help="List available serial ports")
+    parser.add_argument("--validate-config", action="store_true", help="Validate the configuration without opening a connection")
+    parser.add_argument("--simulate", action="store_true", help="Simulate the microcontroller; keep the Lichess connection real")
+    parser.add_argument("--offline-simulation", action="store_true", help="Run a local protocol simulation without Lichess or hardware")
     return parser
 
 
@@ -115,18 +115,18 @@ def main() -> int:
         try:
             return asyncio.run(offline_simulation())
         except Exception as exc:
-            print(f"Offline-Simulation fehlgeschlagen: {exc}", file=sys.stderr)
+            print(f"Offline simulation failed: {exc}", file=sys.stderr)
             return 1
     try:
         config = load_config(args.config)
         if args.validate_config:
             # Do not require an API token for a static configuration check.
-            print(f"Konfiguration syntaktisch und strukturell gültig: {args.config}")
-            print(f"Rolle: {config.opponent.role}; Bot: {config.lichess.username}; Gegner: {config.opponent.allowed_username}")
+            print(f"Configuration syntax and structure are valid: {args.config}")
+            print(f"Role: {config.opponent.role}; Bot: {config.lichess.username}; Opponent: {config.opponent.allowed_username}")
             return 0
         return asyncio.run(run_bridge(args))
     except (ConfigError, RuntimeError, TimeoutError, KeyboardInterrupt) as exc:
-        print(f"Fehler: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
 
 
