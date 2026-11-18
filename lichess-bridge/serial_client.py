@@ -114,7 +114,7 @@ class SimulatedSerialClient:
     async def connect(self) -> None:
         self._queue = asyncio.Queue()
         self._connected = True
-        LOG.info("Simulierter Microcontroller aktiviert: %s", self.device_name)
+        LOG.info("Simulated microcontroller enabled: %s", self.device_name)
 
     async def send(self, command: str, argument: str | None = None) -> None:
         if not self._connected:
