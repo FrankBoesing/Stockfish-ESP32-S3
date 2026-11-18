@@ -1469,7 +1469,7 @@ static bool startBridgeSearch(uint32_t movetimeMs) {
 
     if (openingBook.chooseMove(position, randomValue, bookMove, &stats)) {
       const std::string uciMove = Stockfish::UCIEngine::move(bookMove, false);
-      Serial.printf("[BOOK] HIT (BOT) key=%016llX legal-entries=%lu total-weight=%llu move=%s\\n",
+      Serial.printf("[BOOK] HIT (BOT) key=%016llX legal-entries=%lu total-weight=%llu move=%s\n",
                     (unsigned long long)key,
                     (unsigned long)stats.legalEntries,
                     (unsigned long long)stats.totalWeight,
@@ -1483,7 +1483,7 @@ static bool startBridgeSearch(uint32_t movetimeMs) {
       return true;
     }
 
-    Serial.printf("[BOOK] MISS (BOT) key=%016llX; falling back to Stockfish search\\n",
+    Serial.printf("[BOOK] MISS (BOT) key=%016llX; falling back to Stockfish search\n",
                   (unsigned long long)key);
   } else if (!openingBookEnabled) {
     Serial.println("[BOOK] Disabled; using Stockfish search for BOT move");
@@ -1621,7 +1621,7 @@ static void handleSearchResult(const char *bestMove, const char *actor) {
       if (moveApplied) {
         if (!gameOver)
           setStatus("Waiting for opponent");
-        Serial.printf("[BOT] Move committed to local GUI: %s\\n", bestMove);
+        Serial.printf("[BOT] Move committed to local GUI: %s\n", bestMove);
         SerialConsole::completeBotSearch(bestMove);
       } else {
         Serial.println("[BOT] Move could not be committed locally; reporting no move");
