@@ -47,29 +47,29 @@ class BridgeApp:
         await self.serial.send("BOTMODE")
         ready = await self._wait_serial({MessageKind.READY}, self.config.timeouts.serial_ready_seconds)
         self._device_name = ready.value
-        LOG.info("Microcontroller bereit: %s", self._device_name)
+        LOG.info("Microcontroller ready: %s", self._device_name)
 
         await self.serial.send("PING")
         await self._wait_serial({MessageKind.PONG}, self.config.timeouts.serial_command_seconds)
-        LOG.info("Serielle Verbindung geprüft.")
+        LOG.info("Serial connection verified.")
 
         account = await self.lichess.get_account()
         account_name = str(account.get("username", ""))
         if account_name.casefold() != self._username.casefold():
             raise RuntimeError(
-                f"Token gehört zu {account_name!r}, konfiguriert ist aber {self._username!r}."
+                f"Token belongs to {account_name!r}, but the configured username is {self._username!r}."
             )
         if account.get("title") != "BOT":
             raise RuntimeError(
-                "Das konfigurierte Lichess-Konto trägt nicht den BOT-Titel. "
-                "Die Bot API kann nur mit einem Bot-Konto verwendet werden."
+                "The configured Lichess account does not have the BOT title. "
+                "The Bot API can only be used with a BOT account."
             )
         LOG.info("Lichess verbunden: BOT @%s", account_name)
 
         if self.config.opponent.role == "CHALLENGE":
             await self._create_challenge()
         else:
-            LOG.info("Rolle ACCEPT: warte auf eine Challenge von @%s", self.config.opponent.allowed_username)
+            LOG.info("Role ACCEPT: waiting for a challenge from @%s", self.config.opponent.allowed_username)
 
         await self._event_loop()
 
@@ -84,11 +84,11 @@ class BridgeApp:
         try:
             await self.serial.send("STOP")
         except Exception:
-            LOG.debug("STOP konnte beim Beenden nicht gesendet werden.", exc_info=True)
+            LOG.debug("Could not send STOP during shutdown.", exc_info=True)
         try:
             await self.serial.send("EXITBOT")
         except Exception:
-            LOG.debug("EXITBOT konnte beim Beenden nicht gesendet werden.", exc_info=True)
+            LOG.debug("Could not send EXITBOT during shutdown.", exc_info=True)
         await self.serial.close()
         await self.lichess.close()
 
@@ -98,25 +98,25 @@ class BridgeApp:
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise TimeoutError(f"Keine serielle Antwort erhalten (erwartet: {', '.join(k.value for k in kinds)}).")
+                raise TimeoutError(f"No serial response received (expected: {', '.join(k.value for k in kinds)}).")
             message = await self.serial.read_message(remaining)
             if message.kind == MessageKind.INFO:
                 LOG.info("MCU: %s", message.value)
                 continue
             if message.kind == MessageKind.ERROR:
                 if message.code == "SERIAL_READ":
-                    raise SerialConnectionError(f"Serielle Verbindung verloren: {message.value}")
-                raise RuntimeError(f"Microcontroller-Fehler {message.code}: {message.value}")
+                    raise SerialConnectionError(f"Serial connection lost: {message.value}")
+                raise RuntimeError(f"Microcontroller error {message.code}: {message.value}")
             if message.kind == MessageKind.UNKNOWN:
-                LOG.warning("Ignoriere nichtprotokollkonforme MCU-Ausgabe: %s", message.value)
+                LOG.warning("Ignoring non-protocol MCU output: %s", message.value)
                 continue
             if message.kind in kinds:
                 return message
-            LOG.debug("Unerwartete MCU-Antwort: %s", message.raw)
+            LOG.debug("Unexpected MCU response: %s", message.raw)
 
     async def _reconnect_serial(self, *, active_game: bool) -> None:
         """Reopen the serial port and re-handshake without touching Lichess state."""
-        LOG.warning("Versuche serielle Verbindung wiederherzustellen.")
+        LOG.warning("Attempting to reconnect to the serial port.")
         last_error: Exception | None = None
         for attempt in range(1, 4):
             try:
@@ -135,12 +135,12 @@ class BridgeApp:
                     await self._wait_serial(
                         {MessageKind.OK_NEWGAME}, self.config.timeouts.serial_command_seconds
                     )
-                LOG.info("Serielle Verbindung wiederhergestellt: %s", self._device_name)
+                LOG.info("Serial connection restored: %s", self._device_name)
                 return
             except Exception as exc:
                 last_error = exc
-                LOG.error("Serielle Wiederverbindung %d/3 fehlgeschlagen: %s", attempt, exc)
-        raise SerialConnectionError(f"Serielle Verbindung konnte nicht wiederhergestellt werden: {last_error}")
+                LOG.error("Serial reconnection attempt %d/3 failed: %s", attempt, exc)
+        raise SerialConnectionError(f"Could not restore the serial connection: {last_error}")
 
     async def _create_challenge(self) -> None:
         target = self.config.opponent.allowed_username
@@ -154,9 +154,9 @@ class BridgeApp:
         challenge = result.get("challenge", result) if isinstance(result, dict) else {}
         challenge_id = challenge.get("id", "unknown") if isinstance(challenge, dict) else "unknown"
         url = challenge.get("url") if isinstance(challenge, dict) else None
-        LOG.info("Challenge an @%s erstellt (ID: %s).", target, challenge_id)
+        LOG.info("Created challenge for @%s (ID: %s).", target, challenge_id)
         if url:
-            LOG.info("Challenge-Link: %s", url)
+            LOG.info("Challenge URL: %s", url)
 
     @staticmethod
     def _challenge_opponent(challenge: dict[str, Any]) -> str:
@@ -175,12 +175,12 @@ class BridgeApp:
     def _should_accept_challenge(self, challenge: dict[str, Any]) -> tuple[bool, str]:
         challenger = self._challenge_opponent(challenge)
         if challenger.casefold() != self.config.opponent.allowed_username.casefold():
-            return False, f"nicht freigegebener Herausforderer @{challenger or 'unbekannt'}"
+            return False, f"challenger @{challenger or 'unknown'}"
         if self._challenge_variant(challenge) != "standard":
-            return False, "nur Standard-Schach ist freigegeben"
+            return False, "only standard chess is allowed"
         if self._active_game_id is not None:
-            return False, "es läuft bereits eine Partie"
-        return True, "freigegebener Gegner und Standard-Schach"
+            return False, "a game is already in progress"
+        return True, "allowlisted opponent and standard chess"
 
     async def _event_loop(self) -> None:
         reconnect_delay = self.config.timeouts.reconnect_seconds
@@ -192,16 +192,16 @@ class BridgeApp:
                     reconnect_delay = self.config.timeouts.reconnect_seconds
                     await self._handle_event(event)
                 if not self._stop.is_set():
-                    LOG.warning("Lichess Event-Stream wurde geschlossen; verbinde erneut.")
+                    LOG.warning("Lichess event stream closed; reconnecting.")
                     await asyncio.sleep(reconnect_delay)
                     reconnect_delay = min(60.0, max(1.0, reconnect_delay * 2))
             except asyncio.CancelledError:
                 raise
             except LichessRateLimitError as exc:
-                LOG.error("Lichess Event-Stream rate-limited: %s; warte mindestens 60 Sekunden.", exc)
+                LOG.error("Lichess event stream rate-limited: %s; waiting at least 60 seconds.", exc)
                 await asyncio.sleep(exc.retry_after_seconds)
             except Exception as exc:
-                LOG.error("Lichess Event-Stream unterbrochen: %s", exc)
+                LOG.error("Lichess event stream interrupted: %s", exc)
                 await asyncio.sleep(reconnect_delay)
                 reconnect_delay = min(60.0, max(1.0, reconnect_delay * 2))
 
@@ -218,43 +218,43 @@ class BridgeApp:
                 accepted = False
                 reason = "dieser Standort ist im Modus CHALLENGE"
             if accepted:
-                LOG.info("Challenge von @%s erhalten; nehme an.", challenger)
+                LOG.info("Received a challenge from @%s; accepting.", challenger)
                 try:
                     await self.lichess.accept_challenge(challenge_id)
                 except Exception as exc:
-                    LOG.error("Challenge %s konnte nicht angenommen werden: %s", challenge_id, exc)
+                    LOG.error("Could not accept challenge %s: %s", challenge_id, exc)
             else:
-                LOG.info("Challenge von @%s wird abgelehnt: %s", challenger, reason)
+                LOG.info("Declining challenge from @%s: %s", challenger, reason)
                 if challenge_id:
                     try:
                         await self.lichess.decline_challenge(challenge_id)
                     except Exception as exc:
-                        LOG.warning("Challenge %s konnte nicht abgelehnt werden: %s", challenge_id, exc)
+                        LOG.warning("Could not decline challenge %s: %s", challenge_id, exc)
         elif event_type == "gameStart":
             game = event.get("game") or {}
             game_id = str(game.get("id", "")) if isinstance(game, dict) else ""
             if not game_id:
-                LOG.warning("gameStart ohne Game-ID erhalten.")
+                LOG.warning("Received gameStart without a game ID.")
                 return
             if self._active_game_id == game_id:
                 return
             if self._active_game_id is not None:
-                LOG.warning("Ignoriere weiteres Spiel %s; %s ist noch aktiv.", game_id, self._active_game_id)
+                LOG.warning("Ignoring additional game %s; game %s is still active.", game_id, self._active_game_id)
                 return
             self._active_game_id = game_id
             self._last_logged_moves = []
             self._game_has_clock = None
             game_url = f"https://lichess.org/{quote(game_id)}"
-            LOG.info("Partie gestartet: %s", game_url)
+            LOG.info("Game started: %s", game_url)
             self._game_task = asyncio.create_task(self._run_game(game_id), name=f"lichess-game-{game_id}")
         elif event_type == "gameFinish":
             game = event.get("game") or {}
             game_id = str(game.get("id", "")) if isinstance(game, dict) else ""
-            LOG.info("Game-Finish-Ereignis empfangen: %s", game_id or "unbekannt")
+            LOG.info("Received game-finished event: %s", game_id or "unknown")
         elif event_type in {"challengeCanceled", "challengeDeclined"}:
             LOG.info("Challenge-Ereignis: %s", event_type)
         else:
-            LOG.debug("Lichess-Ereignis ignoriert: %s", event_type)
+            LOG.debug("Ignoring Lichess event: %s", event_type)
 
     def _configure_game_time_control(self, game_full: dict[str, Any]) -> bool:
         """Detect a real Lichess clock from gameFull metadata.
@@ -288,7 +288,7 @@ class BridgeApp:
 
         if has_classic_clock:
             LOG.info(
-                "Lichess-Zeitkontrolle: %d s Grundbedenkzeit + %d s Inkrement.",
+                "Lichess time control: %d s initial time + %d s increment.",
                 initial // 1000,
                 increment // 1000,
             )
@@ -297,12 +297,12 @@ class BridgeApp:
             if days_per_turn is not None:
                 details.append(f"daysPerTurn={days_per_turn}")
             if clock is None:
-                details.append("clock=null/fehlt")
+                details.append("clock=null/missing")
             elif not valid_clock:
-                details.append(f"clock-Objekt ungültig/unvollständig: {clock!r}")
+                details.append(f"clock object is invalid or incomplete: {clock!r}")
             LOG.info(
-                "Keine klassische Schachuhr erkannt (%s). "
-                "Für die MCU wird das konfigurierte Suchzeitlimit von %d ms verwendet.",
+                "No conventional chess clock detected (%s). "
+                "Using the configured search time limit of %d ms for the MCU.",
                 ", ".join(details),
                 self.config.game.max_move_time_ms,
             )
@@ -316,26 +316,26 @@ class BridgeApp:
         if gone is True:
             if isinstance(claim_in, int) and not isinstance(claim_in, bool) and claim_in > 0:
                 LOG.warning(
-                    "Gegner ist getrennt; ein Sieg kann laut Lichess in %d Sekunden beansprucht werden.",
+                    "Opponent is disconnected; according to Lichess, a win can be claimed in %d seconds.",
                     claim_in,
                 )
             elif claim_in == 0:
                 LOG.warning(
-                    "Gegner ist getrennt; Lichess meldet, dass ein Sieg jetzt beansprucht werden kann."
+                    "Opponent is disconnected; Lichess reports that a win can now be claimed."
                 )
             else:
-                LOG.warning("Gegner ist getrennt; Lichess hat keine Beanspruchungszeit mitgeteilt.")
+                LOG.warning("Opponent is disconnected; Lichess did not provide a claim-win time.")
         elif gone is False:
-            LOG.info("Gegner ist wieder verbunden.")
+            LOG.info("Opponent reconnected.")
         else:
-            LOG.warning("Ungültiges opponentGone-Ereignis empfangen: %r", event)
+            LOG.warning("Received invalid opponentGone event: %r", event)
 
     def _log_new_opponent_moves(self, moves_text: str, bot_color: chess.Color) -> None:
         """Log every newly observed opponent move once, in SAN and UCI notation."""
         moves = moves_text.split()
         previous = self._last_logged_moves
         if moves[: len(previous)] != previous:
-            LOG.warning("Lichess-Zugfolge wurde zurückgesetzt/geändert; setze die Move-Log-Synchronisierung zurück.")
+            LOG.warning("Lichess move list was reset or changed; resetting move-log synchronization.")
             previous = []
 
         board = chess.Board()
@@ -343,14 +343,14 @@ class BridgeApp:
             try:
                 move = chess.Move.from_uci(token)
             except ValueError as exc:
-                raise RuntimeError(f"Ungültiger UCI-Zug im Game-Stream: {token!r}") from exc
+                raise RuntimeError(f"Invalid UCI move in game stream: {token!r}") from exc
             if move not in board.legal_moves:
-                raise RuntimeError(f"Illegaler UCI-Zug im Game-Stream: {token!r}")
+                raise RuntimeError(f"Illegal UCI move in game stream: {token!r}")
             if index >= len(previous) and board.turn != bot_color:
                 san = board.san(move)
                 move_number = board.fullmove_number
                 turn_suffix = "." if board.turn == chess.WHITE else "..."
-                LOG.info("Gegnerzug: %d%s %s (%s).", move_number, turn_suffix, san, token)
+                LOG.info("Opponent move: %d%s %s (%s).", move_number, turn_suffix, san, token)
             board.push(move)
 
         self._last_logged_moves = moves
@@ -359,7 +359,7 @@ class BridgeApp:
         """Calculate and log a move budget from Lichess clock fields (milliseconds)."""
         if self._game_has_clock is False:
             LOG.info(
-                "Partie ohne klassische Schachuhr: verwende konfiguriertes Suchzeitlimit %d ms.",
+                "Game has no conventional clock: using the configured search time limit of %d ms.",
                 self.config.game.max_move_time_ms,
             )
             return self.config.game.max_move_time_ms
@@ -380,8 +380,8 @@ class BridgeApp:
 
         if remaining_ms == LICHESS_NO_CLOCK_SENTINEL_MS:
             LOG.info(
-                "Lichess-Uhrfeld %s enthält den No-Clock-Platzhalter %d; "
-                "verwende das konfigurierte Suchzeitlimit %d ms.",
+                "Lichess clock field %s contains the no-clock placeholder %d; "
+                "using the configured search time limit of %d ms.",
                 remaining_key,
                 LICHESS_NO_CLOCK_SENTINEL_MS,
                 self.config.game.max_move_time_ms,
@@ -389,15 +389,15 @@ class BridgeApp:
             return self.config.game.max_move_time_ms
         if remaining_ms is None:
             LOG.warning(
-                "Lichess-Uhrfeld %s fehlt/ist ungültig (%r); verwende das konfigurierte Maximalbudget %d ms. "
-                "Prüfe, ob die Partie eine Bedenkzeit hat.",
+                "Lichess clock field %s is missing or invalid (%r); using the configured maximum search budget of %d ms. "
+                "Check whether the game has a clock.",
                 remaining_key,
                 remaining_raw,
                 self.config.game.max_move_time_ms,
             )
         if increment_ms is None:
             LOG.warning(
-                "Lichess-Inkrementfeld %s fehlt/ist ungültig (%r); behandle das Inkrement für diese Berechnung als 0 ms.",
+                "Lichess increment field %s is missing or invalid (%r); treating the increment as 0 ms for this calculation.",
                 increment_key,
                 increment_raw,
             )
@@ -414,9 +414,9 @@ class BridgeApp:
         )
         if remaining_ms is not None:
             LOG.info(
-                "Lichess-Uhr %s: %.3f s verbleibend, Inkrement %.3f s; "
-                "Suchbudget %d ms (Reserve %d ms, Faktor %.2f, max. %d ms).",
-                "Weiß" if bot_color == chess.WHITE else "Schwarz",
+                "Lichess clock (%s): %.3f s remaining, increment %.3f s; "
+                "search budget %d ms (safety margin %d ms, factor %.2f, max. %d ms).",
+                "White" if bot_color == chess.WHITE else "Black",
                 remaining_ms / 1000.0,
                 increment_ms / 1000.0,
                 movetime,
@@ -455,15 +455,15 @@ class BridgeApp:
                             elif str(black.get("id", "")).casefold() == self._username.casefold():
                                 bot_color = chess.BLACK
                             else:
-                                raise RuntimeError("Eigener Bot ist in gameFull weder Weiß noch Schwarz.")
-                            LOG.info("Spielerfarbe: %s", "Weiß" if bot_color else "Schwarz")
+                                raise RuntimeError("Our bot is neither White nor Black in gameFull.")
+                            LOG.info("Player color: %s", "White" if bot_color else "Black")
                             self._configure_game_time_control(event)
                             pending, thinking_moves = await self._process_game_state(
                                 game_id, state, bot_color, pending, thinking_moves
                             )
                         elif event_type == "gameState":
                             if bot_color is None:
-                                LOG.debug("gameState vor gameFull ignoriert.")
+                                LOG.debug("Ignoring gameState received before gameFull.")
                                 continue
                             pending, thinking_moves = await self._process_game_state(
                                 game_id, event, bot_color, pending, thinking_moves
@@ -472,22 +472,22 @@ class BridgeApp:
                             self._log_opponent_gone(event)
                         elif event_type == "chatLine":
                             LOG.debug("Game-Chat: %s", event.get("text", ""))
-                    LOG.info("Game-Stream für %s wurde geschlossen.", game_id)
+                    LOG.info("Game stream for %s closed.", game_id)
                     break
                 except asyncio.CancelledError:
                     raise
                 except LichessRateLimitError as exc:
-                    LOG.error("Game-Stream rate-limited: %s; warte mindestens 60 Sekunden.", exc)
+                    LOG.error("Game stream rate-limited: %s; waiting at least 60 seconds.", exc)
                     await asyncio.sleep(exc.retry_after_seconds)
                 except Exception as exc:
-                    LOG.error("Game-Stream %s unterbrochen: %s", game_id, exc)
+                    LOG.error("Game stream %s interrupted: %s", game_id, exc)
                     await asyncio.sleep(reconnect_delay)
                     reconnect_delay = min(60.0, max(1.0, reconnect_delay * 2))
-            LOG.info("Partie beendet oder Stream geschlossen: https://lichess.org/%s", game_id)
+            LOG.info("Game finished or stream closed: https://lichess.org/%s", game_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            LOG.exception("Partieverarbeitung %s wurde abgebrochen: %s", game_id, exc)
+            LOG.exception("Game processing for %s was aborted: %s", game_id, exc)
         finally:
             if self._active_game_id == game_id:
                 self._active_game_id = None
@@ -512,30 +512,30 @@ class BridgeApp:
             elif status in {"draw", "stalemate", "repetition", "insufficientMaterial", "50move", "variantEnd"}:
                 result = "1/2-1/2"
             else:
-                result = "kein Ergebnis (z. B. abgebrochen)"
-            LOG.info("Partiestatus: %s, Ergebnis: %s", status, result)
+                result = "no result (e.g. aborted)"
+            LOG.info("Game status: %s, result: %s", status, result)
             return None, thinking_moves
 
         if pending is not None and pending.is_confirmed_by(moves_text):
-            LOG.info("Lichess hat unseren Zug %s bestätigt.", pending.uci)
+            LOG.info("Lichess confirmed our move %s.", pending.uci)
             pending = None
         elif pending is not None:
-            LOG.debug("Warte auf Bestätigung des bereits übertragenen Zuges %s.", pending.uci)
+            LOG.debug("Waiting for confirmation of the move already submitted: %s.", pending.uci)
             return pending, thinking_moves
 
         try:
             board = board_from_uci_moves(moves_text)
         except ChessStateError as exc:
-            raise RuntimeError(f"Ungültiger Spielstand aus Lichess: {exc}") from exc
+            raise RuntimeError(f"Invalid game state received from Lichess: {exc}") from exc
 
         self._log_new_opponent_moves(moves_text, bot_color)
 
         if board.is_game_over(claim_draw=False):
-            LOG.info("Schachstellung ist beendet: %s", board.result(claim_draw=False))
+            LOG.info("Position is terminal: %s", board.result(claim_draw=False))
             return pending, thinking_moves
 
         if board.turn != bot_color:
-            LOG.debug("Gegner ist am Zug; Zugfolge: %s", moves_text or "Startstellung")
+            LOG.debug("Opponent to move; move list: %s", moves_text or "starting position")
             return pending, thinking_moves
 
         if not should_start_thinking(
@@ -549,7 +549,7 @@ class BridgeApp:
         thinking_moves = moves_text
         movetime = self._calculate_move_budget(state, bot_color)
         LOG.info(
-            "MCU berechnet Zug; Zugnummer %d, Budget %d ms.",
+            "MCU calculating move; move number %d, time budget %d ms.",
             board.fullmove_number,
             movetime,
         )
@@ -569,36 +569,36 @@ class BridgeApp:
             except SerialConnectionError:
                 if attempt >= 1:
                     raise
-                LOG.warning("Serielle Verbindung während der Zugberechnung verloren; initialisiere MCU neu.")
+                LOG.warning("Serial connection lost while calculating a move; reinitializing the MCU.")
                 await self._reconnect_serial(active_game=True)
             except TimeoutError:
                 try:
                     await self.serial.send("STOP")
                 except Exception:
-                    LOG.warning("STOP konnte nach dem Timeout nicht gesendet werden.")
-                LOG.error("MCU hat innerhalb des Zeitlimits keinen BESTMOVE geliefert; Zug wird nicht übertragen.")
+                    LOG.warning("Could not send STOP after the timeout.")
+                LOG.error("MCU did not return BESTMOVE within the time limit; move will not be submitted.")
                 return pending, thinking_moves
         if response is None:
-            LOG.error("Keine verwertbare BESTMOVE-Antwort erhalten.")
+            LOG.error("No usable BESTMOVE response received.")
             return pending, thinking_moves
 
         try:
             move = validate_bestmove(board, response.value)
         except ChessStateError as exc:
-            LOG.error("BESTMOVE verworfen: %s", exc)
+            LOG.error("Rejected BESTMOVE: %s", exc)
             return pending, thinking_moves
 
         uci = move.uci()
         san = board.san(move)
         elapsed_ms = int((time.monotonic() - search_started) * 1000)
-        LOG.info("Berechnung beendet: %d ms; Zug %s (%s).", elapsed_ms, uci, san)
+        LOG.info("Calculation finished: %d ms; move %s (%s).", elapsed_ms, uci, san)
         pending = PendingMove(moves_text, uci)
         try:
             await self.lichess.make_move(game_id, uci)
-            LOG.info("Zug übertragen: %s", uci)
+            LOG.info("Move submitted: %s", uci)
         except LichessError as exc:
             LOG.error(
-                "Zugübertragung unklar/fehlgeschlagen (%s). Sende denselben Zug nicht erneut; "
-                "warte auf den Game-Stream zur Klärung.", exc
+                "Move submission status is unclear or failed (%s). Do not submit the same move again; "
+                "waiting for the game stream to resolve the status.", exc
             )
         return pending, thinking_moves
